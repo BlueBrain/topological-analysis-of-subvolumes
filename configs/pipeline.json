@@ -7,7 +7,7 @@
         }
     },
     "steps": {
-      "root": "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/topological_sampling.h5",
+      "root": "PLEASEPROVIDE"
       "groups": {
         "define-subtargets": "subtargets",
         "extract-neurons": "neurons",
