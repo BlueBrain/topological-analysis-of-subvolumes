@@ -22,6 +22,8 @@ from ..io import logging
 from ..randomize_connectivity.randomize import get_neuron_properties
 from .analysis import SingleMethodAnalysisFromSource
 from .analyze import analyze_table_of_contents
+from .import matrices
+
 
 STEP = "analyze-connectivity"
 LOG = logging.get_logger(STEP)
@@ -36,6 +38,7 @@ def read(config):
         return config
     return  read_config.read(path)
 
+
 def write(analysis, data, to_path):
     """..."""
     hdf_path, hdf_group = to_path
@@ -48,9 +51,26 @@ def write(analysis, data, to_path):
                            format=None,
                            metadata=analysis.description)
 
+
+def store(analysis, data, to_hdf_at_path, under_group):
+    """..."""
+    store = matrices.get_store(to_hdf_at_path, under_group + "/" + analysis.name,
+                               for_matrix_type=analysis.output_type)
+                               
+    if not store:
+        return write(a, data, (to_hdf_at_path, under_group))
+
+    return store.dump(data)
+
 def subset_subtargets(original, randomized, sample):
     """..."""
-    all_matrices = pd.concat([original, randomized]).rename('matrix')
+    all_matrices = ((None if randomized is None else randomized.rename("matrix"))
+                    if original is None
+                     else (original.rename("matrix") if randomized is None
+                           else pd.concat([original, randomized]).rename("matrix")))
+    if all_matrices is None:
+        LOG.error("No matrices to subset")
+        return None
 
     if not sample:
         return all_matrices
@@ -65,7 +85,8 @@ def subset_subtargets(original, randomized, sample):
 
     return subset
 
-def get_analyses(config):
+
+def get_analyses(config, as_dict=False):
     """..."""
     all_parameters = config["parameters"]
 
@@ -75,8 +96,11 @@ def get_analyses(config):
 
     LOG.warning("configured analyses %s", configured )
 
-    return [SingleMethodAnalysisFromSource(name, description)
-            for name, description in configured.items()]
+    if not as_dict:
+        return [SingleMethodAnalysisFromSource(name, description)
+                for name, description in configured.items()]
+    return {name: SingleMethodAnalysisFromSource(name, description)
+            for name, description in configured.items()}
 
 
 def run(config, *args, output=None, batch_size=None, sample=None,  dry_run=None,
@@ -113,11 +137,15 @@ def run(config, *args, output=None, batch_size=None, sample=None,  dry_run=None,
     if dry_run:
         LOG.info("TEST pipeline plumbing")
     else:
-        toc_orig = pd.concat([read_toc_plus_payload((hdf_path, hdf_group),
-                                                    STEP).rename("matrix")],
-                              keys=["original"], names=["algorithm"])
-        LOG.info("Done loading  %s table of contents of original connectivity matrices",
-                 toc_orig.shape)
+        try:
+            toc = read_toc_plus_payload((hdf_path, hdf_group), STEP).rename("matrix")
+        except KeyError:
+            LOG.warning("No original connectivity data in the store.")
+            toc_orig = None
+        else:
+            toc_orig = pd.concat([toc], keys=["original"], names=["algorithm"])
+            LOG.info("Done loading  %s table of contents of original connectivity matrices",
+                     toc_orig.shape)
 
     hdf_path, hdf_group = paths["randomize-connectivity"]
     LOG.info("Load randomized connectivity from %s\n\t, group %s",
@@ -125,9 +153,14 @@ def run(config, *args, output=None, batch_size=None, sample=None,  dry_run=None,
     if dry_run:
         LOG.info("Test pipeline plumbing")
     else:
-        toc_rand = read_toc_plus_payload((hdf_path, hdf_group), STEP).rename("matrix")
-        LOG.info("Done loading  %s table of contents of randomized connevitiy matrices",
-                 toc_rand.shape)
+        try:
+            toc_rand = read_toc_plus_payload((hdf_path, hdf_group), STEP).rename("matrix")
+        except KeyError:
+            LOG.warning("No randomized-connectivity data in the store.")
+            toc_rand = None
+        else:
+            LOG.info("Done loading  %s table of contents of randomized connevitiy matrices",
+                     toc_rand.shape)
 
     LOG.info("DISPATCH analyses of connectivity.")
     if dry_run:
@@ -137,16 +170,21 @@ def run(config, *args, output=None, batch_size=None, sample=None,  dry_run=None,
         lookup_analysis = {a.name: a for a in analyses}
 
         toc_dispatch = subset_subtargets(toc_orig, toc_rand, sample)
+
+        if toc_dispatch is None:
+            LOG.warning("Done, with no connectivity matrices available to analyze.")
+            return None
+
         analyzed = analyze_table_of_contents(toc_dispatch, neurons, analyses,
                                              batch_size)
         LOG.info("Done, analyzing %s matrices.", len(analyzed))
 
 
-    hdf_path, hdf_group = paths.get(STEP, default_hdf(STEP))
+    to_hdf_at_path, under_group = paths.get(STEP, default_hdf(STEP))
     if output:
-        hdf_path = output
+        to_hdf_at_path = output
 
-    output = (hdf_path, hdf_group)
+    output = (to_hdf_at_path, under_group)
 
     LOG.info("Write analyses to %s", output)
     if dry_run:
@@ -154,7 +192,8 @@ def run(config, *args, output=None, batch_size=None, sample=None,  dry_run=None,
     else:
         for a, data in analyzed.items():
             analysis = lookup_analysis[a]
-            write(analysis, data, to_path=(hdf_path, hdf_group))
+            store(analysis, data, to_hdf_at_path, under_group)
+            #write(analysis, data, to_path=(hdf_path, hdf_group))
         output = hdf_path
         LOG.info("Done writing %s analyzed matrices: to %s", len(analyzed), output)
 

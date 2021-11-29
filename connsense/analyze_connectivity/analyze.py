@@ -58,6 +58,14 @@ def apply(analyses, to_batch, using_neurons,
         bowl[label] = analyzed
     return analyzed
 
+def load_balance(toc, by=None, ncores=71):
+    """..."""
+    edge_counts =  toc.apply(lambda adj: adj.matrix.sum())
+    computational_load = (np.cumsum(edge_counts.sort_values(ascending=True))
+                          / edge_counts.sum())
+    batches = ((ncores - 1) * computational_load).apply(int)
+    return batches.loc[edge_counts.index].rename("batch")
+
 
 def analyze_table_of_contents(toc, using_neuron_properties,
                               applying_analyses,
@@ -75,9 +83,11 @@ def analyze_table_of_contents(toc, using_neuron_properties,
 
     batch_size = with_batches_of_size or int(N / (ncores-1)) + 1
 
-    batched = (toc.to_frame().
-               assign(batch=np.array(np.floor(np.arange(N) / batch_size),
-                                     dtype=int)))
+#    batched = (toc.to_frame().sample(frac=1.)
+#               .assign(batch=np.array(np.floor(np.arange(N) / batch_size),
+#                                     dtype=int)))
+    batched = pd.concat([toc, load_balance(toc, by="edge_count", ncores=ncores)],
+                        axis=1)
 
     n_analyses = len(analyses)
     n_batches = batched.batch.max() + 1
@@ -98,7 +108,7 @@ def analyze_table_of_contents(toc, using_neuron_properties,
 
             def analyze_row(r):
                 """..."""
-                log_info = (f"Batch {label} Analysis {analysis.name} "
+                log_info = (f"Batch {label} "
                             f"({at_index}/ {n_analyses}) "
                             f"matrix {r.idx} / {batch.shape[0]}")
 

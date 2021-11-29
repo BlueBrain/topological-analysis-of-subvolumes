@@ -4,9 +4,9 @@ from lazy import lazy
 
 import pandas as pd
 
-from ..io.write_results import (read_subtargets,
-                                read_node_properties,
-                                read_toc_plus_payload)
+from ...io.write_results import (read_subtargets,
+                                 read_node_properties,
+                                 read_toc_plus_payload)
 
 
 class HDFStore:
@@ -22,7 +22,7 @@ class HDFStore:
         return (self._root, self._groups[step])
 
     @lazy
-    def columns(self):
+    def subtarget_cells(self):
         """lists of gids for each subtarget column in the database."""
         try:
             return read_subtargets(self.get_path("define-subtargets"))

@@ -7,7 +7,7 @@
         }
     },
     "steps": {
-      "root": "PLEASEPROVIDE"
+      "root": "PLEASEPROVIDE",
       "groups": {
         "define-subtargets": "subtargets",
         "extract-neurons": "neurons",
@@ -62,7 +62,7 @@
           "name": "connections-rewired-controlling-out-degree"
         },
        "ER_shuffle": {
-          "source": "/gpfs/bbp.cscs.ch/project/proj83/home/sood/analyses/manuscript/topological-analysis-subvolumes/topologists_connectome_analysis/randomization/ER_shuffle.py",
+          "source": "/gpfs/bbp.cscs.ch/project/proj83/home/sood/analyses/manuscript/topological-analysis-subvolumes/topologists_connectome_analysis/library/randomization.py",
           "method":  "ER_shuffle",
           "kwargs": {},
           "name": "ER_shuffle"
@@ -72,12 +72,31 @@
   "analyze-connectivity": {
       "analyses": {
         "simplex_counts": {
-          "source": "/gpfs/bbp.cscs.ch/project/proj83/home/sood/analyses/manuscript/topological-analysis-subvolumes/topologists_connectome_analysis/analysis/topology/simplex_counts.py",
-          "args": [],
+          "name": "simplex_count",
+          "source": "/gpfs/bbp.cscs.ch/project/proj83/home/sood/analyses/manuscript/topological-analysis-subvolumes/topologists_connectome_analysis/library/topology.py",
           "kwargs": {},
           "method": "simplex_counts",
           "output": "pandas.Series"
         },
+        "betti_counts": {
+          "name": "betti_count",
+          "source": "/gpfs/bbp.cscs.ch/project/proj83/home/sood/analyses/manuscript/topological-analysis-subvolumes/topologists_connectome_analysis/library/topology.py",
+          "kwargs": {},
+          "method": "betti_counts",
+          "output": "pandas.Series"
+        },
+        "cn_bias": {
+          "name": "common_neighbor_bias",
+          "source": "/gpfs/bbp.cscs.ch/project/proj83/home/sood/analyses/manuscript/topological_comparator/pipeline/additional_stats/common_neighbor_bias.py",
+          "kwargs": {
+            "stage_cfg": {
+              "cn_epsilon": 0.00001,
+              "distance_resolution": 50.0
+            }
+          },
+          "method": "calculate_common_neighbor_biases",
+          "output": "pandas.DataFrame"
+        }
       }
     }
   }

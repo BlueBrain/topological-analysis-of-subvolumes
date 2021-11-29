@@ -9,13 +9,12 @@ LOG = get_logger("Topology Pipeline Analysis", "INFO")
 
 def get_analyses(in_config):
     """..."""
-    analyses = in_config["analyses"]
     return collect_plugins_of_type(SingleMethodAnalysisFromSource,
-                                   in_config=analyses)
+                                   for_analyses=in_config["analyses"])
 
-def collect_plugins_of_type(T, in_config):
+def collect_plugins_of_type(T, for_analyses):
     """..."""
-    return {T(name, description) for name, description in items()}
+    return {name: T(name, description) for name, description in for_analyses.items()}
 
 
 class SingleMethodAnalysisFromSource:
@@ -75,8 +74,8 @@ class SingleMethodAnalysisFromSource:
         self._args = self.read_args(description)
         self._kwargs = self.read_kwargs(description)
         self._method = self.read_method(description)
-        self._output_type = self.read_output_type(description)
         self._analysis = self.load(description)
+        self._output_type = self.read_output_type(description)
         self._collection_policy = self.read_collection(description)
 
     @property
@@ -94,6 +93,10 @@ class SingleMethodAnalysisFromSource:
         return self._description.get("quantity",
                                      self._description.get("method",
                                                            self._analysis.__name__))
+
+    @property
+    def output_type(self):
+        return self._output_type
 
     def load(self, description):
         """..."""
@@ -116,26 +119,31 @@ class SingleMethodAnalysisFromSource:
         self._module = module
         return method
 
-    def apply(self, adjacency, node_properties=None, log_info=None):
-        """..."""
-        if log_info:
-            LOG.info("APPLY %s", log_info)
+    def apply(self, adjacency, node_properties=None, log_info=None,
+              **kwargs):
+        """Use keyword arguments to test interactively,
+        instead of reloading a config.
+        """
         try:
             matrix = adjacency.matrix
         except AttributeError:
             matrix = adjacency
 
+        if log_info:
+            LOG.info("Apply analysis %s to %s\n to matrix of shape %s",
+                     self.name, log_info, matrix.shape)
+
         if node_properties is not None:
             assert node_properties.shape[0] == matrix.shape[0]
 
         result = self._analysis(matrix, node_properties,
-                              *self._args, **self._kwargs)
+                                *self._args, **self._kwargs, **kwargs)
 
         if log_info:
-            LOG.info("Done %s", log_info)
+            LOG.info("Done analsysis %s of %s\n to matrix of shape %s",
+                     self.name, log_info, matrix.shape)
 
         return result
-
 
     @staticmethod
     def collect(data):
