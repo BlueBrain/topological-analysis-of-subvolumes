@@ -42,6 +42,8 @@ class MatrixStore:
     HDF group to create the dataset.
     For pandas.DataFrame we will use a subclass.
     """
+    keysize = 1
+
     def __init__(self, root, group, using_handler,
                  dset_pattern="matrix_{0}",
                  key_toc="toc", key_mat="payload"):
@@ -101,8 +103,8 @@ class MatrixStore:
     def _strip_key_from(self, dataset):
         """..."""
         nested = dataset.split('/')
-        key = nested[-1]
-        group = '/'.join(nested[:-1])
+        key = nested[-self.keysize:]
+        group = '/'.join(nested[:-self.keysize])
 
 
         if group and group not in (self.group_identifier_mat, self.group_identifier_toc):
@@ -119,7 +121,7 @@ class MatrixStore:
         ~         The full path is used to write the TOC which allows it to be,
         ~         used indepedently of this class
         """
-        dataset = self._strip_key_from(dataset_or_path)
+        dataset = '/'.join(self._strip_key_from(dataset_or_path))
         return self._using_handler.read(dataset, under_group=self.group_identifier_mat,
                                         in_hdf_store_at_path=self._root)
 
@@ -176,8 +178,9 @@ class DenseMatrixHelper:
         """..."""
         with h5py.File(in_hdf_store_at_path, 'r') as hdf:
             hdf_group = hdf[under_group]
-            data = hdf_group[dataset]
-        return np.array(data)
+            dset = hdf_group[dataset]
+            matrix = np.array(dset)
+        return matrix
 
 
 class DataFrameHelper:
@@ -198,6 +201,37 @@ class DataFrameHelper:
         return pd.read_hdf(at_path, under_key)
 
 
+class SeriesOfMatricesHelper:
+    """Handle a series that contains matrices in its values."""
+    def __init__(self, matrix_helper=DenseMatrixHelper()):
+        """..."""
+        self._matrix_helper = matrix_helper
+
+    def write(self, series_of_matrices, to_hdf_store_at_path, under_group, as_dataset):
+        """..."""
+        dataset_group = under_group + '/' + as_dataset
+
+        with h5py.File(to_hdf_store_at_path, 'a') as hdf:
+            hdf.create_group(dataset_group)
+
+        index_name = series_of_matrices.index.name
+        if not index_name:
+            index_name = "index"
+
+        def write(i, matrix):
+            """..."""
+            return self._matrix_helper.write(matrix, to_hdf_store_at_path,
+                                             under_group=dataset_group,
+                                             as_dataset=f"{index_name}-{i}")
+
+        datasets = [write(i, matrix=m) for i, m in series_of_matrices.iteritems()]
+        return pd.Series(datasets, index=series_of_matrices.index)
+
+    def read(self, dataset, under_group, in_hdf_store_at_path):
+        """..."""
+        return self._matrix_helper.read(dataset, under_group, in_hdf_store_at_path)
+
+
 class SparseMatrixStore(MatrixStore):
     """..."""
     def __init__(self, *args, **kwargs):
@@ -216,9 +250,29 @@ class DataFrameStore(MatrixStore):
         super().__init__(*args, using_handler=DataFrameHelper, **kwargs)
 
 
-class SeriesOfDataFrameStore(MatrixStore):
+class SeriesOfMatricesStore(MatrixStore):
+    """..."""
+    keysize = 2
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, using_handler=SeriesOfDataFrameHelper, **kwargs)
+        super().__init__(*args, using_handler=SeriesOfMatricesHelper(), **kwargs)
+
+    def dump(self, content):
+        """Expecting content to be a pandas Series containing matrices."""
+        toc = content.apply(self.write, axis=1)
+        toc_long = pd.concat([p for _, p in toc.iteritems()], axis=0,
+                             keys=[d for d, _ in toc.iteritems()], names=["dim"])
+        names = toc_long.index.names
+        toc_long.index = toc_long.index.reorder_levels(names[1:] + [names[0]])
+        return toc_long.to_hdf(self._root, key=self.group_identifier_toc,
+                                mode='a', format="fixed")
+
+
+class SeriesOfMatrices:
+    """Type to indicate that an analysis algorithm will return
+    pandas.Series of matrices.
+    """
+    pass
+
 
 def StoreType(for_matrix_type):
     """..."""
@@ -246,6 +300,9 @@ def StoreType(for_matrix_type):
 
     if issubclass(matrix_type, pd.DataFrame):
         return DataFrameStore
+
+    if issubclass(matrix_type, SeriesOfMatrices):
+        return SeriesOfMatricesStore
 
     raise TypeError(f"Unhandled type for matrix: {type(for_matrix_type)}")
 

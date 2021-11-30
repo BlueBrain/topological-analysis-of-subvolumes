@@ -144,6 +144,7 @@ def analyze_table_of_contents(toc, using_neuron_properties,
         p.join()
 
     #result = pd.concat([analyzed for _, analyzed in bowl.items()], axis=0)
+    LOG.info("Obtained %s chunks.", len(bowl))
     result = {a.name: pd.concat([chunk[a.name] for chunk in bowl.values()])
               for a in analyses}
 
