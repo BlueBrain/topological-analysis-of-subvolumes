@@ -216,6 +216,10 @@ class DataFrameStore(MatrixStore):
         super().__init__(*args, using_handler=DataFrameHelper, **kwargs)
 
 
+class SeriesOfDataFrameStore(MatrixStore):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, using_handler=SeriesOfDataFrameHelper, **kwargs)
+
 def StoreType(for_matrix_type):
     """..."""
     import scipy, numpy, pandas #base imports to evaluate for_matrix_type

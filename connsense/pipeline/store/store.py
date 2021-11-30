@@ -22,7 +22,7 @@ class HDFStore:
         return (self._root, self._groups[step])
 
     @lazy
-    def subtarget_cells(self):
+    def subtarget_gids(self):
         """lists of gids for each subtarget column in the database."""
         try:
             return read_subtargets(self.get_path("define-subtargets"))
@@ -68,15 +68,15 @@ class HDFStore:
     @lazy
     def circuits(self):
         """Available circuits for which subtargets have been computed."""
-        return self.columns.index.get_level_values("circuit").unique().to_list()
+        return self.subtarget_gids.index.get_level_values("circuit").unique().to_list()
 
     def pour_subtargets(self, circuit):
         """All subtargets defined for a circuit."""
-        if self.columns is None:
+        if self.subtarget_gids is None:
             return None
 
-        columns = self.columns.xs(circuit, level="circuit")
-        return pd.Series(columns.index.get_level_values("subtarget").unique().to_list(),
+        gids = self.subtarget_gids.xs(circuit, level="circuit")
+        return pd.Series(gids.index.get_level_values("subtarget").unique().to_list(),
                          name="subtarget")
 
     def pour_nodes(self, circuit, subtarget):
