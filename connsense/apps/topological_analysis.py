@@ -14,8 +14,8 @@ def main(args):
     topaz = pipeline.TopologicalAnalysis(args.config, mode="run")
 
     LOG.info("Run the pipeline.")
-    result = topaz.run(args.steps, sample=args.sample, output=args.output,
-                       dry_run=args.test)
+    result = topaz.run(args.steps, sample=args.sample, output=args.output
+                      ,njobs=args.njobs, dry_run=args.test)
     LOG.info("DONE running pipeline: %s", result)
 
     return result
@@ -30,6 +30,9 @@ if __name__ == "__main__":
 
     parser.add_argument("-s", "--steps", type=str, nargs='+',
                         help="Subset of steps to run.", default=None)
+
+    parser.add_argument("-j", "--njobs", type=int
+                       ,help="Number of jobs in parallel.")
 
     parser.add_argument("--output",
                         help="Path to the directory to output in.", default=None)

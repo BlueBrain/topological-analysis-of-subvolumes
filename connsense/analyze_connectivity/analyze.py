@@ -1,5 +1,6 @@
 """Analyze connectivity of subtargets
 """
+import sys
 from multiprocessing import Process, Manager
 
 import numpy as np
@@ -25,9 +26,9 @@ def get_neuron_properties(hdf_path, hdf_group):
 def apply(analyses, to_batch, using_neurons,
           n_batches=None, label=None, bowl=None):
     """..."""
-    LOG.info("ANALYZE %s \t to batch %s / %s with %s targets and columns %s",
+    LOG.info("ANALYZE %s \t batch %s / %s with %s targets",
              [a.name for a in analyses],
-             label, n_batches, to_batch.shape[0], to_batch.columns)
+             label, n_batches, to_batch.shape[0])
 
     def get_neurons(row):
         """..."""
@@ -36,15 +37,24 @@ def apply(analyses, to_batch, using_neurons,
                 .reset_index(drop=True))
 
     n_analyses = len(analyses)
+
     def apply(analysis, at_index):
         """..."""
         LOG.info("Apply analysis %s to batch %s", analysis.name, label)
+
+        memory_used = 0
         def to_row(r):
             """..."""
+            nrows = to_batch.shape[0]
             log_info = (f"Batch {label} Analysis {analysis.name}"
                         f" ({at_index} / {n_analyses})"
-                        f" matrix {r.idx} / {to_batch.shape[0]}")
-            return analysis.apply(r.matrix, get_neurons(r), log_info)
+                        f" matrix {r.idx} / {nrows}")
+            result = analysis.apply(r.matrix, get_neurons(r), log_info)
+            memory_result = sys.getsizeof(result)
+            memory_used += memory_result
+            LOG.info("\t\t\t MEMORY USAGE"
+                     " for analysis %s batch %s matrix %s / %s: %s / %s",
+                     analysis.name, label, r.idx, nrows, memory_result, memory_used)
 
         n_batch = to_batch.shape[0]
         return to_batch.assign(idx=range(n_batch)).apply(to_row, axis=1)
@@ -58,19 +68,20 @@ def apply(analyses, to_batch, using_neurons,
         bowl[label] = analyzed
     return analyzed
 
-def load_balance(toc, by=None, ncores=71):
+
+def load_balance(toc, by=None, njobs=72):
     """..."""
     edge_counts =  toc.apply(lambda adj: adj.matrix.sum())
     computational_load = (np.cumsum(edge_counts.sort_values(ascending=True))
                           / edge_counts.sum())
-    batches = ((ncores - 1) * computational_load).apply(int)
+    batches = ((njobs - 1) * computational_load).apply(int)
     return batches.loc[edge_counts.index].rename("batch")
 
 
 def analyze_table_of_contents(toc, using_neuron_properties,
                               applying_analyses,
                               with_batches_of_size=None,
-                              ncores=72):
+                              njobs=72):
 
     """..."""
     LOG.info("Analyze connectivity: %s", toc.shape[0])
@@ -81,12 +92,9 @@ def analyze_table_of_contents(toc, using_neuron_properties,
     analyses = applying_analyses
     LOG.info("Analyze %s subtargets using  %s.", N, [a.name for a in analyses])
 
-    batch_size = with_batches_of_size or int(N / (ncores-1)) + 1
+    batch_size = with_batches_of_size or int(N / (njobs-1)) + 1
 
-#    batched = (toc.to_frame().sample(frac=1.)
-#               .assign(batch=np.array(np.floor(np.arange(N) / batch_size),
-#                                     dtype=int)))
-    batched = pd.concat([toc, load_balance(toc, by="edge_count", ncores=ncores)],
+    batched = pd.concat([toc, load_balance(toc, by="edge_count", njobs=njobs)],
                         axis=1)
 
     n_analyses = len(analyses)
@@ -97,6 +105,7 @@ def analyze_table_of_contents(toc, using_neuron_properties,
         LOG.info("ANALYZE batch %s / %s with %s targets and columns %s",
                  label, n_batches, batch.shape[0], batch.columns)
 
+        nrows = batch.shape[0]
         def get_neurons(row):
             """..."""
             index = dict(zip(batch.index.names, row.name))
@@ -105,14 +114,22 @@ def analyze_table_of_contents(toc, using_neuron_properties,
 
         def analyze(analysis, at_index):
             """..."""
-
+            memory_used_total = 0
             def analyze_row(r):
                 """..."""
-                log_info = (f"Batch {label} "
-                            f"({at_index}/ {n_analyses}) "
-                            f"matrix {r.idx} / {batch.shape[0]}")
+                nonlocal memory_used_total
+                log_info = (f"({at_index} / {n_analyses}"
+                            f" Batch {label} matrix {r.idx} / {batch.shape[0]}")
+                result = analysis.apply(r.matrix, get_neurons(r), log_info)
+                memory_used_row = sys.getsizeof(result)
+                memory_used_total += memory_used_row
 
-                return analysis.apply(r.matrix, get_neurons(r), log_info)
+                LOG.info("\t\t\t MEMORY USAGE   "
+                         " for analysis %s batch %s matrix %s / %s: %s / %s",
+                         analysis.name, label, r.idx, nrows,
+                         memory_used_row, memory_used_total)
+
+                return result
 
             return batch.assign(idx=range(batch.shape[0])).apply(analyze_row, axis=1)
 

@@ -113,7 +113,6 @@ class MatrixStore:
 
         return key
 
-
     def read(self, dataset_or_path):
         """Read a dataset
         dataset : Either a single word string key for a dataset under self's group_identifier_mat,

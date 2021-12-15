@@ -103,9 +103,11 @@ def get_analyses(config, as_dict=False):
             for name, description in configured.items()}
 
 
-def run(config, *args, output=None, batch_size=None, sample=None,  dry_run=None,
-        **kwargs):
+def run(config, *args, output=None, batch_size=None, sample=None,
+        njobs=None, dry_run=None, **kwargs):
     """..."""
+    assert batch_size or njobs
+
     config = read(config)
     paths = config["paths"]
 
@@ -176,7 +178,7 @@ def run(config, *args, output=None, batch_size=None, sample=None,  dry_run=None,
             return None
 
         analyzed = analyze_table_of_contents(toc_dispatch, neurons, analyses,
-                                             batch_size)
+                                             batch_size, njobs)
         LOG.info("Done, analyzing %s matrices.", len(analyzed))
 
 
