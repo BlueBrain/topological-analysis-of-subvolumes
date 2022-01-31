@@ -144,7 +144,7 @@ class SparseMatrixHelper:
         sparse.save_npz(bio, matrix)
         bio.seek(0)
         matrix_bytes = list(bio.read())
-        key = under_group + "/" + with_key
+        key = under_group + "/" + as_dataset
         with h5py.File(to_hdf_store_at_path, 'a') as hdf:
             hdf_group = hdf[under_group]
             hdf_group.create_dataset(as_dataset, data=matrix_bytes)
@@ -208,19 +208,17 @@ class SeriesOfMatricesHelper:
 
     def write(self, series_of_matrices, to_hdf_store_at_path, under_group, as_dataset):
         """..."""
-        dataset_group = under_group + '/' + as_dataset
+        group_dataset = under_group + '/' + as_dataset
 
         with h5py.File(to_hdf_store_at_path, 'a') as hdf:
-            hdf.create_group(dataset_group)
+            hdf.create_group(group_dataset)
 
-        index_name = series_of_matrices.index.name
-        if not index_name:
-            index_name = "index"
+        index_name = series_of_matrices.index.name or "matrix"
 
         def write(i, matrix):
             """..."""
             return self._matrix_helper.write(matrix, to_hdf_store_at_path,
-                                             under_group=dataset_group,
+                                             under_group=group_dataset,
                                              as_dataset=f"{index_name}-{i}")
 
         datasets = [write(i, matrix=m) for i, m in series_of_matrices.iteritems()]
@@ -259,7 +257,7 @@ class SeriesOfMatricesStore(MatrixStore):
         """Expecting content to be a pandas Series containing matrices."""
         toc = content.apply(self.write, axis=1)
         toc_long = pd.concat([p for _, p in toc.iteritems()], axis=0,
-                             keys=[d for d, _ in toc.iteritems()], names=["dim"])
+                             keys=[d for d, _ in toc.iteritems()], names=[content.index.name])
         names = toc_long.index.names
         toc_long.index = toc_long.index.reorder_levels(names[1:] + [names[0]])
         return toc_long.to_hdf(self._root, key=self.group_identifier_toc,

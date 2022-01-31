@@ -2,8 +2,10 @@
 
 
 from collections.abc import Mapping
+from collections import OrderedDict
 from pathlib import Path
 from argparse import ArgumentParser
+import tempfile
 
 
 import pandas as pd
@@ -52,15 +54,55 @@ def write(analysis, data, to_path):
                            metadata=analysis.description)
 
 
-def store(analysis, data, to_hdf_at_path, under_group):
+def output_specified_in(paths, and_argued_to_be):
     """..."""
-    store = matrices.get_store(to_hdf_at_path, under_group + "/" + analysis.name,
-                               for_matrix_type=analysis.output_type)
+    to_hdf_at_path, under_group = paths.get(STEP, default_hdf(STEP))
+    if and_argued_to_be:
+        to_hdf_at_path = and_argued_to_be
+    return (to_hdf_at_path, under_group)
+
+
+def store(analysis, data, of_type, at_path):
+    """..."""
+    to_hdf_at_path, under_group = at_path
+    store = matrices.get_store(to_hdf_at_path, under_group + "/" + analysis,
+                               for_matrix_type=of_type)
                                
     if not store:
         return write(a, data, (to_hdf_at_path, under_group))
 
     return store.dump(data)
+
+
+def store_batch(analysis, data, to_hdf_in_file, basedir=None):
+    """..."""
+    #basedir = tempfile.TemporaryDirectory(dir=Path(basedir)
+    #                                      if basedir else Path.cwd())
+    basedir = Path(basedir) if basedir else Path.cwd()
+    store = matrices.get_store(to_hdf_at_path=basedir/to_hdf_in_file,
+                               under_group=analysis.name,
+                               for_matrix_type=analysis.output_type)
+    if not store:
+        raise NotImplementedError("Cannot save batches if analysis of output type %s",
+                                  analysis.output_type)
+    store.dump(data)
+    return (basedir/to_hdf_in_file, analysis.name, analysis.output_type)
+
+
+def move_hdf(analyzed_results, to_path, and_cleanup_original=False):
+    """..."""
+    moved = {analysis: store(analysis,
+                             data=(matrices.get_store(*with_description)
+                                   .toc.apply(lambda lazym: lazym.value)),
+                             of_type=with_description[2],
+                             at_path=to_path)
+             for analysis, with_description in analyzed_results.items()}
+
+    if and_cleanup_original:
+        raise NotImplementedError("Please clean up after testing the results")
+
+    return moved
+
 
 def subset_subtargets(original, randomized, sample):
     """..."""
@@ -103,13 +145,36 @@ def get_analyses(config, as_dict=False):
             for name, description in configured.items()}
 
 
+def get_value_store(analysis, at_path, from_cache=None):
+    """..."""
+    if not from_cache:
+        to_hdf_at_path, under_group = at_path
+        return matrices.get_store(to_hdf_at_path, under_group + "/" + analysis.name,
+                                  for_matrix_type=analysis.output_type)
+    try:
+        store = from_cache[analysis]
+    except KeyError:
+        store = get_value_store(analysis, at_path)
+        from_cache[analysis] = store
+    return store
+
+
 def run(config, *args, output=None, batch_size=None, sample=None,
         njobs=None, dry_run=None, **kwargs):
     """..."""
-    assert batch_size or njobs
-
     config = read(config)
     paths = config["paths"]
+
+    at_path = output_specified_in(paths, and_argued_to_be=output)
+    analysis_value_stores = {}
+
+    def store_at_path(analysis, data):
+        value_store = get_value_store(analysis, at_path,
+                                      from_cache=analysis_value_stores)
+
+        if not value_store:
+            return write(analysis, data, (to_hdf_at_path, under_group))
+        return value_store.dump(data)
 
     if "circuit" not in paths:
         raise RuntimeError("No circuits defined in config!")
@@ -136,6 +201,7 @@ def run(config, *args, output=None, batch_size=None, sample=None,
     hdf_path, hdf_group = paths["extract-connectivity"]
     LOG.info("Load extracted connectivity from %s\n\t, group %s",
              hdf_path, hdf_group)
+
     if dry_run:
         LOG.info("TEST pipeline plumbing")
     else:
@@ -152,6 +218,7 @@ def run(config, *args, output=None, batch_size=None, sample=None,
     hdf_path, hdf_group = paths["randomize-connectivity"]
     LOG.info("Load randomized connectivity from %s\n\t, group %s",
              hdf_path, hdf_group)
+
     if dry_run:
         LOG.info("Test pipeline plumbing")
     else:
@@ -169,7 +236,7 @@ def run(config, *args, output=None, batch_size=None, sample=None,
         LOG.info("TEST pipeline plumbing")
     else:
         analyses = get_analyses(config)
-        lookup_analysis = {a.name: a for a in analyses}
+        #analysis_with_name = OrderedDict([(a.name, a) for a in analyses])
 
         toc_dispatch = subset_subtargets(toc_orig, toc_rand, sample)
 
@@ -177,27 +244,24 @@ def run(config, *args, output=None, batch_size=None, sample=None,
             LOG.warning("Done, with no connectivity matrices available to analyze.")
             return None
 
-        analyzed = analyze_table_of_contents(toc_dispatch, neurons, analyses,
-                                             batch_size, njobs)
-        LOG.info("Done, analyzing %s matrices.", len(analyzed))
+        analyzed_results = analyze_table_of_contents(toc_dispatch, neurons, analyses,
+                                                     store_batch, batch_size, njobs)
+        LOG.info("Done, analyzing %s matrices.", len(analyzed_results))
 
 
-    to_hdf_at_path, under_group = paths.get(STEP, default_hdf(STEP))
-    if output:
-        to_hdf_at_path = output
-
-    output = (to_hdf_at_path, under_group)
-
+    output = output_specified_in(paths, and_argued_to_be=output)
     LOG.info("Write analyses to %s", output)
     if dry_run:
         LOG.info("TEST pipeline plumbing")
     else:
-        for a, data in analyzed.items():
-            analysis = lookup_analysis[a]
-            store(analysis, data, to_hdf_at_path, under_group)
-            #write(analysis, data, to_path=(hdf_path, hdf_group))
-        output = hdf_path
-        LOG.info("Done writing %s analyzed matrices: to %s", len(analyzed), output)
+        saved = {}
+        for batch, analyses_hdf_paths in analyzed_results.items():
+            saved[batch] = move_hdf(analyses_hdf_paths, to_path=output)
+        n_results = len(analyzed_results)
+        LOG.info("Done writing %s analyzed matrices: to %s", n_results, saved)
+
 
     LOG.warning("DONE analyzing: %s", config)
     return f"Result saved {output}"
+
+

@@ -18,7 +18,7 @@ def collect_plugins_of_type(T, for_analyses):
 
 
 class SingleMethodAnalysisFromSource:
-    """Algorithms defined as such in the config:
+    """Algorithm that can be configured as:
 
     "analyze-connectivity": {
       "analyses": {

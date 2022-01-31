@@ -78,11 +78,11 @@ def load_balance(toc, by=None, njobs=72):
     return batches.loc[edge_counts.index].rename("batch")
 
 
-def analyze_table_of_contents(toc, using_neuron_properties,
-                              applying_analyses,
-                              with_batches_of_size=None,
-                              njobs=72):
+GIGABYTE = 2 ** 30
 
+
+def analyze_table_of_contents(toc, using_neuron_properties, applying_analyses
+                             ,store_batch=None, with_batches_of_size=None, njobs=72):
     """..."""
     LOG.info("Analyze connectivity: %s", toc.shape[0])
 
@@ -100,7 +100,7 @@ def analyze_table_of_contents(toc, using_neuron_properties,
     n_analyses = len(analyses)
     n_batches = batched.batch.max() + 1
 
-    def get(batch, label=None, bowl=None):
+    def map_analyses(batch, label=None, bowl=None):
         """..."""
         LOG.info("ANALYZE batch %s / %s with %s targets and columns %s",
                  label, n_batches, batch.shape[0], batch.columns)
@@ -121,11 +121,11 @@ def analyze_table_of_contents(toc, using_neuron_properties,
                 log_info = (f"({at_index} / {n_analyses}"
                             f" Batch {label} matrix {r.idx} / {batch.shape[0]}")
                 result = analysis.apply(r.matrix, get_neurons(r), log_info)
-                memory_used_row = sys.getsizeof(result)
+                memory_used_row = sys.getsizeof(result) / GIGABYTE
                 memory_used_total += memory_used_row
 
-                LOG.info("\t\t\t MEMORY USAGE   "
-                         " for analysis %s batch %s matrix %s / %s: %s / %s",
+                LOG.info("\t\t\t MEMORY USAGE by data results from the analyses\n"
+                         "\t\t\t for analysis %s batch %s matrix %s / %s: %s / %s",
                          analysis.name, label, r.idx, nrows,
                          memory_used_row, memory_used_total)
 
@@ -133,16 +133,29 @@ def analyze_table_of_contents(toc, using_neuron_properties,
 
             return batch.assign(idx=range(batch.shape[0])).apply(analyze_row, axis=1)
 
-        analyzed = {a.name: analyze(a, i) for i , a in enumerate(analyses)}
+        analyzed = {a: analyze(a, i) for i, a in enumerate(analyses)}
+        LOG.info("MEMORY USAGE after running all analyses on batch %s: %s",
+                 label, sum(sys.getsizeof(result) for result in analyzed.values()))
         #analyzed = pd.concat([analyze(a, i) for i, a in enumerate(analyses)],
                              #axis=0, keys=[a.name for a in analyses],
                              #names=["analysis"])
 
-        LOG.info("DONE batch %s / %s with %s targets, columns %s: analyzed to shape %s",
+        LOG.info("Done batch %s / %s with %s targets, columns %s: analyzed to shape %s",
                  label, n_batches, batch.shape[0], batch.columns, len(analyzed))
 
-        bowl[label] = analyzed
-        return analyzed
+        if not store_batch:
+            bowl[label] = analyzed
+            return analyzed
+
+        hdf_paths = {analysis.name: store_batch(analysis, data,
+                                                to_hdf_in_file=f"{label}.h5")
+                     for analysis, data in analyzed.items()}
+        LOG.info("Saved batch %s / %s with %s targets, columns %s, analyzed to shape %s"
+                 " To an temporary HDF",
+                 label, n_batches, batch.shape[0], batch.columns, len(analyzed))
+        bowl[label] = hdf_paths
+        return hdf_paths
+
 
     manager = Manager()
     bowl = manager.dict()
@@ -150,7 +163,7 @@ def analyze_table_of_contents(toc, using_neuron_properties,
 
     for i, batch in batched.groupby("batch"):
 
-        p = Process(target=get, args=(batch,),
+        p = Process(target=map_analyses, args=(batch,),
                     kwargs={"label": "chunk-{}".format(i), "bowl": bowl})
         p.start()
         processes.append(p)
@@ -162,9 +175,8 @@ def analyze_table_of_contents(toc, using_neuron_properties,
 
     #result = pd.concat([analyzed for _, analyzed in bowl.items()], axis=0)
     LOG.info("Obtained %s chunks.", len(bowl))
-    result = {a.name: pd.concat([chunk[a.name] for chunk in bowl.values()])
-              for a in analyses}
-
+    result = {batch: analyses_hdf_paths
+              for batch, analyses_hdf_paths in bowl.items() }
     LOG.info("DONE analyzing %s subtargets using  %s.", N, [a.name for a in analyses])
 
     return result
