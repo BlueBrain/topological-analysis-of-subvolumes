@@ -13,7 +13,7 @@ STEP = "randomize-connectivity"
 LOG = logging.get_logger(STEP)
 
 
-def get_neuron_properties(hdf_path, hdf_group):
+def load_neuron_properties(hdf_path, hdf_group):
     """
     TODO: move this over to a common place.
     """
@@ -21,6 +21,12 @@ def get_neuron_properties(hdf_path, hdf_group):
             .droplevel(["flat_x", "flat_y"])
             .reset_index()
             .set_index(["circuit", "subtarget"]))
+
+
+def get_neuron_properties(*args):
+    """...Just an alias --- deprecated.
+    """
+    return load_neuron_properties(*args)
 
 
 def randomize_table_of_contents(toc, using_neuron_properties,

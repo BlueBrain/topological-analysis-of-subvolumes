@@ -6,7 +6,7 @@ from collections import OrderedDict
 from pathlib import Path
 from argparse import ArgumentParser
 import tempfile
-
+from pprint import pformat
 
 import pandas as pd
 import numpy as np
@@ -21,9 +21,9 @@ from ..io.write_results import (read as read_results,
 from ..io import read_config
 from ..io import logging
 
-from ..randomize_connectivity.randomize import get_neuron_properties
+from ..randomize_connectivity.randomize import load_neuron_properties
 from .analysis import SingleMethodAnalysisFromSource
-from .analyze import analyze_table_of_contents
+from .analyze import (parallely_analyze, analyze_table_of_contents)
 from .import matrices
 
 
@@ -43,14 +43,12 @@ def read(config):
 
 def write(analysis, data, to_path):
     """..."""
-    hdf_path, hdf_group = to_path
-    hdf_group += f"/{analysis.name}"
+    hdf, group = to_path
+    group += f"/{analysis.name}"
 
-    LOG.info("Write analysis size %s to %s/%s",
-             data.shape, hdf_group, analysis.name)
+    LOG.info("Write analysis size %s to %s/%s", data.shape, group, analysis.name)
 
-    return write_dataframe(data, to_path=(hdf_path, hdf_group),
-                           format=None,
+    return write_dataframe(data, to_path=(hdf, group), format=None,
                            metadata=analysis.description)
 
 
@@ -67,14 +65,14 @@ def store(analysis, data, of_type, at_path):
     to_hdf_at_path, under_group = at_path
     store = matrices.get_store(to_hdf_at_path, under_group + "/" + analysis,
                                for_matrix_type=of_type)
-                               
+
     if not store:
         return write(a, data, (to_hdf_at_path, under_group))
 
     return store.dump(data)
 
 
-def store_batch(analysis, data, to_hdf_in_file, basedir=None):
+def _to_remove_use_store_batch(analysis, data, to_hdf_in_file, basedir=None):
     """..."""
     #basedir = tempfile.TemporaryDirectory(dir=Path(basedir)
     #                                      if basedir else Path.cwd())
@@ -89,27 +87,58 @@ def store_batch(analysis, data, to_hdf_in_file, basedir=None):
     return (basedir/to_hdf_in_file, analysis.name, analysis.output_type)
 
 
-def move_hdf(analyzed_results, to_path, and_cleanup_original=False):
+def store_analysis(a, at_path):
     """..."""
-    moved = {analysis: store(analysis,
-                             data=(matrices.get_store(*with_description)
-                                   .toc.apply(lambda lazym: lazym.value)),
-                             of_type=with_description[2],
-                             at_path=to_path)
-             for analysis, with_description in analyzed_results.items()}
+    hdf, group = at_path
 
-    if and_cleanup_original:
-        raise NotImplementedError("Please clean up after testing the results")
+    def store_batch(b):
+        """..."""
+        p = hdf(b)
+        m = a.output_type
+        g = f"{group}/{a.name}"
+        return matrices.get_store(to_hdf_at_path=p, under_group=g, for_matrix_type=m)
 
-    return moved
+    return store_batch
 
 
-def subset_subtargets(original, randomized, sample):
+def collect(batched_stores, in_store):
     """..."""
-    all_matrices = ((None if randomized is None else randomized.rename("matrix"))
-                    if original is None
-                     else (original.rename("matrix") if randomized is None
-                           else pd.concat([original, randomized]).rename("matrix")))
+    LOG.info("Collect %s batched stores together in hdf %s, group %s",
+             in_store._root, in_store._group)
+
+    def frame(batch):
+        colvars = batch.toc.index.get_level_values(-1).unique()
+        colidxname = batch.toc.index.names[-1]
+        return pd.concat([batch.toc.xs(d, level=colidxname) for d in colvars],
+                         axis=1, keys=list(colvars), names=[colidxname])
+    def move(batch):
+        """..."""
+        framed = frame(batch)
+        saved = framed.apply(lambda r: in_store.write(r.apply(lambda l: l.value).dropna()),
+                             axis=1)
+        update = in_store.prepare_toc(of_paths=saved)
+        in_store.append_toc(update)
+        return update
+
+    return {b: move(batch) for b, batch in batched_stores.items()}
+
+
+
+def subset_subtargets(toc, sample, dry_run):
+    """..."""
+    if dry_run:
+        LOG.info("Test plumbing: analyze_connectivity: subset_subtargets")
+        return None
+
+    if isinstance(toc, tuple):
+        original, randomized = toc
+        all_matrices = ((None if randomized is None else randomized.rename("matrix"))
+                        if original is None
+                        else (original.rename("matrix") if randomized is None
+                              else pd.concat([original, randomized]).rename("matrix")))
+    else:
+        all_matrices = toc.rename("matrix")
+
     if all_matrices is None:
         LOG.error("No matrices to subset")
         return None
@@ -159,109 +188,193 @@ def get_value_store(analysis, at_path, from_cache=None):
     return store
 
 
+def _check_paths(p):
+    """..."""
+    if "circuit" not in p:
+        raise RuntimeError("No circuits defined in config!")
+
+    if "define-subtargets" not in p["input"]:
+        raise RuntimeError("No defined columns in config!")
+
+    if "extract-neurons" not in p["input"]:
+        raise RuntimeError("No neurons in config!")
+
+    if "extract-connectivity" not in p["input"]:
+        raise RuntimeError("No connection matrices in config!")
+
+    if "randomize-connectivity" not in p["input"]:
+        raise RuntimeError("No randomized matrices in config paths: {list(paths.keys()}!")
+
+    if STEP not in p["output"]:
+        raise RuntimeError(f"No {STEP} in config!")
+
+    return p
+
+
+def load_neurons(paths, dry_run=False):
+    """..."""
+    hdf, group = paths["extract-neurons"]
+    LOG.info("Load neuron properties from %s/%s", hdf, group)
+
+    if dry_run:
+        LOG.info("Test plumbing: analyze: load neurons")
+        return None
+
+    neurons = load_neuron_properties(hdf, group)
+    LOG.info("Done loading extracted neuron properties: %s", neurons.shape)
+    return neurons
+
+
+def load_connectivity_original(paths, dry_run=False):
+    """Add connectivity TOC from the HDF store and append a level to
+    the TOC index to indicate that it is the original connecitity.
+    This is needed to concat original and randomized connectivities.
+    """
+    hdf, group = paths["extract-connectivity"]
+    LOG.info("Load original connectivity from %s/%s", hdf, group)
+
+    if dry_run:
+        LOG.info("Test plumbing: analyze : load original connectivity")
+        return None
+
+    try:
+        toc = read_toc_plus_payload((hdf, group), STEP).rename("matrix")
+    except KeyError:
+        LOG.warning("No original connectivity data in store %s/%s", path, group)
+        toc_orig = None
+    else:
+        toc_orig = pd.concat([toc], keys=["original"], names=["algorithm"])
+        LOG.info("Done loading  %s original connectivity TOC", toc_orig.shape)
+
+    return toc_orig
+
+
+def load_connectivity_randomized(paths, dry_run):
+    """..."""
+    hdf, group = paths["randomize-connectivity"]
+    LOG.info("Load randomized connectivity from %s / %s", hdf, group)
+
+    if dry_run:
+        LOG.info("Test plumbing: analyze: load randomized connectivity")
+        return None
+
+    try:
+        toc_rand = read_toc_plus_payload((hdf, group), STEP).rename("matrix")
+    except KeyError:
+        LOG.warning("No randomized-connectivity data in the store.")
+        toc_rand = None
+    else:
+        LOG.info("Done loading  %s randomized connectivity TOC", toc_rand.shape)
+
+    return toc_rand
+
+
+def load_adjacencies(paths, dry_run=False):
+    """..."""
+    LOG.info("Load all adjacencies")
+
+    toc_orig = load_connectivity_original(paths, dry_run)
+
+    toc_rand = load_connectivity_randomized(paths, dry_run)
+
+    if dry_run:
+        LOG.info("Test plumbing: analyze: load connectivity")
+        return None
+
+    LOG.info("Done loading connectivity.")
+    return (toc_orig, toc_rand)
+
+
+def dispatch(adjacencies, neurons, analyses, batch_size, njobs,
+             output=None, dry_run=False):
+    """Dispatch a table of contents of adjacencies, ..."""
+    LOG.info("DISPATCH analyses of connectivity.")
+    if dry_run:
+        LOG.info("Test plumbing: analyze: dispatch toc")
+        return None
+
+    args = (adjacencies, neurons, output, batch_size, njobs, output)
+    results = {quantity: parallely_analyze(quantity, *args) for quantity in analyses}
+
+    LOG.info("Done, analyzing %s matrices", len(adjacencies))
+    return results
+
+
+def save_output(results, to_path):
+    """..."""
+    LOG.info("Write analyses results to %s", to_path)
+
+    p, group = to_path
+
+    def in_store(analysis):
+        g = f"{group}/{analysis.name}"
+        m = analysis.output_type
+        return matrices.get_store(to_hdf_at_path=p, under_group=g, for_matrix_type=m)
+
+    saved = {a: collect(batched_stores, in_store(a)) for a, batched_stores in results.items()}
+    LOG.info("Done saving %s analyses of results")
+    for a, saved_analysis in saved.items():
+        LOG.info("Analysis %s saved %s values", a.name, len(saved_analysis))
+
+    return saved
+
+
+def _prepare_workspace(paths):
+    """..."""
+    from connsense.io import time as timing
+
+    batches = Path(paths["root"]) / "batches"
+    batches.mkdir(parents=False, exist_ok=True)
+
+    workspace = batches / timing.stamp(now=True)
+    workspace.mkdir(parents=False, exist_ok=True)
+
+    analyses = workspace / "analysis"
+    analyses.mkdir(parents=False, exist_ok=False)
+
+    return analyses
+
+
 def run(config, *args, output=None, batch_size=None, sample=None,
         njobs=None, dry_run=None, **kwargs):
     """..."""
     config = read(config)
-    paths = config["paths"]
+    paths = _check_paths(config["paths"])
+    input_paths = paths["input"]
+    output_paths = paths["output"]
 
-    at_path = output_specified_in(paths, and_argued_to_be=output)
-    analysis_value_stores = {}
+    # REMOVE the following ---  it is not used and has undefined variables
+    # def store_at_path(analysis, data):
+    #     value_store = get_value_store(analysis, at_path,
+    #                                   from_cache=analysis_value_stores)
 
-    def store_at_path(analysis, data):
-        value_store = get_value_store(analysis, at_path,
-                                      from_cache=analysis_value_stores)
+    #     if not value_store:
+    #         return write(analysis, data, (to_hdf_at_path, under_group))
+    #     return value_store.dump(data)
 
-        if not value_store:
-            return write(analysis, data, (to_hdf_at_path, under_group))
-        return value_store.dump(data)
+    neurons = load_neurons(input_paths, dry_run)
 
-    if "circuit" not in paths:
-        raise RuntimeError("No circuits defined in config!")
-    if "define-subtargets" not in paths:
-        raise RuntimeError("No defined columns in config!")
-    if "extract-neurons" not in paths:
-        raise RuntimeError("No neurons in config!")
-    if "extract-connectivity" not in paths:
-        raise RuntimeError("No connection matrices in config!")
-    if "randomize-connectivity" not in paths:
-        raise RuntimeError("No randomized matrices in config paths: {list(paths.keys()}!")
-    if STEP not in paths:
-        raise RuntimeError(f"No {STEP} in config!")
+    toc_adjs = load_adjacencies(input_paths, dry_run)
+    toc_dispatch = subset_subtargets(toc_adjs, sample, dry_run)
 
-    hdf_path, hdf_group = paths["extract-neurons"]
-    LOG.info("Load extracted neuron properties from %s\n\t, group %s",
-             hdf_path, hdf_group)
-    if dry_run:
-        LOG.info("TEST pipeline plumbing")
-    else:
-        neurons = get_neuron_properties(hdf_path, hdf_group)
-        LOG.info("Done loading extracted neuron properties: %s", neurons.shape)
-
-    hdf_path, hdf_group = paths["extract-connectivity"]
-    LOG.info("Load extracted connectivity from %s\n\t, group %s",
-             hdf_path, hdf_group)
-
-    if dry_run:
-        LOG.info("TEST pipeline plumbing")
-    else:
-        try:
-            toc = read_toc_plus_payload((hdf_path, hdf_group), STEP).rename("matrix")
-        except KeyError:
-            LOG.warning("No original connectivity data in the store.")
-            toc_orig = None
-        else:
-            toc_orig = pd.concat([toc], keys=["original"], names=["algorithm"])
-            LOG.info("Done loading  %s table of contents of original connectivity matrices",
-                     toc_orig.shape)
-
-    hdf_path, hdf_group = paths["randomize-connectivity"]
-    LOG.info("Load randomized connectivity from %s\n\t, group %s",
-             hdf_path, hdf_group)
-
-    if dry_run:
-        LOG.info("Test pipeline plumbing")
-    else:
-        try:
-            toc_rand = read_toc_plus_payload((hdf_path, hdf_group), STEP).rename("matrix")
-        except KeyError:
-            LOG.warning("No randomized-connectivity data in the store.")
-            toc_rand = None
-        else:
-            LOG.info("Done loading  %s table of contents of randomized connevitiy matrices",
-                     toc_rand.shape)
-
-    LOG.info("DISPATCH analyses of connectivity.")
-    if dry_run:
-        LOG.info("TEST pipeline plumbing")
-    else:
-        analyses = get_analyses(config)
-        #analysis_with_name = OrderedDict([(a.name, a) for a in analyses])
-
-        toc_dispatch = subset_subtargets(toc_orig, toc_rand, sample)
-
-        if toc_dispatch is None:
+    if toc_dispatch is None:
+        if not dry_run:
             LOG.warning("Done, with no connectivity matrices available to analyze.")
             return None
 
-        analyzed_results = analyze_table_of_contents(toc_dispatch, neurons, analyses,
-                                                     store_batch, batch_size, njobs)
-        LOG.info("Done, analyzing %s matrices.", len(analyzed_results))
+    _, hdf_group = output_paths.get(STEP, default_hdf(STEP))
+    basedir = _prepare_workspace(paths)
+    analyses = get_analyses(config)
+    analyzed_results = dispatch(toc_dispatch, neurons, analyses, batch_size, njobs,
+                                (basedir, hdf_group), dry_run)
 
-
-    output = output_specified_in(paths, and_argued_to_be=output)
+    output = output_specified_in(output_paths, and_argued_to_be=output)
     LOG.info("Write analyses to %s", output)
     if dry_run:
         LOG.info("TEST pipeline plumbing")
-    else:
-        saved = {}
-        for batch, analyses_hdf_paths in analyzed_results.items():
-            saved[batch] = move_hdf(analyses_hdf_paths, to_path=output)
-        n_results = len(analyzed_results)
-        LOG.info("Done writing %s analyzed matrices: to %s", n_results, saved)
+        return "TESTED: Pipeline plumbing in place: TESTED"
 
+    saved = save_output(analyzed_results, to_path=output)
 
     LOG.warning("DONE analyzing: %s", config)
     return f"Result saved {output}"
-
-

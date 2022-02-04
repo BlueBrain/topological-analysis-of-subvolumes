@@ -18,13 +18,20 @@ class BeLazy:
         self._path = dataset_key
 
     @lazy
-    def matrix(self):
-        """Use this even for a dataframe."""
-        return self._store.read(self._path)
-    @lazy
     def value(self):
         """We may not think that a dataframe is a matrix, but it is a value!"""
-        return self._store.read(self._path)
+        if isinstance(self._path, str):
+            return self._store.read(self._path)
+
+        assert pd.isna(self._path),\
+            f"Neither a string, nor NA, what is {self._path}: type {type(self._path)}"
+
+        return None
+
+    @lazy
+    def matrix(self):
+        """Use this even for a dataframe."""
+        return self.value
 
 
 class MatrixStore:
@@ -61,6 +68,10 @@ class MatrixStore:
     def but_lazily(self, dataset_at_path):
         """Load dataset at a path lazily."""
         return BeLazy(self, dataset_at_path)
+
+    def prepare_toc(self, of_paths):
+        """..."""
+        return of_paths
 
     @property
     def toc(self):
@@ -106,12 +117,11 @@ class MatrixStore:
         key = nested[-self.keysize:]
         group = '/'.join(nested[:-self.keysize])
 
-
         if group and group not in (self.group_identifier_mat, self.group_identifier_toc):
             raise ValueError(f"Dataset {dataset} does not exist!"
                              f" Use {self.group_identifier_mat} or {self.group_identifier_toc}")
 
-        return key
+        return '/'.join(key)
 
     def read(self, dataset_or_path):
         """Read a dataset
@@ -120,16 +130,18 @@ class MatrixStore:
         ~         The full path is used to write the TOC which allows it to be,
         ~         used indepedently of this class
         """
-        dataset = '/'.join(self._strip_key_from(dataset_or_path))
+        dataset = self._strip_key_from(dataset_or_path)
         return self._using_handler.read(dataset, under_group=self.group_identifier_mat,
                                         in_hdf_store_at_path=self._root)
 
+    def append_toc(self, of_paths):
+        """..."""
+        return of_paths.to_hdf(self._root, key=self.group_identifier_toc,
+                               mode='a', format="fixed")
+
     def dump(self, matrices):
         """..."""
-        toc = matrices.apply(self.write)
-        return toc.to_hdf(self._root, key=self.group_identifier_toc,
-                          mode='a', format="fixed")
-
+        return self.append_toc(of_paths=matrices.apply(self.write))
 
 
 class SparseMatrixHelper:
@@ -248,20 +260,29 @@ class DataFrameStore(MatrixStore):
 
 
 class SeriesOfMatricesStore(MatrixStore):
-    """..."""
+    """Store a series of matrices for each subtarget.
+
+    For example, simplex lists.
+    """
     keysize = 2
     def __init__(self, *args, **kwargs):
         super().__init__(*args, using_handler=SeriesOfMatricesHelper(), **kwargs)
 
-    def dump(self, content):
-        """Expecting content to be a pandas Series containing matrices."""
-        toc = content.apply(self.write, axis=1)
-        toc_long = pd.concat([p for _, p in toc.iteritems()], axis=0,
-                             keys=[d for d, _ in toc.iteritems()], names=[content.index.name])
+    def prepare_toc(self, of_paths):
+        """..."""
+        toc_long = pd.concat([p for _, p in of_paths.iteritems()], axis=0,
+                             keys=[d for d, _ in of_paths.iteritems()],
+                             names=[of_paths.columns.name])
         names = toc_long.index.names
+
         toc_long.index = toc_long.index.reorder_levels(names[1:] + [names[0]])
-        return toc_long.to_hdf(self._root, key=self.group_identifier_toc,
-                                mode='a', format="fixed")
+
+        return toc_long
+
+    def dump(self, content):
+        """Expecting content to be a pandas Dataframe of matrices."""
+        p = self.prepare_toc(of_paths=content.apply(self.write, axis=1))
+        return self.append_toc(of_paths=p)
 
 
 class SeriesOfMatrices:
@@ -269,6 +290,20 @@ class SeriesOfMatrices:
     pandas.Series of matrices.
     """
     pass
+
+class DataFrameOfMatricesStore(MatrixStore):
+    """Each element of a dataframe is a matrix ---
+    We could use this store for simplex-lists.
+    Unlike the SeriesOfMatrices Store, the additional level of simplex dimension when we used
+    SeriesOfMatricesStore will become a column instead.
+    """
+    @property
+    def toc(self):
+        """Stored matrices are a vector for each subtarget.
+        The resulting table of contents a dataframe, not a series.
+        """
+        key = self.group_identifier_toc
+        return pd.read_hdf(self._root, key).applymap(self.but_lazily)
 
 
 def StoreType(for_matrix_type):

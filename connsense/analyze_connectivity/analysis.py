@@ -130,7 +130,7 @@ class SingleMethodAnalysisFromSource:
             matrix = adjacency
 
         if log_info:
-            LOG.info("Apply analysis %s %s\n\t\t of shape %s",
+            LOG.info("Apply analysis %s %s\t\t of shape %s",
                      self.name, log_info, matrix.shape)
 
         if node_properties is not None:
@@ -140,7 +140,7 @@ class SingleMethodAnalysisFromSource:
                                 *self._args, **self._kwargs, **kwargs)
 
         if log_info:
-            LOG.info("Done analsysis %s of %s\n to matrix of shape %s",
+            LOG.info("Done analysis %s of %s\n to matrix of shape %s",
                      self.name, log_info, matrix.shape)
 
         return result

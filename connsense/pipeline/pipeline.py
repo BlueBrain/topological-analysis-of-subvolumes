@@ -77,8 +77,9 @@ class TopologicalAnalysis:
         self._config = self.read(config)
 
         config_raw = self.read(config, raw=True)
-        steps = config_raw["paths"]["steps"]
-        self._data = HDFStore(steps["root"], steps["groups"])
+        pipeline = config_raw["paths"]["pipeline"]
+        self._data = HDFStore(Path(pipeline["root"]) / pipeline["input"]["store"],
+                              pipeline["steps"])
 
         self._mode = mode
 

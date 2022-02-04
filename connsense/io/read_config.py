@@ -75,22 +75,34 @@ def adjust_root(in_a_dict_paths):
 def read(fn, raw=False):
     with open(fn, "r") as fid:
         cfg = json.load(fid)
+
     assert "paths" in cfg,\
         "Configuration file must specify 'paths' to input/output files!"
+
     assert "parameters" in cfg,\
         "Configuration file must specify 'parameters' for pipeline steps!"
     if raw:
         return cfg
 
-    steps = cfg["paths"]["steps"]
-    hdf5_root = steps["root"]
-    hdf5_groups = steps["groups"].items()
+    path_circuit = adjust_root(cfg["paths"]["circuit"])
+    path_flatmap = adjust_root(cfg["paths"].get("flatmap", None))
+    paths = {"circuit": path_circuit, "flatmap": path_flatmap}
 
-    paths = {}
-    paths["circuit"] = adjust_root(cfg["paths"]["circuit"])
-    paths["flatmap"] = adjust_root(cfg["paths"].get("flatmap", None))
-    for step, group in hdf5_groups:
-        paths[step] = (hdf5_root, group)
+    def append_groups(to_hdf):
+        """..."""
+        return {step: (to_hdf, group) for step, group in pipeline["steps"].items()}
+
+
+    pipeline = cfg["paths"]["pipeline"]
+    basedir = Path(pipeline["root"])
+    input_hdf = basedir / pipeline["input"]["store"]
+    input_steps = append_groups(input_hdf)
+
+    output_hdf = basedir/pipeline["output"]["store"] if "output" in pipeline else None
+    output_steps = append_groups(output_hdf) if output_hdf else input_steps
+    pipeline_paths = {"root": pipeline["root"], "input": input_steps, "output": output_steps}
+
+    paths.update(pipeline_paths)
 
     parameters = cfg["parameters"]
 
