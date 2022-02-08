@@ -1,0 +1,85 @@
+{
+  "paths": {
+    "circuit": {
+        "root": "/gpfs/bbp.cscs.ch/project/proj83/circuits",
+        "files": {
+            "Bio_M": "Bio_M/20200805/CircuitConfig_TC_WM"
+        }
+    },
+    "steps": {
+      "root": "PLEASEPROVIDE",
+      "groups": {
+        "define-subtargets": "subtargets",
+        "extract-neurons": "neurons",
+        "evaluate-subtargets": "subtarget_quality",
+        "extract-connectivity": "con_mats/original",
+        "randomize-connectivity": "con_mats/randomized",
+        "analyze-connectivity": "analysis"
+      }
+    }
+  },
+  "parameters": {
+    "define-subtargets": {
+      "radius": 230.0,
+      "base_target": "Mosaic",
+      "format": "wide"
+    },
+    "extract-neurons": {
+      "properties": [
+        "x",
+        "y",
+        "z",
+        "depth",
+        "synapse_class",
+        "region",
+        "layer",
+        "mtype"
+      ]
+    },
+    "evaluate-subtargerts": {
+      "metrics": [
+        "orthogonality",
+        "neuron_counts",
+        "target_composition"
+      ]
+    },
+    "extract-connectivity": {
+      "connectomes": [
+        [
+          "local"
+        ]
+      ]
+    },
+  "randomize-connectivity": {
+      "algorithms": {
+        "erin":{
+          "source": "/gpfs/bbp.cscs.ch/project/proj83/home/sood/analyses/manuscript/topological-analysis-subvolumes/topological-analysis-of-subvolumes/randomization/library/rewire.py",
+          "kwargs": {"direction": "OUT"},
+          "name": "connections-rewired-controlling-in-degree"
+        },
+        "erout":{
+          "source": "/gpfs/bbp.cscs.ch/project/proj83/home/sood/analyses/manuscript/topological-analysis-subvolumes/topological-analysis-of-subvolumes/randomization/library/rewire.py",
+          "kwargs": {"direction": "IN"},
+          "name": "connections-rewired-controlling-out-degree"
+        },
+       "ER_shuffle": {
+          "source": "/gpfs/bbp.cscs.ch/project/proj83/home/sood/analyses/manuscript/topological-analysis-subvolumes/topologists_connectome_analysis/library/randomization.py",
+          "method":  "ER_shuffle",
+          "kwargs": {},
+          "name": "ER_shuffle"
+       }
+      }
+   },
+  "analyze-connectivity": {
+      "analyses": {
+        "simplex_lists": {
+          "name": "simplices",
+          "source": "/gpfs/bbp.cscs.ch/project/proj83/home/sood/analyses/manuscript/topological-analysis-subvolumes/topologists_connectome_analysis/library/topology.py",
+          "kwargs": {},
+          "method": "simplices",
+          "output": "SeriesOfMatrices"
+        }
+      }
+    }
+  }
+}

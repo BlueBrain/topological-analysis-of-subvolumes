@@ -1,0 +1,52 @@
+{
+  "VERSION": "0.0.0",
+  "COMMENTS": [
+    "Specify how to parallilize the pipeline steps.",
+    "This is a work in progress, and will evolve before stabilizing",
+    "to a longer term solultion than immediate use."
+  ],
+  "common": {
+    "COMMENTS": ["Specify common parallelization parameters",
+                 "that will apply to each of the analyses in the next section."]
+  },
+  "analyze-connectivity": {
+    "COMMEMTS": ["Computational requirements for each analysis will be read from",,
+                 "the common requirements set in the 'common' section and the section",
+                 "for the analysis itself.",
+                 "Each suggestion may contain the maximum requirements per subtarget",
+                 "which can be used to configure the number of tasks to run in parallel.",
+                 "However, ideally this value should be prescribed directly as ",
+                 "two separate entries: `number-compute-nodes` and `number-tasks-per-node`."],
+    "common": {
+      "COMMENTS": "Provide parallelization parameters to apply to each of the analyses.",
+      "slurm": {
+        "account": "proj83",
+        "partition": "prod",
+        "time": "24:00:00",
+        "constraint": "cpu"
+      },
+      "venv": {
+        "COMMENTS": ["Path to either the folder containing the Python virtual-env to use,",
+                     "or path to a shell script that can be sourced.",
+                     "Such a script can be used to load modules before the virtual-env.",
+                     "It is also possible to provide modules in this congiguration as well."],
+        "path": "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/load_env.sh"
+      },
+      "modules": {
+        "COMMENTS": "A list modules to load at runtime.",
+        "list" = []
+      }
+    },
+    "analyses": {
+      "COMMENTS": ["Each suggestion may contain the maximum requirements per subtarget",
+                   "which can be used to configure the number of tasks to run in parallel.",
+                   "However, ideally this value should be prescribed directly as ",
+                   "two separate entries: `number-compute-nodes` and `number-tasks-per-node`."],
+      "simplices": {
+        "max-per-subtarget": {"memory": "50GB", "time": "600s"},
+        "number-compute-nodes": 1,
+        "number-tasks-per-node": 5
+      }
+    }
+  }
+}

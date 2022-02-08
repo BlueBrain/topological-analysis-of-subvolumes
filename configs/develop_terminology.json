@@ -1,0 +1,138 @@
+{
+  "VERSION": "1.0.0",
+  "COMMENTS": [
+    "As we have worked on the Topological Analysis Pipeline (TAP),\n",
+    "we have learnt several lessons, and have updated the configuration.",
+    "This file represents a major update in which we focus on parallelization."
+  ],
+  "paths": {
+      "format": "relative",
+    "circuit": {
+        "root": "/gpfs/bbp.cscs.ch/project/proj83/circuits",
+        "files": {
+            "Bio_M": "Bio_M/20200805/CircuitConfig_TC_WM"
+        }
+    },
+    "pipeline": {
+      "root": "/gpfs/bbp.cscs.ch/project/proj83/home/sood/analyses/manuscript/topological-analysis-subvolumes/test/simplices",
+      "input": {
+        "store": "topological_sampling.h5",
+        "steps": "all"
+      },
+      "output": {
+        "store": "topological_sampling_out_0.h5",
+        "steps": "analyze-connectivity"
+      },
+      "steps": {
+        "define-subtargets": "subtargets",
+        "extract-neurons": "neurons",
+        "evaluate-subtargets": "subtarget_quality",
+        "extract-connectivity": "con_mats/original",
+        "randomize-connectivity": "con_mats/randomized",
+        "analyze-connectivity": "analysis"
+      }
+    }
+  },
+  "parameters": {
+    "define-subtargets": {
+      "common": {
+        "COMMENT": ["Subtargets are grouped by their defnition provided in the next section.",
+                    "Any common parameters may be provided here."]
+      },
+      "grids": {
+        "hexgrid": {
+          "radius": 230.0,
+          "base_target": "Mosaic"
+        }
+      }
+    },
+    "extract-neurons": {
+      "common": {
+        "COMMENT": ["It is assumed that the pipeline will need a set of cell properties",
+                    "with names that can be used to query the circuit for their values",
+                    "in a population of cells.",
+                    "A dict mapping cell-property to a neuron extraction criterion ",
+                    "can be used to filter the extracted neurons.",
+                    "If there  are any common parameters to use for extraction, ",
+                    "they can be provided here."],
+        "filter": {}
+      },
+      "properties": [
+        "x",
+        "y",
+        "z",
+        "depth",
+        "synapse_class",
+        "region",
+        "layer",
+        "mtype"
+      ]
+    },
+    "evaluate-subtargets": {
+      "common": {
+        "COMMENT": ["It is assumed that a metric can be defined by a simple name.",
+                   "Hence we can simply list metric names, ",
+                   "instead of using a dict.",
+                   "We can replace the list metrics below by a dict if, for example,",
+                   "we filter the subtargets following their evaluation.",
+                   "Filtering parameters could have individual parameters",
+                    " in addition to common ones to be entered in this section."]
+      },
+      "metrics": [
+        "orthogonality",
+        "neuron_counts",
+        "target_composition"
+      ]
+    },
+    "extract-connectivity": {
+      "common" : {
+        "COMMENT": ["It is assumed that while there may be more than one connectome",
+                    "extraction of these need only common parameters if any.",
+                    "If this assumption is validated in a use-case, ",
+                    "we can replace next section's list by a dict."]
+      },
+      "connectomes": [
+        [
+          "local"
+        ]
+      ]
+    },
+    "randomize-connectivity": {
+      "common": {
+        "COMMENT": ["Provide parameters for individual algorithms in the next section.",
+                    "In this section provide parameters common to all the algorithms."],
+      },
+      "algorithms": {
+        "erin": {
+          "source": "/gpfs/bbp.cscs.ch/project/proj83/home/sood/analyses/manuscript/topological-analysis-subvolumes/topological-analysis-of-subvolumes/randomization/library/rewire.py",
+          "kwargs": {"direction": "OUT"},
+          "name": "connections-rewired-controlling-in-degree"
+        },
+        "erout":{
+          "source": "/gpfs/bbp.cscs.ch/project/proj83/home/sood/analyses/manuscript/topological-analysis-subvolumes/topological-analysis-of-subvolumes/randomization/library/rewire.py",
+          "kwargs": {"direction": "IN"},
+          "name": "connections-rewired-controlling-out-degree"
+        },
+        "ER_shuffle": {
+          "source": "/gpfs/bbp.cscs.ch/project/proj83/home/sood/analyses/manuscript/topological-analysis-subvolumes/topologists_connectome_analysis/library/randomization.py",
+          "method":  "ER_shuffle",
+          "kwargs": {},
+          "name": "ER_shuffle"
+        }
+      }
+    },
+    "analyze-connectivity": {
+      "common": {
+        "COMMENT": ["Provide parameters for individual analyses in the next section.",
+                    "In this section provide parameters common to all the analysis."]
+      },
+      "analyses": {
+        "simplices": {
+          "source": "/gpfs/bbp.cscs.ch/project/proj83/home/sood/proj83/connectome_analysis//library/topology.py",
+          "method": "list_simplices_by_dimension",
+          "output": "SeriesOfMatrices"
+        }
+      }
+    }
+  }
+}

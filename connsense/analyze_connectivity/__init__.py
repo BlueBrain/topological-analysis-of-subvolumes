@@ -1,4 +1,5 @@
-"""Analyze connectivity."""
+"""Analyze connectivity.
+"""
 
 
 from collections.abc import Mapping
@@ -23,7 +24,7 @@ from ..io import logging
 
 from ..randomize_connectivity.randomize import load_neuron_properties
 from .analysis import SingleMethodAnalysisFromSource
-from .analyze import (parallely_analyze, analyze_table_of_contents)
+from .analyze import parallely_analyze
 from .import matrices
 
 
@@ -52,11 +53,14 @@ def write(analysis, data, to_path):
                            metadata=analysis.description)
 
 
-def output_specified_in(paths, and_argued_to_be):
+def output_specified_in(configured_paths, and_argued_to_be):
     """..."""
-    to_hdf_at_path, under_group = paths.get(STEP, default_hdf(STEP))
+    steps = configured_paths["output"]["steps"]
+    to_hdf_at_path, under_group = steps.get(STEP, default_hdf(STEP))
+
     if and_argued_to_be:
         to_hdf_at_path = and_argued_to_be
+
     return (to_hdf_at_path, under_group)
 
 
@@ -111,6 +115,7 @@ def collect(batched_stores, in_store):
         colidxname = batch.toc.index.names[-1]
         return pd.concat([batch.toc.xs(d, level=colidxname) for d in colvars],
                          axis=1, keys=list(colvars), names=[colidxname])
+
     def move(batch):
         """..."""
         framed = frame(batch)
@@ -121,7 +126,6 @@ def collect(batched_stores, in_store):
         return update
 
     return {b: move(batch) for b, batch in batched_stores.items()}
-
 
 
 def subset_subtargets(toc, sample, dry_run):
@@ -193,27 +197,27 @@ def _check_paths(p):
     if "circuit" not in p:
         raise RuntimeError("No circuits defined in config!")
 
-    if "define-subtargets" not in p["input"]:
+    if "define-subtargets" not in p["input"]["steps"]:
         raise RuntimeError("No defined columns in config!")
 
-    if "extract-neurons" not in p["input"]:
+    if "extract-neurons" not in p["input"]["steps"]:
         raise RuntimeError("No neurons in config!")
 
-    if "extract-connectivity" not in p["input"]:
+    if "extract-connectivity" not in p["input"]["steps"]:
         raise RuntimeError("No connection matrices in config!")
 
-    if "randomize-connectivity" not in p["input"]:
+    if "randomize-connectivity" not in p["input"]["steps"]:
         raise RuntimeError("No randomized matrices in config paths: {list(paths.keys()}!")
 
-    if STEP not in p["output"]:
-        raise RuntimeError(f"No {STEP} in config!")
+    if STEP not in p["output"]["steps"]:
+        raise RuntimeError(f"No {STEP} in config output!")
 
     return p
 
 
 def load_neurons(paths, dry_run=False):
     """..."""
-    hdf, group = paths["extract-neurons"]
+    hdf, group = paths["steps"]["extract-neurons"]
     LOG.info("Load neuron properties from %s/%s", hdf, group)
 
     if dry_run:
@@ -230,7 +234,7 @@ def load_connectivity_original(paths, dry_run=False):
     the TOC index to indicate that it is the original connecitity.
     This is needed to concat original and randomized connectivities.
     """
-    hdf, group = paths["extract-connectivity"]
+    hdf, group = paths["steps"]["extract-connectivity"]
     LOG.info("Load original connectivity from %s/%s", hdf, group)
 
     if dry_run:
@@ -251,7 +255,7 @@ def load_connectivity_original(paths, dry_run=False):
 
 def load_connectivity_randomized(paths, dry_run):
     """..."""
-    hdf, group = paths["randomize-connectivity"]
+    hdf, group = paths["steps"]["randomize-connectivity"]
     LOG.info("Load randomized connectivity from %s / %s", hdf, group)
 
     if dry_run:
@@ -285,15 +289,40 @@ def load_adjacencies(paths, dry_run=False):
     return (toc_orig, toc_rand)
 
 
-def dispatch(adjacencies, neurons, analyses, batch_size, njobs,
+def dispatch(adjacencies, neurons, analyses, parallelize=None,
              output=None, dry_run=False):
-    """Dispatch a table of contents of adjacencies, ..."""
+    """Dispatch a table of contents of adjacencies, ...
+
+    Computation for an analysis will be run in parallel over the subtargets,
+    with results for each batch saved in an independent archive under an
+    independent folder for each analysis to compute.
+    Once the computation is done, a mapping of batch of the temporary HDF-stores will be
+    returned for each analysis.
+
+    Arguments
+    ------------
+    output :: Tuple(basedir, hdf_group) where
+    ~         basedir :: Path to the directory where analysis results will be assembled,
+    ~                    i.e. where the temporary HDF for each subtarget analysis will be written
+    ~                    into an HDF store, for example `temp.h5` under the specified hdf-group.
+    ~                    Example: (<tap-root>/"analysis", "analysis") where
+    ~                             <tap-root> is specified in the config as `config[paths][root]`.
+    ~                             For an analysis `A` then results for a given batch `B` of
+    ~                             subtargets results should go to
+    ~                             <tap-root>/"analysis"/<analysis-name>/<batch-index>/"tap.h5"
+    ~                             under the HDF group
+    ~                             "analysis"/<analysis-name>
+
+    parallelize :: A mapping that describes how to parallelize an analysis.
+
+    More on how parallelization is done in another place.
+    """
     LOG.info("DISPATCH analyses of connectivity.")
     if dry_run:
         LOG.info("Test plumbing: analyze: dispatch toc")
         return None
 
-    args = (adjacencies, neurons, output, batch_size, njobs, output)
+    args = (adjacencies, neurons,  parallelize, output)
     results = {quantity: parallely_analyze(quantity, *args) for quantity in analyses}
 
     LOG.info("Done, analyzing %s matrices", len(adjacencies))
@@ -319,38 +348,21 @@ def save_output(results, to_path):
     return saved
 
 
-def _prepare_workspace(paths):
+def run(config, parallelize=None, *args, output=None, sample=None,
+        dry_run=None, **kwargs):
     """..."""
-    from connsense.io import time as timing
+    from connsense.pipeline import workspace
 
-    batches = Path(paths["root"]) / "batches"
-    batches.mkdir(parents=False, exist_ok=True)
+    parallelize_analysis = parallelize.get(STEP, {}) if parallelize else None
 
-    workspace = batches / timing.stamp(now=True)
-    workspace.mkdir(parents=False, exist_ok=True)
-
-    analyses = workspace / "analysis"
-    analyses.mkdir(parents=False, exist_ok=False)
-
-    return analyses
-
-
-def run(config, *args, output=None, batch_size=None, sample=None,
-        njobs=None, dry_run=None, **kwargs):
-    """..."""
     config = read(config)
     paths = _check_paths(config["paths"])
     input_paths = paths["input"]
     output_paths = paths["output"]
 
-    # REMOVE the following ---  it is not used and has undefined variables
-    # def store_at_path(analysis, data):
-    #     value_store = get_value_store(analysis, at_path,
-    #                                   from_cache=analysis_value_stores)
+    LOG.warning("DONE analyzing: %s", pformat(config))
 
-    #     if not value_store:
-    #         return write(analysis, data, (to_hdf_at_path, under_group))
-    #     return value_store.dump(data)
+    current_run = workspace.current(config, **kwargs)
 
     neurons = load_neurons(input_paths, dry_run)
 
@@ -362,13 +374,14 @@ def run(config, *args, output=None, batch_size=None, sample=None,
             LOG.warning("Done, with no connectivity matrices available to analyze.")
             return None
 
-    _, hdf_group = output_paths.get(STEP, default_hdf(STEP))
-    basedir = _prepare_workspace(paths)
+    _, hdf_group = output_paths["steps"].get(STEP, default_hdf(STEP))
     analyses = get_analyses(config)
-    analyzed_results = dispatch(toc_dispatch, neurons, analyses, batch_size, njobs,
+    basedir = workspace.locate_base(current_run, STEP)
+    analyzed_results = dispatch(toc_dispatch, neurons, analyses, parallelize_analysis,
                                 (basedir, hdf_group), dry_run)
 
-    output = output_specified_in(output_paths, and_argued_to_be=output)
+    output = output_specified_in(paths, and_argued_to_be=output)
+
     LOG.info("Write analyses to %s", output)
     if dry_run:
         LOG.info("TEST pipeline plumbing")
@@ -376,5 +389,7 @@ def run(config, *args, output=None, batch_size=None, sample=None,
 
     saved = save_output(analyzed_results, to_path=output)
 
-    LOG.warning("DONE analyzing: %s", config)
-    return f"Result saved {output}"
+    LOG.info("DONE %s analyses for TAP config at %s:\n %s", len(analyses), current_run,
+             pformat({a.name: len(s) for a, s in saved.items()}))
+
+    return saved#f"Result saved {output}"

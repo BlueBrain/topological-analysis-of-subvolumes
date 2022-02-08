@@ -12,9 +12,15 @@ STEP = "extract-connectivity"
 LOG = logging.get_logger(STEP)
 
 
-def run(config, *args, dry_run=False, **kwargs):
+def run(config, parallelize=None, *args, dry_run=False, **kwargs):
     """..."""
     paths = config["paths"]
+
+
+    if parallelize and STEP in parallelize and parallelize[STEP]:
+        LOG.error("NotImplemented yet, parallilization of %s", STEP)
+        raise NotImplementedError(f"Parallilization of {STEP}")
+
     if "circuit" not in paths:
         raise RuntimeError("No circuits defined in config!")
     if "define-subtargets" not in paths:

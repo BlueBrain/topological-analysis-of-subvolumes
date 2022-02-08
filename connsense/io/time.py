@@ -5,7 +5,8 @@
 
 import datetime
 
-def stamp(today=True, now=False):
+
+def stamp(today=True, now=False, format=None):
     """..."""
     if today is not True:
         raise NotImplementedError("TODO")
@@ -26,4 +27,4 @@ def stamp(today=True, now=False):
     timestamp = (f"{lead_zero(now.hour)}{now.hour}"
                  f"{lead_zero(now.minute)}{now.minute}")
 
-    return daystamp + "-" + timestamp
+    return (daystamp + "-" + timestamp if not format else format(daystamp, timestamp))

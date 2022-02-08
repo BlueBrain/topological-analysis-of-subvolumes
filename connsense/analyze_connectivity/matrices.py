@@ -65,6 +65,11 @@ class MatrixStore:
         with h5py.File(self._root, 'a') as hdf:
             _= hdf.require_group(self._group)
 
+    @property
+    def path(self):
+        """..."""
+        return (self._root, self._group)
+
     def but_lazily(self, dataset_at_path):
         """Load dataset at a path lazily."""
         return BeLazy(self, dataset_at_path)

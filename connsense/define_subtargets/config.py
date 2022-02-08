@@ -121,6 +121,62 @@ class SubtargetsConfig:
         return {c: resolve_between(circuit, flatmap.get(c, None))
                 for c, circuit in self.input_circuit.items()}
 
+
+    @lazy
+    def parameters(self):
+        """..."""
+        return self._config.get("parameters", {}).get(self._label, {})
+
+    def define_subtarget(self, grid, using_spec):
+        """Define a group of subtarget.
+        Our main example is that of a grid of depth-wise columnar subtargets of
+        a neocortical circuit , with the grid covering a 2D flatmap.
+        In general the label `grid` may reference any definition that generates
+        circuit subtargets, and is parameterized `using_spec`. and need not strictly
+        cover the flatmap / circuit.
+
+        A use-case separate from the cortical flapmap hexgrid, might be a set of
+        columns defined for the Hippocampus CA1 circuit.
+        """
+        if grid == "hexgrid":
+            return Hexgrid(self, using_spec)
+
+        raise NotImplementedError(f"Definition {group} of subtargets.")
+
+    @lazy
+    def definitions(self):
+        """Groups of subtargets defined in the config.
+        """
+        configured = self.parameters.get("definitions", {}).items()
+        return {s: self.define_subtarget(group=s, using_spec=c) for s, c in configured}
+
+    @lazy
+    def target(self):
+        """Base target to subset --- the default `None` will indicate that
+        the whole circuit is the base target.
+        """
+        return self.parameters.get("base_target", None)
+
+    def argue(self):
+        """..."""
+        for label, circuit in self.input_circuit.items():
+            yield (label, circuit, self.input_flatmap[label])
+
+    @lazy
+    def output(self):
+        """..."""
+        return self._config["paths"]["output"]["steps"][self._label]
+
+
+class Hexgrid:
+    """Subtargets that form a grid of hexagons in the flatmap.
+    """
+    def __init__(self, config, parameters):
+        """config: a SubtargetsConfig.
+        """
+        self._config = config
+        self._parameters = parameters
+
     @lazy
     def mean_target_size(self):
         """..."""
@@ -149,31 +205,11 @@ class SubtargetsConfig:
         return value
 
     @lazy
-    def parameters(self):
-        """..."""
-        return self._config.get("parameters", {}).get(self._label, {})
-
-    @lazy
     def tolerance(self):
         """Relative tolerance, a non-zero positive number less than 1 that determines
         the origin, rotation, and radius of the triangular tiling to use for binning.
         """
         return self.parameters.get("tolerance", None)
-
-    @lazy
-    def target(self):
-        """..."""
-        return self.parameters.get("base_target", None)
-
-    def argue(self):
-        """..."""
-        for label, circuit in self.input_circuit.items():
-            yield (label, circuit, self.input_flatmap[label])
-
-    @lazy
-    def output(self):
-        """..."""
-        return self._config["paths"][self._label]
 
 
     def define(self, sample=None, format=None):
@@ -184,7 +220,7 @@ class SubtargetsConfig:
 
         subtargets = pd.concat([self.generate(c) for c in self.input_circuit[c]])
         if format == "long":
-            return Subtargets
+            return subtargets
 
         variables = ["circuit", "gid", "flat_x", "flat_y"]
         index_vars = ["circuit", "subtarget", "flat_x", "flat_y"]

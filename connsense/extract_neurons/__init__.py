@@ -98,9 +98,13 @@ def _resolve_hdf(location, paths):
     return (path,group)
 
 
-def run(config, output=None, dry_run=False, **kwargs):
+def run(config, parallelize=None, output=None, dry_run=False, **kwargs):
     """Launch extraction of  neurons."""
     LOG.warning("Extract neurons for subtargets.")
+
+    if parallelize and STEP in parallelize and parallelize[STEP]:
+        LOG.error("NotImplemented yet, parallilization of %s", STEP)
+        raise NotImplementedError(f"Parallilization of {STEP}")
 
     cfg = read(config)
     paths = cfg["paths"]

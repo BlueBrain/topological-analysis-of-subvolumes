@@ -1,40 +1,7 @@
-from collections.abc import Mapping
+from collections.abc import Mapping, Iterable
 import os
 from pathlib import Path
 import json
-
-
-
-def adjust_hdf_paths(dict_paths, root):
-    """..."""
-    try:
-        hdf_keys = dict_paths["keys"]
-    except KeyError as keys:
-        missing = ValueError("Missing entry for keys needed to read / write a HDF store.\n"
-                             "Please provide a Mapping pipeline-step --> HDF key.")
-        raise missing from keys
-
-    if not hdf_keys:
-        raise ValueError("Empty keys needed to read / write a HDF store.")
-
-    return {step: (root, hdf_key) for step, hdf_key in hdf_keys.items()}
-
-
-def mark_path_results(dict_paths):
-    """Mark a path to results"""
-    try:
-        specified = dict_paths["root"]
-    except KeyError:
-        root = (Path(__file__).parent.parent.parent / "results"
-                / "topological_sampling.h5")
-    else:
-        specified = Path(specified)
-        root = (specified if specified.is_absolute()
-                else Path(__file__).parent.parent.parent / specified)
-
-    root = dict_paths.get("root", '.')
-    if not os.path.isabse(root):
-        root = os.path.abspath()
 
 
 def adjust_root(in_a_dict_paths):
@@ -73,6 +40,8 @@ def adjust_root(in_a_dict_paths):
 
 
 def read(fn, raw=False):
+    """Read JSON format config, converting a relative path specification to absolute.
+    """
     with open(fn, "r") as fid:
         cfg = json.load(fid)
 
@@ -81,29 +50,64 @@ def read(fn, raw=False):
 
     assert "parameters" in cfg,\
         "Configuration file must specify 'parameters' for pipeline steps!"
+
     if raw:
+        return cfg
+
+    format_paths = cfg["paths"].get("format", "relative")
+    if format_paths == "absolute":
         return cfg
 
     path_circuit = adjust_root(cfg["paths"]["circuit"])
     path_flatmap = adjust_root(cfg["paths"].get("flatmap", None))
-    paths = {"circuit": path_circuit, "flatmap": path_flatmap}
+    paths = {"format": "absolute", "circuit": path_circuit, "flatmap": path_flatmap}
 
     def append_groups(to_hdf):
         """..."""
-        return {step: (to_hdf, group) for step, group in pipeline["steps"].items()}
-
+        steps = {step: (to_hdf, group) for step, group in pipeline["steps"].items()}
+        return steps
 
     pipeline = cfg["paths"]["pipeline"]
     basedir = Path(pipeline["root"])
+
     input_hdf = basedir / pipeline["input"]["store"]
     input_steps = append_groups(input_hdf)
 
     output_hdf = basedir/pipeline["output"]["store"] if "output" in pipeline else None
     output_steps = append_groups(output_hdf) if output_hdf else input_steps
-    pipeline_paths = {"root": pipeline["root"], "input": input_steps, "output": output_steps}
 
+    pipeline_paths = {"root": pipeline["root"],
+                      "input": {"store": input_hdf, "steps": input_steps},
+                      "output": {"store": output_hdf, "steps": output_steps}}
     paths.update(pipeline_paths)
 
     parameters = cfg["parameters"]
 
     return {"paths": paths, "parameters": parameters}
+
+
+def serialize_json(paths):
+    """..."""
+    if isinstance(paths, Mapping):
+        return {serialize_json(key): serialize_json(val) for key, val in paths.items()}
+
+    if isinstance(paths, str):
+        return paths
+
+    if isinstance(paths, Path):
+        return paths.as_posix()
+
+    if isinstance(paths, Iterable):
+        return [serialize_json(p) for p in paths]
+
+    if isinstance(paths, float):
+        return str(paths)
+
+    return paths
+
+
+def write(config, to_json):
+    """..."""
+    with open(to_json, 'w') as to_file:
+        to_file.write(json.dumps(serialize_json(config)))
+    return to_json

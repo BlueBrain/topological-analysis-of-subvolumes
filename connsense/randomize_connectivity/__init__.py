@@ -48,11 +48,15 @@ def get_algorithms(config):
             for name, description in configured.items()]
 
 
-def run(config, *args, output=None, batch_size=None, sample=None,  dry_run=None,
+def run(config, parallelize=None, *args, output=None, batch_size=None, sample=None,  dry_run=None,
         **kwargs):
     """..."""
     config = read(config)
     paths = config["paths"]
+
+    if parallelize and STEP in parallelize and parallelize[STEP]:
+        LOG.error("NotImplemented yet, parallilization of %s", STEP)
+        raise NotImplementedError(f"Parallilization of {STEP}")
 
     if "circuit" not in paths:
         raise RuntimeError("No circuits defined in config!")

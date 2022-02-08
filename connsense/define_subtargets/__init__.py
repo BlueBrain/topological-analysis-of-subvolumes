@@ -1,4 +1,7 @@
 """Targets defined using the circuit's flatmap.
+
+NOTE: As of today (20220207), this file is under a refactor towards a uniform configuration
+~     each pipeline step.
 """
 from pathlib import Path
 
@@ -11,8 +14,7 @@ from flatmap_utility import subtargets as flatmap_subtargets
 from flatmap_utility.tessellate import TriTille
 
 from .config import SubtargetsConfig
-from ..io import read_config
-from ..io.write_results import write, default_hdf
+from ..io.write_results import write
 from ..io import logging
 
 XYZ = [Cell.X, Cell.Y, Cell.Z]
@@ -134,6 +136,27 @@ def name_subtarget(hexbin):
     """
 
 
+def generate_hexgrid(radius, label, circuit, flatmap):
+    """TODO: subset to the configured base target.
+    """
+    LOG.info("GENERATE subtargets for circuit %s", label)
+
+    subtargets = flatmap_subtargets.generate(circuit, flatmap, radius)
+    if label:
+        subtargets = subtargets.assign(circuit=label)
+    subtargets = subtargets.rename(columns={"grid_x": "flat_x", "grid_y": "flat_y"})
+    LOG.info("DONE %s subtargets for circuit %s", subtargets.shape[0], label)
+    return subtargets
+
+
+def generate_grid(g, label, circuit, flatmap, parameters):
+    """..."""
+    if g != "hexgrid":
+        raise NotImplementedError(f"Subtargets defined as {g}")
+
+    return generate_hexgrid(parameters.target_radius, label, circuit, flatmap)
+
+
 def define(config, sample=None, fmt=None):
     """Define configured subtargets.
     Arguments
@@ -155,14 +178,13 @@ def define(config, sample=None, fmt=None):
     LOG.info("\toutput in format %s goes to %s", format, config.output)
 
     def generate(label, circuit, flatmap):
-        """TODO: subset to the configured base target."""
-        LOG.info("GENERATE subtargets for circuit %s", label)
-        radius = config.target_radius
-        subtargets = flatmap_subtargets.generate(circuit, flatmap, radius)
-        if label:
-            subtargets = subtargets.assign(circuit=label)
-        subtargets = subtargets.rename(columns={"grid_x": "flat_x", "grid_y": "flat_y"})
-        LOG.info("DONE %s subtargets for circuit %s", subtargets.shape[0], label)
+        """TODO: subset to the configured base target.
+        """
+        args = (label, circuit, flatmap)
+        defined = config.definitions.items()
+        subtargets = pd.concat([generate_grid(g, *args, using_parameters=p) for g, p in defined],
+                               axis=0, keys=[grid for grid,_ in defined], names=["grid"])
+        subtargets = {g: generate_grid(g, *args, using_parameters=p) for g, p in defined}
         return subtargets
 
     subtargets = pd.concat([generate(*args) for args in config.argue()])
@@ -176,15 +198,20 @@ def define(config, sample=None, fmt=None):
         return group[["flat_x", "flat_y"]].mean(axis=0).append(gids)
 
     columns = ["circuit", "gid", "flat_x", "flat_y"]
-    index_vars = ["circuit", "subtarget", "flat_x", "flat_y"]
+    index_vars = ["circuit", "grid", "subtarget", "flat_x", "flat_y"]
     subtargets_gids = subtargets[columns].groupby(index_vars).apply(enlist).gids
     LOG.info("DONE %s subtargets for all circuits.", subtargets_gids.shape[0])
     return subtargets_gids
 
 
-def run(config, output=None, sample=None, dry_run=None, **kwargs):
-    """..."""
+def run(config, parallelize=None, output=None, sample=None, dry_run=None, **kwargs):
+    """Run generation of subtargets based on a TAP config.
+    """
     LOG.warning("Get subtargets for config %s", config)
+
+    if parallelize and STEP in parallelize and parallelize[STEP]:
+        LOG.error("NotImplemented yet, parallilization of %s", STEP)
+        raise NotImplementedError(f"Parallilization of {STEP}")
 
     if sample:
         LOG.info("Sample %s from cells", sample)

@@ -5,9 +5,10 @@ from abc import ABC, abstractmethod, abstractclassmethod, abstractstaticmethod
 from collections.abc import Mapping
 from collections import OrderedDict, namedtuple
 from pathlib import Path
+from pprint import pformat
 from lazy import lazy
+import json
 
-from ..io import read_config
 from ..io.write_results import (read_toc_plus_payload, read_node_properties,
                                 read_subtargets)
 from ..io import logging
@@ -51,14 +52,28 @@ class TopologicalAnalysis:
                             if step in configured_steps])
 
     @classmethod
-    def read(cls, config, raw=False):
+    def read_config(cls, c, raw=False):
         """..."""
+        from connsense.io import read_config
+
         try:
-            path = Path(config)
+            path = Path(c)
         except TypeError:
-            assert isinstance(config, Mapping)
-            return config
+            assert isinstance(c, Mapping)
+            return c
+
         return read_config.read(path, raw=raw)
+
+    @classmethod
+    def read_parallelization(cls, config):
+        """..."""
+        if not config:
+            return None
+
+        path = Path(config)
+        with open(path, 'r') as fptr:
+            parallelization = json.load(fptr)
+        return parallelization
 
     @classmethod
     def read_steps(cls, config):
@@ -69,24 +84,37 @@ class TopologicalAnalysis:
             configured = list(cls.__steps__.keys())
         return configured
 
-    def __init__(self, config, mode="inspect", dispatcher=None):
+    def __init__(self, config, parallelize=None, mode="inspect", workspace=None,
+                 dispatcher=None):
         """Read the pipeline steps to run from the config.
         """
         assert mode in ("inspect", "run"), mode
 
-        self._config = self.read(config)
+        c = config
+        p = parallelize
 
-        config_raw = self.read(config, raw=True)
-        pipeline = config_raw["paths"]["pipeline"]
-        self._data = HDFStore(Path(pipeline["root"]) / pipeline["input"]["store"],
-                              pipeline["steps"])
+        self._config = self.read_config(c)
+        self._parallelize = self.read_parallelization(p) if parallelize else None
+        LOG.info("Run pipeline config %s", pformat(self._config))
 
+        pipeline = self._config["paths"]
+        input_store = pipeline["input"]["store"]
+        input_steps = pipeline["input"]["steps"]
+        self._data = HDFStore(Path(input_store), input_steps)
+
+        self._workspace = workspace
         self._mode = mode
 
         self.configured_steps =  self.read_steps(self._config)
+        self.running = None
         self.state = PipelineState(complete=OrderedDict(),
                                    running=None,
                                    queue=self.configured_steps)
+
+    @property
+    def workspace(self):
+        """..."""
+        return self._workspace
 
     @property
     def data(self):
@@ -95,7 +123,7 @@ class TopologicalAnalysis:
 
     def dispatch(self, step, *args, **kwargs):
         """..."""
-        result = self.__steps__[step].run(self._config, *args, **kwargs)
+        result = self.__steps__[step].run(self._config, self._parallelize, *args, **kwargs)
         return result
 
     def get_h5group(self, step):
