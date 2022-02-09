@@ -16,18 +16,18 @@ def _read_steps(argued):
     return [s.strip().lower() for s in argued.step.split(';')] if argued.step else None
 
 
-def _read_output(configured, argued):
+def _read_output_in_config(c, and_argued_to_be):
     """..."""
-    if not argued.output:
-        return configured["paths"]["output"]
+    a = and_argued_to_be
+    if not a:
+        return c["paths"]["output"]
 
-    output_argued = Path(argued.output)
-    assert output_argued.suffix == "h5", f"Not a HDF h5: {output_argued}"
+    argued = Path(a)
+    assert argued.suffix == "h5", f"Not a HDF h5: {argued}"
 
-    if not output_argued.is_absolute():
-        return configured["paths"]["root"] / output_argued
-    return output_argued
-
+    if not argued.is_absolute():
+        return c["paths"]["root"] / argued
+    return argued
 
 
 def is_to_init(action):
@@ -50,6 +50,9 @@ SUBSTEPS = {"define-subtargets": "grids",
 
 def parameterize_substeps(s, in_config):
     """..."""
+    LOG.info("parameterize substeps for step %s in config \n %s", s,
+             pformat(in_config["parameters"][s]))
+
     param = SUBSTEPS[s]
     if not param:
         return None
@@ -89,34 +92,35 @@ def check_step(as_argued, against_config):
     return (s, ss)
 
 
-def get_current(config, argued):
+def get_current(action, config, step, substep, with_parallelization=None):
     """..."""
-    c = config
-
-    step, substep = check_step(argued, against_config=c)
-
-    current_run = workspace.initialize if is_to_init(argued.action) else workspace.current
-    return current_run(config, step, substep)
+    current_run = (workspace.initialize if is_to_init(action)
+                   else workspace.current)
+    return current_run(config, step, substep, with_parallelization)
 
 
 def main(argued):
     """..."""
     LOG.info("Initialize the topological analysis pipeline.")
-    c = argued.configure
-    config = pipeline.TopologicalAnalysis.read_config(c)
-    config["paths"]["output"] = _read_output(config, argued)
+    at_path = Path(argued.configure)
+    c = pipeline.TopologicalAnalysis.read_config(at_path)
+    a = argued
+    c["paths"]["output"] = _read_output_in_config(c, and_argued_to_be=a.output)
 
-    current_run = get_current(config, argued)
+    p = pipeline.TopologicalAnalysis.read_parallelization(argued.parallelize)
+    s, ss = check_step(argued, against_config=c)
+    current_run = get_current(action=a.action, config=c, step=s, substep=ss,
+                              with_parallelization=p)
     LOG.info("Workspace initialized at %s", current_run)
 
     if is_to_init(argued.action):
         return current_run
 
-    topaz = pipeline.TopologicalAnalysis(argued.config, argued.parallelize, mode="run",
+    topaz = pipeline.TopologicalAnalysis(config=c, parallelize=p, mode="run",
                                          workspace=current_run)
 
     LOG.info("Initialized a run of the TAP pipelein configration %s parallelization %s",
-             argued.config, argued.parallelize)
+             argued.configure, argued.parallelize)
 
     LOG.info("Run the pipeline.")
     steps = _read_steps(argued)
@@ -126,7 +130,7 @@ def main(argued):
 
     if steps == "all":
         raise NotImplementedError("An automated run of all steps."
-                                  " Please run (required) individual steps manually from the CLI")
+                                  " Please run individual steps manually from the CLI")
 
     result = topaz.run(steps, sample=argued.sample, output=argued.output,
                        dry_run=argued.test)

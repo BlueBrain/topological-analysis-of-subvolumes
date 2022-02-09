@@ -70,7 +70,12 @@ class TopologicalAnalysis:
         if not config:
             return None
 
-        path = Path(config)
+        try:
+            path = Path(config)
+        except TypeError:
+            assert isinstance(config, Mapping)
+            return config
+
         with open(path, 'r') as fptr:
             parallelization = json.load(fptr)
         return parallelization

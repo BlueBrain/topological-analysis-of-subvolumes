@@ -154,6 +154,7 @@ def apply_analysis(a, to_batch, among_neurons, using_store=None,
     using_store.append_toc(update) if using_store else matrices
     return  using_store
 
+
 def parallely_analyze(quantity, subtargets, neuron_properties, to_parallelize=None,
                       to_save=None, log_info=None):
     """Run an analysis of quantity over all the subtargets in a table of contents.
@@ -186,16 +187,18 @@ def parallely_analyze(quantity, subtargets, neuron_properties, to_parallelize=No
     toc = subtargets
     properties = neuron_properties
 
-
     N = toc.shape[0]
-    LOG.info("Analyze connectivity %s", N)
+    LOG.info("Analyze connectivity for %s subtargets", N)
+    LOG.info("Example subtarget adjacency TOC: \n %s", pformat(toc.head()))
 
     b = check_basedir(to_save, quantity, to_parallelize)
-    n = read_njobs(to_parallelize)
+    q = quantity.name
+    compute_nodes, njobs = read_njobs(to_parallelize, for_quantity=q)
+    n = njobs
     batched = append_batch(toc, using_basedir=b, njobs=n)
     n_batches = batched.batch.max() + 1
 
-    if to_parallelize and to_parallelize["number-compute-nodes"] > 1:
+    if compute_nodes > 1:
         raise NotImplementedError("Multi-node parallelization, not yet.")
 
     manager = Manager()
@@ -203,8 +206,8 @@ def parallely_analyze(quantity, subtargets, neuron_properties, to_parallelize=No
     processes = []
 
     basedir, group = to_save if to_save else (Path.cwd(), "analysis")
-    b = Path(basedir) / a.name
-    assert b.exists(), f"A workspace dir at {b} must exist exist to run analysis {a.name}."
+    abase = Path(basedir) / a.name
+    assert abase.exists(), f"A workspace dir at {abase} must exist exist to run analysis {a.name}."
 
     g = f"{group}/{a.name}"
     m = a.output_type
@@ -240,50 +243,65 @@ def parallely_analyze(quantity, subtargets, neuron_properties, to_parallelize=No
     return batch_stores
 
 
-def check_basedir(to_save, quantity, parallel_run=None):
+def check_basedir(to_save, quantity, to_parallelize=None):
     """The locaiton `to_save` in could have been used in a previous run.
     """
-    path = Path(to_save)
+    try:
+        p, _ = to_save
+    except TypeError:
+        path = Path(to_save)
+    else:
+        path = Path(p)
+
     assert path.exists(), "Cannot save in a directory that does not exist."
 
-    if parallel_run:
+    if to_parallelize:
+        LOG.info("Check analysis basedir: \n %s", pformat(to_parallelize))
         config_already = path/"parallelize.json"
         if config_already.exists():
             raise ValueError(f"Location {to_save} has already been used to run.\n"
                              "Please use a different location for the TAP workspace,\n"
                              "or `tap resume ...` instead of `tap run ...`"
                              f" to resume the run from the current state in {to_save}")
-        write_config(parallel_run, to_json=config_already)
+        write_config(to_parallelize, to_json=config_already)
 
     if not quantity:
         return path
 
-    sq = path / quantity
+    sq = path / quantity.name
     sq.mkdir(parents=False, exist_ok=True)
 
-    to_parallelize = parallel_run and quantity in parallel_run
-    if to_parallelize:
+    if to_parallelize and quantity in to_parallelize["analyses"]:
         cpath = sq / "parallelize.json"
         if not cpath.exists():
-            write_config(parallel_run[quantity], to_json=cpath)
+            write_config(to_parallelize[quantity], to_json=cpath)
 
-    return sq
+    q = quantity.name
+    j = read_njobs(to_parallelize, for_quantity=q)
+    njobs = sq / f"njobs-{j}"
+    njobs.mkdir(parents=False, exist_ok=True)
+    return njobs
 
 
 def append_batch(toc, using_basedir=None, njobs=1):
     """..."""
+    LOG.info("Append %s batches to %s subtargets in TOC: \n %s %s using basedir",
+             njobs, len(toc), pformat(toc.head()), "not" if not using_basedir else "")
+
     def redo_batches():
         return load_balance(toc, njobs, by="edge_count")
 
     if not using_basedir:
         return pd.concat([toc, redo_batches()], axis=1)
 
-    path = Path(using_basedir)/"batched_subtargets.csv"
+    path = Path(using_basedir)/"batched_subtargets.h5"
     previously_run = path.exists()
     if previously_run:
-        previously = pd.read_csv(path)
+        previously = pd.read_hdf(path, key=f"njobs-{njobs}")
         batches = previously.reindex(toc.index)
-        if batches.is_na().sum() != 0:
+        LOG.info("Found previously run batches of %s subtargets: \n %s",
+                 len(batches), pformat(batches))
+        if batches.isna().sum() != 0:
             raise ValueError(f"Found a previously run  batches in {using_basedir}"
                              " that are not the same as the current run's batches.\n"
                              "The input HDF store may be different than the previous run.\n"
@@ -291,7 +309,8 @@ def append_batch(toc, using_basedir=None, njobs=1):
         return pd.concat([toc, batches], axis=1)
 
     batches = redo_batches()
-    batches.to_csv(path)
+    LOG.info("Computed %s subtarget batches: \n %s", len(batches), pformat(batches.head()))
+    batches.to_hdf(path, key=f"njobs-{njobs}", format="table", mode='w')
     return pd.concat([toc, batches], axis=1)
 
 
@@ -301,13 +320,28 @@ def load_balance(toc, njobs, by=None):
     computational_load = (np.cumsum(edge_counts.sort_values(ascending=True))
                           / edge_counts.sum())
     batches = ((njobs - 1) * computational_load).apply(int)
+
+    LOG.info("Load balanced batches for %s subtargets: \n %s", len(toc),
+             pformat(batches.head()))
     return batches.loc[edge_counts.index].rename("batch")
 
 
-def read_njobs(to_parallelize):
+def read_njobs(to_parallelize, for_quantity):
     """..."""
-    return (to_parallelize["number-compute-nodes"] * to_parallelize["number-tasks-per-node"]
-            if to_parallelize else 1)
+    if not to_parallelize:
+        return (1, 1)
+
+    try:
+        q = for_quantity.name
+    except AttributeError:
+        q = for_quantity
+
+    if q not in to_parallelize["analyses"]:
+        return (1, 1)
+
+    p = to_parallelize["analyses"][q]
+    n = p["number-compute-nodes"]; t = p["number-tasks-per-node"]
+    return (n, n * t)
 
 
 def filter_pending(subtargets, in_store):
@@ -315,8 +349,16 @@ def filter_pending(subtargets, in_store):
     Filter out the subtargets that are already in-store, keeping only
     those that are pending computation.
     """
+    try:
+        toc = in_store.toc
+    except KeyError:
+        LOG.warning("No subtargets found to be already computed in the store at %s",
+                    in_store.path)
+        LOG.warning("Will assume that all are pending a run.")
+        return subtargets
+
     stored = in_store.toc.reindex(subtargets.index)
-    pending = subtargets[stored.is_na()]
+    pending = subtargets[stored.isna()]
     n_all = len(subtargets)
     n_pend = len(pending)
     LOG.info("Pending %s / %s subtargets in batch store %s", n_pend, n_all, in_store.path)

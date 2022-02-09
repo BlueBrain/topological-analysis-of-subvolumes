@@ -108,7 +108,7 @@ def store_analysis(a, at_path):
 def collect(batched_stores, in_store):
     """..."""
     LOG.info("Collect %s batched stores together in hdf %s, group %s",
-             in_store._root, in_store._group)
+             len(batched_stores), in_store._root, in_store._group)
 
     def frame(batch):
         colvars = batch.toc.index.get_level_values(-1).unique()
@@ -362,7 +362,7 @@ def run(config, parallelize=None, *args, output=None, sample=None,
 
     LOG.warning("DONE analyzing: %s", pformat(config))
 
-    current_run = workspace.current(config, **kwargs)
+    rundir = workspace.get_rundir(config, **kwargs)
 
     neurons = load_neurons(input_paths, dry_run)
 
@@ -376,7 +376,7 @@ def run(config, parallelize=None, *args, output=None, sample=None,
 
     _, hdf_group = output_paths["steps"].get(STEP, default_hdf(STEP))
     analyses = get_analyses(config)
-    basedir = workspace.locate_base(current_run, STEP)
+    basedir = workspace.locate_base(rundir, STEP)
     analyzed_results = dispatch(toc_dispatch, neurons, analyses, parallelize_analysis,
                                 (basedir, hdf_group), dry_run)
 
@@ -389,7 +389,7 @@ def run(config, parallelize=None, *args, output=None, sample=None,
 
     saved = save_output(analyzed_results, to_path=output)
 
-    LOG.info("DONE %s analyses for TAP config at %s:\n %s", len(analyses), current_run,
+    LOG.info("DONE %s analyses for TAP config at %s:\n %s", len(analyses), rundir,
              pformat({a.name: len(s) for a, s in saved.items()}))
 
     return saved#f"Result saved {output}"
