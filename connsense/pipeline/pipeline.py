@@ -22,6 +22,16 @@ PipelineState = namedtuple("PipelineState", ["complete", "running", "queue"],
                            defaults=[None, None, None])
 
 
+def locate_store(config):
+    """..."""
+    return Path(config["paths"]["input"]["store"])
+
+def group_steps(config):
+    """..."""
+    inputs = config["paths"]["input"]["steps"]
+    return {step: group for step, (_, group) in inputs.items()}
+
+
 class TopologicalAnalysis:
     """..."""
     from connsense import define_subtargets
@@ -89,8 +99,7 @@ class TopologicalAnalysis:
             configured = list(cls.__steps__.keys())
         return configured
 
-    def __init__(self, config, parallelize=None, mode="inspect", workspace=None,
-                 dispatcher=None):
+    def __init__(self, config, parallelize=None, mode="inspect", workspace=None):
         """Read the pipeline steps to run from the config.
         """
         assert mode in ("inspect", "run"), mode
@@ -102,10 +111,7 @@ class TopologicalAnalysis:
         self._parallelize = self.read_parallelization(p) if parallelize else None
         LOG.info("Run pipeline config %s", pformat(self._config))
 
-        pipeline = self._config["paths"]
-        input_store = pipeline["input"]["store"]
-        input_steps = pipeline["input"]["steps"]
-        self._data = HDFStore(Path(input_store), input_steps)
+        self._data = HDFStore(locate_store(self._config), group_steps(self._config))
 
         self._workspace = workspace
         self._mode = mode

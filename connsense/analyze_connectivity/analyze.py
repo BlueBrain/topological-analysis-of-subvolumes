@@ -277,7 +277,7 @@ def check_basedir(to_save, quantity, to_parallelize=None):
             write_config(to_parallelize[quantity], to_json=cpath)
 
     q = quantity.name
-    j = read_njobs(to_parallelize, for_quantity=q)
+    _, j = read_njobs(to_parallelize, for_quantity=q)
     njobs = sq / f"njobs-{j}"
     njobs.mkdir(parents=False, exist_ok=True)
     return njobs

@@ -87,6 +87,11 @@ class LazyMatrix:
             matrix = read_sparse_matrix_payload(dset)
         return matrix
 
+    @lazy
+    def value(self):
+        """..."""
+        return self.matrix
+
 
 def read_toc_plus_payload(path, for_step):
     path_hdf_store, group_identifier = path
