@@ -17,9 +17,12 @@ STEP = "setup-pipeline"
 LOG = logging.get_logger(STEP)
 
 
-def get_rundir(config, step=None, substep=None):
+def get_rundir(config, step=None, substep=None, mode=None,
+               with_base=False):
     """..
     ."""
+    assert not mode or mode in ("test", "develop", "prod"), str(mode)
+
     pipeline = config["paths"]
 
     basedir = Path(pipeline["root"])
@@ -29,20 +32,23 @@ def get_rundir(config, step=None, substep=None):
     rundir = basedir / "run"
     rundir.mkdir(parents=False, exist_ok=True)
 
+    modir = rundir / mode if mode else rundir
+    modir.mkdir(parents=False, exist_ok=True)
+
     if not step:
         assert not substep, f"Substep {f} of step None maketh sense None"
-        return rundir
+        return (rundir, modir) if with_base else modir
 
-    stepdir = rundir / step
+    stepdir = modir / step
     stepdir.mkdir(parents=False, exist_ok=True)
 
     if not substep or substep == "_":
-        return stepdir
+        return (rundir, stepdir) if with_base else stepdir
 
     substepdir = stepdir / substep
     substepdir.mkdir(parents=False, exist_ok=True)
 
-    return substepdir
+    return (rundir, substepdir) if with_base else substepdir
 
 
 def check_configs(c, and_to_parallelize, at_location, must_exist=False, create=False):
@@ -86,7 +92,7 @@ def timestamp(dir):
     return at_time
 
 
-def initialize(config, step=None, substep=None, parallelize=None):
+def initialize(config, step=None, substep=None, mode=None, parallelize=None):
     """Set up a run of the pipeline.
     """
     c = config; s = step; ss = substep; p = parallelize
@@ -95,35 +101,22 @@ def initialize(config, step=None, substep=None, parallelize=None):
         LOG.info("with parallelization \n %s", pformat(p))
     else:
         LOG.info("witout parallelization.")
-    run = get_rundir(c, s, ss)
+
+    run, stage = get_rundir(c, s, ss, mode, with_base=True)
 
     if not s:
         assert not ss, f"Substep {ss} of step None maketh sense None"
-        _=check_configs(c, and_to_parallelize=p, at_location=run,
-                        must_exist=False, create=True)
-    elif not substep:
-        _=check_configs(c, and_to_parallelize=p, at_location=run.parent,
-                        must_exist=True)
-    else:
-        _=check_configs(c, and_to_parallelize=p, at_location=run.parent.parent,
-                        must_exist=True)
 
-    return run
-    # today, now = timestamp(now=True, format=lambda x, y: (x, y))
+    def _check_configs_must_exist(x, and_to_create):
+        check_configs(c, and_to_parallelize=p, at_location=run,
+                      must_exist=x, create=and_to_create)
 
-    # at_time = timestamp(run)
+    if_just_base = not mode and not step
 
-    # with open(at_time / "INITIALIZED", 'w') as _:
-    #     LOG.info("Initialized a TAP working space at: %s", at_time)
+    check_configs(c, and_to_parallelize=p, at_location=run,
+                  must_exist=not if_just_base, create=if_just_base)
 
-    # LOG.warning("An sbatch script should be prepared and deposited in the workspace.")
-    # LOG.error("NotImplementedError(topological_pipeline.sbatch)")
-
-    # current_run = run.joinpath("current")
-    # if current_run.exists():
-    #     current_run.unlink()
-    # current_run.symlink_to(time)
-    # return current_run
+    return stage
 
 
 def cleanup(config, **kwargs):
@@ -132,13 +125,13 @@ def cleanup(config, **kwargs):
     raise NotImplementedError
 
 
-def current(config, step, substep, to_parallelize):
+def current(config, step, substep, mode, to_parallelize):
     """..."""
-    run = get_rundir(config, step, substep)
+    run = get_rundir(config, step, substep, mode)
     cwd = run / "current"
 
     if not cwd.exists():
-        cwd = initialize(config, step, substep, to_parallelize)
+        cwd = initialize(config, step, substep, mode, to_parallelize)
 
     return cwd
 

@@ -340,7 +340,7 @@ def save_output(results, to_path):
         m = analysis.output_type
         return matrices.get_store(to_hdf_at_path=p, under_group=g, for_matrix_type=m)
 
-    saved = {a: collect(batched_stores, in_store(a)) for a, batched_stores in results.items()}
+    #saved = {a: collect(batched_stores, in_store(a)) for a, batched_stores in results.items()}
     saved = {a: in_store(a).collect(batched_stores) for a, batched_stores in results.items()}
     LOG.info("Done saving %s analyses of results")
     for a, saved_analysis in saved.items():

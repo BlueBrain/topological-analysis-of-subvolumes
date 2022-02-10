@@ -91,12 +91,19 @@ def check_step(as_argued, against_config):
 
     return (s, ss)
 
+def check_mode(argued):
+    """What mode should the pipeline action be performed in?
+    """
+    if argued.mode and argued.mode not in ("test", "develop", "prod"):
+        raise ValueError("Illegal action %s mode %s", argued.action, argued.mode)
+    return argued.mode
 
-def get_current(action, config, step, substep, with_parallelization=None):
+
+def get_current(action, mode, config, step, substep, with_parallelization=None):
     """..."""
     current_run = (workspace.initialize if is_to_init(action)
                    else workspace.current)
-    return current_run(config, step, substep, with_parallelization)
+    return current_run(config, step, substep, mode, with_parallelization)
 
 
 def main(argued):
@@ -109,7 +116,8 @@ def main(argued):
 
     p = pipeline.TopologicalAnalysis.read_parallelization(argued.parallelize)
     s, ss = check_step(argued, against_config=c)
-    current_run = get_current(action=a.action, config=c, step=s, substep=ss,
+    m = check_mode(argued)
+    current_run = get_current(action=a.action, mode=m, config=c, step=s, substep=ss,
                               with_parallelization=p)
     LOG.info("Workspace initialized at %s", current_run)
 
@@ -220,6 +228,13 @@ if __name__ == "__main__":
                               "This configuraiton must be provided for parallilization of the tasks\n"
                               "Each pipeline step missing in the config will be run serially on a single node.\n"
                               "If the config itself is missing, all steps will be run serially."))
+
+    parser.add_argument("-m", "--mode", required=False, default=None,
+                        help=("Specify how the action should be performed. should be done\n"
+                              "For example:\n"
+                              "tap --configure=config.json --parallelize=parallel.json \\"
+                              "    --mode=prod run\n"
+                              "to run in production mode."))
 
     parser.add_argument("--output",
                         help="Path to the directory to output in.", default=None)
