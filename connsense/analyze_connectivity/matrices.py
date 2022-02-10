@@ -7,6 +7,13 @@ import pandas as pd
 import h5py
 from scipy import sparse
 
+from ..io import logging
+
+
+STEP = "analyze-connectivity"
+
+LOG = logging.get_logger(STEP+"/matrices")
+
 
 class BeLazy:
     """Load a matrix / dataframe from store, lazily"""
@@ -17,16 +24,20 @@ class BeLazy:
         self._store = mstore
         self._path = dataset_key
 
-    @lazy
-    def value(self):
-        """We may not think that a dataframe is a matrix, but it is a value!"""
+    def get_value(self):
+        """Get value for the data specified lazily in this instance.
+        """
         if isinstance(self._path, str):
             return self._store.read(self._path)
 
         assert pd.isna(self._path),\
             f"Neither a string, nor NA, what is {self._path}: type {type(self._path)}"
-
         return None
+
+    @lazy
+    def value(self):
+        """We may not think that a dataframe is a matrix, but it is a value!"""
+        return self.get_value()
 
     @lazy
     def matrix(self):
@@ -147,6 +158,12 @@ class MatrixStore:
     def dump(self, matrices):
         """..."""
         return self.append_toc(of_paths=matrices.apply(self.write))
+
+    def collect(self, stores):
+        """Collect a batch of stores into this one.
+        """
+        raise NotImplementedError("Collection of a batch of stores into {}"
+                                  .format(self.__class__.__name__))
 
 
 class SparseMatrixHelper:
@@ -275,9 +292,15 @@ class SeriesOfMatricesStore(MatrixStore):
 
     def prepare_toc(self, of_paths):
         """..."""
+        LOG.info("Prepare a toc of paths %s", of_paths.shape)
+
         toc_long = pd.concat([p for _, p in of_paths.iteritems()], axis=0,
                              keys=[d for d, _ in of_paths.iteritems()],
                              names=[of_paths.columns.name])
+
+        LOG.info("...a TOC of paths elongated for storage: %s --> %s: ",
+                 of_paths.shape, toc_long.shape)
+
         names = toc_long.index.names
 
         toc_long.index = toc_long.index.reorder_levels(names[1:] + [names[0]])
@@ -288,6 +311,46 @@ class SeriesOfMatricesStore(MatrixStore):
         """Expecting content to be a pandas Dataframe of matrices."""
         p = self.prepare_toc(of_paths=content.apply(self.write, axis=1))
         return self.append_toc(of_paths=p)
+
+    def collect(self, stores):
+        """Collect a batch of stores into this one.
+        """
+        LOG.info("Collect %s batches of stores", len(stores))
+
+        def frame(b, batch):
+            """..."""
+            long = batch.toc
+            LOG.info("series of matrices %s --> a dataframe input: %s", b, long.shape)
+            colvars = long.index.get_level_values(-1).unique()
+            colidxname = long.index.names[-1]
+            wide = pd.concat([long.xs(d, level=colidxname) for d in colvars], axis=1,
+                             keys=list(colvars), names=[colidxname])
+            LOG.info("series of matrices %s --> a dataframe output: %s", b,  wide.shape)
+            return wide
+
+        def move(b, batch):
+            """..."""
+            framed = frame(b, batch)
+            i = 0
+
+            def write_row(r):
+                nonlocal i
+                i += 1
+                LOG.info("Write batch %s row %s (%s / %s)", b, r.name, i, len(framed))
+
+                rv = r.apply(lambda l: l.get_value())
+                LOG.info("\t...memory used: %sGB", rv.memory_usage(index=True, deep=True)/2**30)
+
+                written = self.write(rv.dropna())
+                del rv
+                return written
+
+            saved = framed.apply(write_row, axis=1)
+            update = self.prepare_toc(of_paths=saved)
+            self.append_toc(update)
+            return update
+
+        return {b: move(b, batch) for b, batch in stores.items()}
 
 
 class SeriesOfMatrices:
