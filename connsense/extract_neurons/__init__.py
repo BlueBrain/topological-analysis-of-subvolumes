@@ -98,8 +98,13 @@ def _resolve_hdf(location, paths):
     return (path,group)
 
 
-def run(config, parallelize=None, output=None, dry_run=False, **kwargs):
-    """Launch extraction of  neurons."""
+def run(config, in_mode=None, parallelize=None, output=None, dry_run=False, **kwargs):
+    """Launch extraction of  neurons.
+
+    TODO
+    ---------
+    Use a `rundir` to run extraction of neurons in.
+    """
     LOG.warning("Extract neurons for subtargets.")
 
     if parallelize and STEP in parallelize and parallelize[STEP]:

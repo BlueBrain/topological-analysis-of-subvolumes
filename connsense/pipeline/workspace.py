@@ -56,16 +56,21 @@ def check_configs(c, and_to_parallelize, at_location, must_exist=False, create=F
     Either a config must exist at a location, or it must not.
     """
     j = at_location / "config.json"
-    p = (at_location / "parallelize.json" if and_to_parallelize else None)
+    p = at_location / "parallel.json" if and_to_parallelize else None
 
     if must_exist:
         if not j.exists():
             raise FileNotFoundError(f"Location {at_location} must have a config but does not."
-                                    "\n\tInitialize the parent folders first.")
+                                    "\n\tInitialize the parent folders first. Start at the base.\n"
+                                    "`tap --config=<JSON> --parallelize=<JSON>  init`\n"
+                                    "before setting up run modes or steps and substeps.")
         if p and not p.exists():
             raise FileNotFoundError(f"Location {at_location} must have a parallization config"
                                     " but does not.\n"
-                                    "You may need to initialize the pipeline workspace.")
+                                    "You may need to initialize the pipeline workspace.\n"
+                                    "\n\tInitialize the parent folders first. Start at the base.\n"
+                                    "`tap --config=<JSON> --parallelize=<JSON>  init`\n"
+                                    "before setting up run modes or steps and substeps.")
 
         return (j, p)
 

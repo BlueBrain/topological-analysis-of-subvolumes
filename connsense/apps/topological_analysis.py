@@ -140,7 +140,7 @@ def main(argued):
         raise NotImplementedError("An automated run of all steps."
                                   " Please run individual steps manually from the CLI")
 
-    result = topaz.run(steps, sample=argued.sample, output=argued.output,
+    result = topaz.run(steps, in_mode=m, sample=argued.sample, output=argued.output,
                        dry_run=argued.test)
 
     LOG.info("DONE running pipeline: %s", result)

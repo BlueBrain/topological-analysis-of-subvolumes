@@ -349,8 +349,8 @@ def save_output(results, to_path):
     return saved
 
 
-def run(config, parallelize=None, *args, output=None, sample=None,
-        dry_run=None, **kwargs):
+def run(config, in_mode=None, parallelize=None, *args,
+        output=None, sample=None, dry_run=None, **kwargs):
     """..."""
     from connsense.pipeline import workspace
 
@@ -363,7 +363,7 @@ def run(config, parallelize=None, *args, output=None, sample=None,
 
     LOG.warning("DONE analyzing: %s", pformat(config))
 
-    rundir = workspace.get_rundir(config, **kwargs)
+    rundir = workspace.get_rundir(config, mode=in_mode, **kwargs)
 
     neurons = load_neurons(input_paths, dry_run)
 

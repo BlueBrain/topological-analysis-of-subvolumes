@@ -50,7 +50,7 @@ class Document:
     @classmethod
     def load_content(cls, location, into_content=None):
         """Load content from a location.
-        A (sub-)location under the document location will be treated as a (sub-)section,
+        A (sub-)location under this  document's location will be treated as a(sub- section,
         with further nested (sub-)sections listed in file 'sections.yaml'.
         """
         subs = cls.load_yaml(at_path=location/"sections.yaml")

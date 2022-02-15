@@ -48,9 +48,14 @@ def get_algorithms(config):
             for name, description in configured.items()]
 
 
-def run(config, parallelize=None, *args, output=None, batch_size=None, sample=None,  dry_run=None,
-        **kwargs):
-    """..."""
+def run(config, in_mode=None, parallelize=None, *args,
+        output=None, batch_size=None, sample=None,  dry_run=None, **kwargs):
+    """...
+    TODO
+    -----
+    Randomization may be slow and unpredictable.
+    Use a `rundir` to save as workspace to run computation of randomization in.
+    """
     config = read(config)
     paths = config["paths"]
 

@@ -132,19 +132,20 @@ class TopologicalAnalysis:
         """..."""
         return self._data
 
-    def dispatch(self, step, *args, **kwargs):
+    def dispatch(self, step, in_mode, *args, **kwargs):
         """..."""
-        result = self.__steps__[step].run(self._config, self._parallelize, *args, **kwargs)
+        result = self.__steps__[step].run(self._config, in_mode, self._parallelize,
+                                          *args, **kwargs)
         return result
 
     def get_h5group(self, step):
         """..."""
         return self._data_groups.get(step)
 
-    def run(self, steps=None, *args, **kwargs):
+    def run(self, steps=None, in_mode=None, *args, **kwargs):
         """Run the pipeline.
         """
-        if self._mode == "inspect":
+        if self._mode == "inspect" and not in_mode == "inspect":
             raise RuntimeError("Cannot run a read-only pipeline."
                                " You can use read-only mode to inspect the data"
                                " that has already been computed.")
@@ -161,7 +162,7 @@ class TopologicalAnalysis:
             LOG.warning("Dispatch pipeline step %s", step)
 
             self.running = step
-            result = self.dispatch(step, *args, **kwargs)
+            result = self.dispatch(step, in_mode, *args, **kwargs)
             self.running = None
             self.state.complete[step] = result
 

@@ -12,8 +12,12 @@ STEP = "extract-connectivity"
 LOG = logging.get_logger(STEP)
 
 
-def run(config, parallelize=None, *args, dry_run=False, **kwargs):
-    """..."""
+def run(config, in_mode=None,  parallelize=None, *args, dry_run=False, **kwargs):
+    """...
+    TODO
+    -----
+    Use a `rundir` to run extraction of connectivity in.
+    """
     paths = config["paths"]
 
 

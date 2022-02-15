@@ -204,8 +204,13 @@ def define(config, sample=None, fmt=None):
     return subtargets_gids
 
 
-def run(config, parallelize=None, output=None, sample=None, dry_run=None, **kwargs):
+def run(config, in_mode=None, parallelize=None, *args,
+        output=None, sample=None, dry_run=None, **kwargs):
     """Run generation of subtargets based on a TAP config.
+
+    TODO
+    ----------
+    Use a `rundir` as the directory to run the definition of subtargets.
     """
     LOG.warning("Get subtargets for config %s", config)
 
