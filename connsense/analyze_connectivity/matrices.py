@@ -1,6 +1,7 @@
 """An indexed HDFstore for matrices of all kinds.
 """
 from lazy import lazy
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -13,6 +14,8 @@ from ..io import logging
 STEP = "analyze-connectivity"
 
 LOG = logging.get_logger(STEP+"/matrices")
+
+GB = 2 ** 30
 
 
 class BeLazy:
@@ -66,6 +69,8 @@ class MatrixStore:
                  dset_pattern="matrix_{0}",
                  key_toc="toc", key_mat="payload"):
         """..."""
+        LOG.info("Initialize a %s matrix store loading / writing data at %s / %s",
+                 self.__class__.__name__, root, group)
         self._root = root
         self._group = group
         self._using_handler = using_handler
@@ -152,8 +157,18 @@ class MatrixStore:
 
     def append_toc(self, of_paths):
         """..."""
-        return of_paths.to_hdf(self._root, key=self.group_identifier_toc,
-                               mode='a', format="fixed")
+        #return of_paths.to_hdf(self._root, key=self.group_identifier_toc,
+        #                       mode='a', append=True, format="table")
+        try:
+            toc = self.toc
+        except KeyError:
+            updated = of_paths
+        else:
+            current_paths = toc.apply(lambda l: l._path)
+            updated = pd.concat([current_paths, of_paths], axis=0)
+
+        return updated.to_hdf(self._root, key=self.group_identifier_toc,
+                              mode='a', append=False, format="fixed")
 
     def dump(self, matrices):
         """..."""
@@ -223,7 +238,7 @@ class DataFrameHelper:
         """..."""
         at_path = to_hdf_store_at_path
         under_key = f"{under_group}/{as_dataset}"
-        frame.to_hdf(at_path, under_key)
+        frame.to_hdf(at_path, under_key, mode='a', format="table")
         return under_key
 
     @staticmethod
@@ -280,6 +295,40 @@ class DataFrameStore(MatrixStore):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, using_handler=DataFrameHelper, **kwargs)
 
+    def collect(self, stores):
+        """Collect a bunch of `DataFrameStores` into this one.
+        """
+        LOG.info("Collect %s batches of stores", len(stores))
+
+        def move(batch, store):
+            """..."""
+            def write_subtarget(s):
+                """..."""
+                value = s.get_value()
+                mem_usage = value.memory_usage(index=True, deep=True).sum()/GB
+                LOG.info("\t...memory used: %s GB", mem_usage)
+
+                written = self.write(value)
+                del value
+                return written
+
+            current_size = self.count
+            LOG.info("Move a %s subtarget batch %s from %s to %s containing %s subtargets.",
+                     store.count, batch, Path(store._root).name, Path(self._root).name,
+                     current_size)
+
+            saved = store.toc.apply(write_subtarget)
+            update = self.prepare_toc(of_paths=saved)
+
+            update_size = update.shape[0]
+            self.append_toc(update)
+            updated_size = self.toc.shape[0]
+            LOG.info("Collect DataFrameStores, append TOC update count from %s by %s to %s",
+                     current_size, update_size, updated_size)
+            return update
+
+        return {batch: move(batch, store) for batch, store in stores.items()}
+
 
 class SeriesOfMatricesStore(MatrixStore):
     """Store a series of matrices for each subtarget.
@@ -318,7 +367,8 @@ class SeriesOfMatricesStore(MatrixStore):
         LOG.info("Collect %s batches of stores", len(stores))
 
         def frame(b, batch):
-            """..."""
+            """A table of contents (TOC) dataframe.
+            """
             long = batch.toc
             LOG.info("series of matrices %s --> a dataframe input: %s", b, long.shape)
             colvars = long.index.get_level_values(-1).unique()
@@ -336,10 +386,12 @@ class SeriesOfMatricesStore(MatrixStore):
             def write_row(r):
                 nonlocal i
                 i += 1
-                LOG.info("Write batch %s row %s (%s / %s)", b, r.name, i, len(framed))
+                LOG.info("To collect, write batch %s row %s (%s / %s)",
+                         b, r.name, i, len(framed))
 
                 rv = r.apply(lambda l: l.get_value())
-                LOG.info("\t...memory used: %sGB", rv.memory_usage(index=True, deep=True)/2**30)
+                mem_usage = rv.memory_usage(index=True, deep=True)/GB
+                LOG.info("\t...memory used: %sGB", mem_usage)
 
                 written = self.write(rv.dropna())
                 del rv
@@ -358,6 +410,7 @@ class SeriesOfMatrices:
     pandas.Series of matrices.
     """
     pass
+
 
 class DataFrameOfMatricesStore(MatrixStore):
     """Each element of a dataframe is a matrix ---

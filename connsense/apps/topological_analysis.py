@@ -17,17 +17,26 @@ def _read_steps(argued):
 
 
 def _read_output_in_config(c, and_argued_to_be):
-    """..."""
+    """...
+    "output": {"store": output_hdf, "steps": output_steps}}
+    """
     a = and_argued_to_be
+    output = c["paths"]["output"]
     if not a:
-        return c["paths"]["output"]
+        return output
 
-    argued = Path(a)
-    assert argued.suffix == "h5", f"Not a HDF h5: {argued}"
+    try:
+        argued = Path(a)
+    except TypeError:
+        raise TypeError("The argued output must be path to a hdf.h5 store")
+
+    assert argued.suffix == ".h5", f"Not a HDF h5: {argued} suffix {argued.suffix}"
 
     if not argued.is_absolute():
-        return c["paths"]["root"] / argued
-    return argued
+        argued = c["paths"]["root"] / argued
+
+    output["store"] = argued
+    return output
 
 
 def is_to_init(action):
@@ -91,6 +100,7 @@ def check_step(as_argued, against_config):
 
     return (s, ss)
 
+
 def check_mode(argued):
     """What mode should the pipeline action be performed in?
     """
@@ -101,8 +111,7 @@ def check_mode(argued):
 
 def get_current(action, mode, config, step, substep, with_parallelization=None):
     """..."""
-    current_run = (workspace.initialize if is_to_init(action)
-                   else workspace.current)
+    current_run = workspace.initialize if is_to_init(action) else workspace.current
     return current_run(config, step, substep, mode, with_parallelization)
 
 
@@ -124,8 +133,8 @@ def main(argued):
     if is_to_init(argued.action):
         return current_run
 
-    topaz = pipeline.TopologicalAnalysis(config=c, parallelize=p, mode="run",
-                                         workspace=current_run)
+    w = current_run
+    topaz = pipeline.TopologicalAnalysis(config=c, parallelize=p, mode="run", workspace=w)
 
     LOG.info("Initialized a run of the TAP pipelein configration %s parallelization %s",
              argued.configure, argued.parallelize)
@@ -140,10 +149,11 @@ def main(argued):
         raise NotImplementedError("An automated run of all steps."
                                   " Please run individual steps manually from the CLI")
 
-    result = topaz.run(steps, in_mode=m, sample=argued.sample, output=argued.output,
-                       dry_run=argued.test)
+    a = argued.action; s = argued.sample; o = argued.output; t = argued.test
+    result = topaz.run(steps, action=a, in_mode=m,
+                       sample=argued.sample, output=argued.output, dry_run=argued.test)
 
-    LOG.info("DONE running pipeline: %s", result)
+    LOG.info("DONE running pipeline")
 
     return result
 
@@ -185,6 +195,7 @@ if __name__ == "__main__":
 
     LOG.warning("Analyze circuit subtarget topology.")
 
+
     parser = ArgumentParser(description="Topological analysis of flatmapped subtargets.")
 
     parser.add_argument("action",
@@ -194,7 +205,8 @@ if __name__ == "__main__":
                               " unless otherwise indicated.\n"
                               "\t(1) init: to setup and intiialize.\n"
                               "\t(2) run: to run..., initializing if not already done\n"
-                              "\t(3) resume: resume from the current state"))
+                              "\t(3) resume: resume from the current state\n"
+                              "\t(4) collect: collect the results into a single store."))
 
     parser.add_argument("step", nargs='?', default=None,
                         help=("Pipeline step to run. Use `all` to run the full pipeline.\n"

@@ -78,6 +78,8 @@ def apply(analyses, to_batch, using_neurons,
 
 GIGABYTE = 2 ** 30
 
+BATCHED_SUBTARGETS = "batched_subtargets.h5"
+
 
 def subset_subtarget(among_neurons):
     """..."""
@@ -243,12 +245,21 @@ def parallely_analyze(quantity, subtargets, neuron_properties, to_parallelize=No
     return batch_stores
 
 
-def check_basedir(to_save, quantity, to_parallelize=None):
+def check_basedir(to_save, quantity, to_parallelize=None, mode=None,
+                  return_hdf_group=False):
     """The locaiton `to_save` in could have been used in a previous run.
+
+    By default, the base directory will be prepared and returned.
+    However, use `mode='r'` to get path to an existing basedir.
     """
+    assert not mode or mode in ('w', 'r', 'a')
+    mode = mode or 'w'
+
     try:
-        p, _ = to_save
+        p, hdf_group = to_save
     except TypeError:
+        if return_hdf_group:
+            raise TypeError(f"Expecting Tuple(basedir, hdf_group) to_save, not {to_save}")
         path = Path(to_save)
     else:
         path = Path(p)
@@ -258,33 +269,36 @@ def check_basedir(to_save, quantity, to_parallelize=None):
     if to_parallelize:
         LOG.info("Check analysis basedir: \n %s", pformat(to_parallelize))
         config_already = path/"parallelize.json"
-        if config_already.exists():
-            raise ValueError(f"Location {to_save} has already been used to run.\n"
-                             "Please use a different location for the TAP workspace,\n"
-                             "or `tap resume ...` instead of `tap run ...`"
-                             f" to resume the run from the current state in {to_save}")
-        write_config(to_parallelize, to_json=config_already)
+        if mode == 'w':
+            if config_already.exists():
+                raise ValueError(f"Location {to_save} has already been used to run.\n"
+                                 "Please use a different location for the TAP workspace,\n"
+                                 "or `tap resume ...` instead of `tap run ...`"
+                                 f" to resume the run from the current state in {to_save}")
+            write_config(to_parallelize, to_json=config_already)
 
     if not quantity:
         return path
 
     sq = path / quantity.name
-    sq.mkdir(parents=False, exist_ok=True)
+    if mode == 'w':
+        sq.mkdir(parents=False, exist_ok=True)
 
     if to_parallelize and quantity in to_parallelize["analyses"]:
         cpath = sq / "parallelize.json"
-        if not cpath.exists():
+        if mode == 'w' and not cpath.exists():
             write_config(to_parallelize[quantity], to_json=cpath)
 
     q = quantity.name
     _, j = read_njobs(to_parallelize, for_quantity=q)
     njobs = sq / f"njobs-{j}"
-    njobs.mkdir(parents=False, exist_ok=True)
-    return njobs
+    if mode == 'w':
+        njobs.mkdir(parents=False, exist_ok=True)
+    return (njobs, hdf_group) if return_hdf_group else njobs
 
 
 def append_batch(toc, using_basedir=None, njobs=1):
-    """..."""
+    """Append a column of batches to a table of contents..."""
     LOG.info("Append %s batches to %s subtargets in TOC: \n %s %s using basedir",
              njobs, len(toc), pformat(toc.head()), "not" if not using_basedir else "")
 
@@ -294,7 +308,7 @@ def append_batch(toc, using_basedir=None, njobs=1):
     if not using_basedir:
         return pd.concat([toc, redo_batches()], axis=1)
 
-    path = Path(using_basedir)/"batched_subtargets.h5"
+    path = Path(using_basedir)/BATCHED_SUBTARGETS
     previously_run = path.exists()
     if previously_run:
         previously = pd.read_hdf(path, key=f"njobs-{njobs}")
@@ -363,3 +377,37 @@ def filter_pending(subtargets, in_store):
     n_pend = len(pending)
     LOG.info("Pending %s / %s subtargets in batch store %s", n_pend, n_all, in_store.path)
     return pending
+
+
+def batch_stores_at_basedir(b, under_group, for_matrix_type):
+    """..."""
+    g = under_group; m = for_matrix_type
+    index = 0
+    while True:
+        p = b / f"{index}.h5"
+        yield matrices.get_store(to_hdf_at_path=p, under_group=g, for_matrix_type=m)
+        index +=1
+
+
+def load_parallel_run_analysis(a, parallelized, output_in):
+    """..."""
+    analysis = a
+    a = analysis.name
+    compute_nodes, njobs = read_njobs(parallelized, for_quantity=a)
+    n = njobs
+
+    base, hdf_group = check_basedir(output_in, analysis, parallelized, mode='r',
+                                    return_hdf_group=True)
+    subtarget_batches = pd.read_hdf(Path(base) / BATCHED_SUBTARGETS, f"njobs-{n}")
+
+    n_batches = subtarget_batches.value_counts()
+    batches = {b: Path(base) / f"{b}.h5" for b in subtarget_batches.drop_duplicates().values}
+
+    for b, path in batches.items():
+        assert path.exists(), f"Missing batch {b} of parallel analysis job at {base}."
+
+    g = f"{hdf_group}/{a}"
+    m = analysis.output_type
+    stores = {b: matrices.get_store(to_hdf_at_path=p, under_group=g, for_matrix_type=m)
+              for b, p in batches.items()}
+    return stores

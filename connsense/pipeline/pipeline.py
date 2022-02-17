@@ -142,13 +142,35 @@ class TopologicalAnalysis:
         """..."""
         return self._data_groups.get(step)
 
-    def run(self, steps=None, in_mode=None, *args, **kwargs):
+    def collect(self, steps, in_mode, *args, **kwargs):
+        """Collect the batched results generated in a single step.
+        """
+        assert steps and len(steps) == 1, "Only a single step may be collected."
+
+        s = steps[0]
+
+        try:
+            gather = self.__steps__[s].collect
+        except AttributeError:
+            raise NotImplementedError(f"A method to collect in {self.__steps__[s]}")
+
+        return gather(self._config, in_mode, self._parallelize, *args, **kwargs)
+
+    def run(self, steps=None, action=None, in_mode=None, *args, **kwargs):
         """Run the pipeline.
         """
-        if self._mode == "inspect" and not in_mode == "inspect":
-            raise RuntimeError("Cannot run a read-only pipeline."
-                               " You can use read-only mode to inspect the data"
-                               " that has already been computed.")
+        if self._mode == "inspect":
+            if not in_mode == "inspect":
+                raise RuntimeError("Cannot run a read-only pipeline."
+                                   " You can use read-only mode to inspect the data"
+                                   " that has already been computed.")
+            if action and action.lower() != "inspect":
+                raise RuntimeError(f"Cannot run {action} for a pipeline in mode inspect\n"
+                                   "In mode inspect, there is no action to do,\n"
+                                   " so use action=None or action='inspect'")
+
+        if action.lower() in ("collect", "merge"):
+            return self.collect(steps, in_mode, *args, **kwargs)
 
         LOG.warning("Dispatch from %s queue: %s",
                     len(self.state.queue), self.state.queue)
@@ -169,7 +191,5 @@ class TopologicalAnalysis:
             LOG.warning("DONE pipeline step %s: %s", step, result)
 
         LOG.warning("DONE running %s steps: ", len(self.state.complete))
-        for i, (step, result) in enumerate(self.state.complete.items()):
-            LOG.warning("\t(%s). %s: %s", i, step, result)
 
         return self.state

@@ -17,8 +17,8 @@ STEP = "setup-pipeline"
 LOG = logging.get_logger(STEP)
 
 
-def get_rundir(config, step=None, substep=None, mode=None,
-               with_base=False):
+def get_rundir(config, step=None, substep=None, mode=None, with_base=False,
+               *args, **kwargs):
     """..
     ."""
     assert not mode or mode in ("test", "develop", "prod"), str(mode)
@@ -55,16 +55,17 @@ def check_configs(c, and_to_parallelize, at_location, must_exist=False, create=F
     """Check if a config file exists at a location, and create it if it does not.
     Either a config must exist at a location, or it must not.
     """
-    j = at_location / "config.json"
-    p = at_location / "parallel.json" if and_to_parallelize else None
+    p = and_to_parallelize
+    pc = at_location / "config.json"
+    pp = at_location / "parallel.json" if and_to_parallelize else None
 
     if must_exist:
-        if not j.exists():
+        if not pc.exists():
             raise FileNotFoundError(f"Location {at_location} must have a config but does not."
                                     "\n\tInitialize the parent folders first. Start at the base.\n"
                                     "`tap --config=<JSON> --parallelize=<JSON>  init`\n"
                                     "before setting up run modes or steps and substeps.")
-        if p and not p.exists():
+        if pp and not pp.exists():
             raise FileNotFoundError(f"Location {at_location} must have a parallization config"
                                     " but does not.\n"
                                     "You may need to initialize the pipeline workspace.\n"
@@ -72,17 +73,16 @@ def check_configs(c, and_to_parallelize, at_location, must_exist=False, create=F
                                     "`tap --config=<JSON> --parallelize=<JSON>  init`\n"
                                     "before setting up run modes or steps and substeps.")
 
-        return (j, p)
+        return (pc, pp)
 
     l = at_location
-    if j.exists() and p and p.exists():
+    if pc.exists() and pp and pp.exists():
         raise FileExistsError(f"Location {l} seems to already have run configs")
 
-    check_config = (read_config.write(c, to_json=j)
-                    if not j.exists() and create else True)
-    check_parallel = (read_config.write(and_to_parallelize, to_json=p)
-                      if p and not p.exists() and create else True)
-    return (check_config, check_parallel)
+    check_config = True if pc.exists() or not create else read_config.write(c, to_json=pc)
+    check_parall = True if pp.exists() or not create else read_config.write(p, to_json=pp)
+
+    return (check_config, check_parall)
 
 
 def timestamp(dir):
@@ -100,26 +100,27 @@ def timestamp(dir):
 def initialize(config, step=None, substep=None, mode=None, parallelize=None):
     """Set up a run of the pipeline.
     """
-    c = config; s = step; ss = substep; p = parallelize
+    c = config; s = step; ss = substep; m = mode; p = parallelize
     LOG.info("Initialize workspace for config \n %s", pformat(c))
     if p:
         LOG.info("with parallelization \n %s", pformat(p))
     else:
         LOG.info("witout parallelization.")
 
-    run, stage = get_rundir(c, s, ss, mode, with_base=True)
+    to_run, stage = get_rundir(c, s, ss, mode, with_base=True)
 
     if not s:
         assert not ss, f"Substep {ss} of step None maketh sense None"
 
     def _check_configs_must_exist(x, and_to_create):
-        check_configs(c, and_to_parallelize=p, at_location=run,
+        check_configs(c, and_to_parallelize=p, at_location=to_run,
                       must_exist=x, create=and_to_create)
 
     if_just_base = not mode and not step
+    check_configs(c, p, at_location=to_run, must_exist=not if_just_base, create=if_just_base)
 
-    check_configs(c, and_to_parallelize=p, at_location=run,
-                  must_exist=not if_just_base, create=if_just_base)
+    if mode or step:
+        check_configs(c, p, at_location=stage, must_exist=False, create=True)
 
     return stage
 
@@ -132,13 +133,12 @@ def cleanup(config, **kwargs):
 
 def current(config, step, substep, mode, to_parallelize):
     """..."""
-    run = get_rundir(config, step, substep, mode)
-    cwd = run / "current"
+    run, stage = get_rundir(config, step, substep, mode, with_base=True)
 
-    if not cwd.exists():
-        cwd = initialize(config, step, substep, mode, to_parallelize)
+    if not stage.exists():
+        stage = initialize(config, step, substep, mode, to_parallelize)
 
-    return cwd
+    return stage
 
 
 def locate_base(in_rundir, for_step):

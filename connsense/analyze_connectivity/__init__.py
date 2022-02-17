@@ -9,8 +9,9 @@ from argparse import ArgumentParser
 import tempfile
 from pprint import pformat
 
-import pandas as pd
+import h5py
 import numpy as np
+import pandas as pd
 from scipy import sparse
 
 from ..io.write_results import (read as read_results,
@@ -104,8 +105,7 @@ def store_analysis(a, at_path):
 
     return store_batch
 
-
-def collect(batched_stores, in_store):
+def __collect_to_remove(batched_stores, in_store):
     """..."""
     LOG.info("Collect %s batched stores together in hdf %s, group %s",
              len(batched_stores), in_store._root, in_store._group)
@@ -394,3 +394,36 @@ def run(config, in_mode=None, parallelize=None, *args,
              pformat({a.name: len(s) for a, s in saved.items()}))
 
     return saved#f"Result saved {output}"
+
+
+def load_batched_results(analyses, parallelization, output):
+    """..."""
+    from .analyze import load_parallel_run_analysis
+    return {a: load_parallel_run_analysis(a, parallelization, output) for a in analyses}
+
+
+def collect(config, in_mode, parallelize, *args, output=None, **kwargs):
+    """..."""
+    from connsense.pipeline import workspace
+
+    config = read(config)
+    LOG.info("Collect batched results of analyses of subtargets in config: \n %s",
+             pformat(config))
+
+    paths = _check_paths(config["paths"])
+    output_paths = paths["output"]
+    to_parallelize = parallelize.get(STEP, {}) if parallelize else None
+
+    _, hdf_group = output_paths["steps"].get(STEP, default_hdf(STEP))
+    analyses = get_analyses(config)
+    rundir = workspace.get_rundir(config, mode=in_mode, **kwargs)
+    basedir = workspace.locate_base(rundir, STEP)
+    batched_results = load_batched_results(analyses, to_parallelize, (basedir, hdf_group))
+
+    output = output_specified_in(paths, and_argued_to_be=output)
+    saved = save_output(batched_results, to_path=output)
+
+    collected = {a.name: len(s) for a, s in saved.items()}
+    LOG.info("DONE collection of batched results at %s: \n %s", rundir, pformat(collected))
+
+    return saved
