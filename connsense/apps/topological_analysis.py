@@ -12,7 +12,13 @@ LOG = logging.get_logger("Toplogical analysis of flatmapped subtargets.")
 
 
 def _read_steps(argued):
-    """..."""
+    """Read the pipeline steps from arguments.
+
+    NOTE: Individual steps of the pipeline are quite complex, and during the development
+    so far (20220218) we have tested mosty for `analyze-connevtivity` substeps.
+    We will come back here once we are confident about all of our analyses  ---
+    and logging so that we can be understand the state of the pipeline.
+    """
     return [s.strip().lower() for s in argued.step.split(';')] if argued.step else None
 
 

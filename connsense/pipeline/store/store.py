@@ -1,21 +1,40 @@
 """Interface to the HDFStore where the pipeline stores its data."""
 from collections import OrderedDict
 from lazy import lazy
+from pathlib import Path
 
 import pandas as pd
 
-from ...io.write_results import (read_subtargets,
-                                 read_node_properties,
-                                 read_toc_plus_payload)
+from connsense import analyze_connectivity as anzconn
+from connsense.io.write_results import (read_subtargets,
+                                        read_node_properties,
+                                        read_toc_plus_payload)
+from connsense.io import logging
+
+
+LOG = logging.get_logger(__name__)
+
+
+def locate_store(config):
+    """..."""
+    return Path(config["paths"]["input"]["store"])
+
+
+def group_steps(config):
+    """..."""
+    inputs = config["paths"]["input"]["steps"]
+    return {step: group for step, (_, group) in inputs.items()}
 
 
 class HDFStore:
     """Handle the pipeline's data.
     """
-    def __init__(self, root, groups):
+    def __init__(self, config):
         """..."""
-        self._root = root
-        self._groups = groups
+        self._config = config
+        self._root = locate_store(config)
+        self._groups = group_steps(config)
+        self._analyses = anzconn.get_analyses(config, as_dict=True)
 
     def get_path(self, step):
         """..."""
@@ -59,11 +78,20 @@ class HDFStore:
 
     @lazy
     def analyses(self):
-        """A TOC for analyses results available in the HDF store."""
-        try:
-            return self._read_matrix_toc("analyze-connectivity")
-        except (KeyError, FileNotFoundError):
+        """A TOC for analyses results available in the HDF store.
+        """
+        def toc(analysis):
+            """..."""
+            agroup = self._groups[anzconn.STEP]
+            astore = anzconn.get_value_store(analysis, at_path=(self._root, agroup))
+            try:
+                return astore.toc
+            except FileNotFoundError as error:
+                LOG.error("Analysis %s NO TOC found: %s", analysis.name, error)
+                return None
             return None
+
+        return {name: toc(analysis) for name, analysis in self._analyses.items()}
 
     @lazy
     def circuits(self):
