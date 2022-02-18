@@ -124,7 +124,7 @@ def measure_quantity(a, of_subtarget, index_entry=None, using_neuron_properties=
     return result
 
 
-def apply_analysis(a, to_batch, among_neurons, using_store=None,
+def apply_analysis(a, to_batch, among_neurons, in_mode=None, using_store=None,
                    batch_index=None, log_info=None):
     """..."""
     label, batch = to_batch
@@ -157,8 +157,8 @@ def apply_analysis(a, to_batch, among_neurons, using_store=None,
     return  using_store
 
 
-def parallely_analyze(quantity, subtargets, neuron_properties, to_parallelize=None,
-                      to_save=None, log_info=None):
+def parallely_analyze(quantity, subtargets, neuron_properties, in_mode=None,
+                      to_parallelize=None, to_save=None, log_info=None):
     """Run an analysis of quantity over all the subtargets in a table of contents.
 
     Computation for an analysis will be run in parallel over the subtargets,
@@ -193,7 +193,8 @@ def parallely_analyze(quantity, subtargets, neuron_properties, to_parallelize=No
     LOG.info("Analyze connectivity for %s subtargets", N)
     LOG.info("Example subtarget adjacency TOC: \n %s", pformat(toc.head()))
 
-    b = check_basedir(to_save, quantity, to_parallelize)
+    in_mode_for_basedir = {"run": 'w', "resume": 'a'}.get(in_mode, 'r')
+    b = check_basedir(to_save, quantity, to_parallelize, in_mode_for_basedir)
     q = quantity.name
     compute_nodes, njobs = read_njobs(to_parallelize, for_quantity=q)
     n = njobs
@@ -211,17 +212,16 @@ def parallely_analyze(quantity, subtargets, neuron_properties, to_parallelize=No
     abase = Path(basedir) / a.name
     assert abase.exists(), f"A workspace dir at {abase} must exist exist to run analysis {a.name}."
 
-    g = f"{group}/{a.name}"
-    m = a.output_type
-
     def measure_batch(subtargets, *, index, bowl=None):
         """..."""
-        p = b / f"{index}.h5"
-        s = matrices.get_store(to_hdf_at_path=p, under_group=g, for_matrix_type=m)
+        p = b / f"{index}.h5"; g = f"{group}/{a.name}"; t = a.output_type
+        s = matrices.get_store(to_hdf_at_path=p, under_group=g, for_matrix_type=t)
         of_subtargets = (index, filter_pending(subtargets, in_store=s))
 
+        m = in_mode
         result = apply_analysis(a, to_batch=of_subtargets, among_neurons=properties,
-                                using_store=s, batch_index=index, log_info=log_info)
+                                in_mode=m, using_store=s, batch_index=index,
+                                log_info=log_info)
         if bowl is not None:
             bowl[index] = result
         return result

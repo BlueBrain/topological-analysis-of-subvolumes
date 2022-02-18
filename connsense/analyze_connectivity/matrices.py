@@ -238,7 +238,29 @@ class DataFrameHelper:
         """..."""
         at_path = to_hdf_store_at_path
         under_key = f"{under_group}/{as_dataset}"
-        frame.to_hdf(at_path, under_key, mode='a', format="table")
+        #frame.to_hdf(at_path, under_key, mode='a', format="table")
+        frame.to_hdf(at_path, under_key, mode='a', format="fixed")
+        return under_key
+
+    @staticmethod
+    def read(dataset, under_group, in_hdf_store_at_path):
+        """..."""
+        at_path = in_hdf_store_at_path
+        under_key = under_group + "/" + dataset
+        return pd.read_hdf(at_path, under_key)
+
+
+class SeriesHelper:
+    """This could be the same as DataFrameHelper above.
+    """
+    @staticmethod
+    def write(series, to_hdf_store_at_path, under_group, as_dataset):
+        """..."""
+        LOG.info("SeriesHelper write series %s to %s under %s as dataset %s",
+                 series.index, to_hdf_store_at_path, under_group, as_dataset)
+        at_path = to_hdf_store_at_path
+        under_key = f"{under_group}/{as_dataset}"
+        series.to_hdf(at_path, under_key, mode='a', format="fixed")
         return under_key
 
     @staticmethod
@@ -292,6 +314,7 @@ class DenseMatrixStore(MatrixStore):
 
 
 class DataFrameStore(MatrixStore):
+    """..."""
     def __init__(self, *args, **kwargs):
         super().__init__(*args, using_handler=DataFrameHelper, **kwargs)
 
@@ -324,6 +347,46 @@ class DataFrameStore(MatrixStore):
             self.append_toc(update)
             updated_size = self.toc.shape[0]
             LOG.info("Collect DataFrameStores, append TOC update count from %s by %s to %s",
+                     current_size, update_size, updated_size)
+            return update
+
+        return {batch: move(batch, store) for batch, store in stores.items()}
+
+
+class SeriesStore(MatrixStore):
+    """..."""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, using_handler=SeriesHelper, **kwargs)
+
+    def collect(self, stores):
+        """Collect a bunch of `DataFrameStores` into this one.
+        """
+        LOG.info("Collect %s batches of stores", len(stores))
+
+        def move(batch, store):
+            """..."""
+            def write_subtarget(s):
+                """..."""
+                value = s.get_value()
+                mem_usage = value.memory_usage(index=True, deep=True)/GB
+                LOG.info("\t...memory used: %s GB", mem_usage)
+
+                written = self.write(value)
+                del value
+                return written
+
+            current_size = self.count
+            LOG.info("Move a %s subtarget batch %s from %s to %s containing %s subtargets.",
+                     store.count, batch, Path(store._root).name, Path(self._root).name,
+                     current_size)
+
+            saved = store.toc.apply(write_subtarget)
+            update = self.prepare_toc(of_paths=saved)
+
+            update_size = update.shape[0]
+            self.append_toc(update)
+            updated_size = self.toc.shape[0]
+            LOG.info("Collect SeriesStores, append TOC update count from %s by %s to %s",
                      current_size, update_size, updated_size)
             return update
 
@@ -454,10 +517,14 @@ def StoreType(for_matrix_type):
     if issubclass(matrix_type, pd.DataFrame):
         return DataFrameStore
 
+    if issubclass(matrix_type, pd.Series):
+        return SeriesStore
+
     if issubclass(matrix_type, SeriesOfMatrices):
         return SeriesOfMatricesStore
 
-    raise TypeError(f"Unhandled type for matrix: {type(for_matrix_type)}")
+    raise TypeError(f"Unhandled matrix value type {for_matrix_type}")
+    raise TypeError(f"Unhandled type for matrix value {for_matrix_type}: {type(for_matrix_type)}")
 
 
 def get_store(to_hdf_at_path, under_group, for_matrix_type, **kwargs):

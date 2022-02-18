@@ -128,6 +128,56 @@ def __collect_to_remove(batched_stores, in_store):
     return {b: move(batch) for b, batch in batched_stores.items()}
 
 
+def _read_sample_description(d):
+    """..."""
+    d_split = d.split('-')
+    try:
+        by_size, amount = d_split
+    except ValueError:
+        try:
+            amount = np.float(d)
+        except ValueError:
+            by_size = d.lower(); amount = None
+        else:
+            by_size = None
+    return (by_size, amount)
+
+
+def sample_subtarget(adjacency_matrices, by_description):
+    """..."""
+    adjmats = adjacency_matrices
+
+    d = by_description
+    by_size, amount = _read_sample_description(d)
+
+    if not by_size:
+        S = np.float(amount)
+        if S > 1:
+            subset = adjmats.sample(n=int(S))
+        elif S > 0:
+            subset = adjmats.sample(frac=S)
+        else:
+            raise ValueError(f"Illegal sample {amount}")
+
+        return subset
+
+    def count_nodes(matrix):
+        """..."""
+        return matrix.value.shape[0]
+
+    if by_size == "largest":
+        N = np.int(amount or 1)
+        subtarget_sizes = adjmats.apply(count_nodes).sort_values(ascending=False)
+        return adjmats.loc[subtarget_sizes.iloc[0:N].index]
+
+    if by_size == "smallest":
+        N = np.int(amount or 1)
+        subtarget_sizes = adjmats.apply(count_nodes).sort_values(ascending=True)
+        return adjmats.loc[subtarget_sizes.iloc[0:N].index]
+
+    raise ValueError(f"Unhandled arguments by_size={by_size}, amount={amount}")
+
+
 def subset_subtargets(toc, sample, dry_run):
     """..."""
     if dry_run:
@@ -140,15 +190,16 @@ def subset_subtargets(toc, sample, dry_run):
                         if original is None
                         else (original.rename("matrix") if randomized is None
                               else pd.concat([original, randomized]).rename("matrix")))
+        if all_matrices is None:
+            LOG.error("No matrices to subset")
+            return None
     else:
         all_matrices = toc.rename("matrix")
 
-    if all_matrices is None:
-        LOG.error("No matrices to subset")
-        return None
-
     if not sample:
         return all_matrices
+
+    return sample_subtarget(all_matrices, by_description=sample)
 
     S = np.float(sample)
     if S > 1:
@@ -289,7 +340,7 @@ def load_adjacencies(paths, dry_run=False):
     return (toc_orig, toc_rand)
 
 
-def dispatch(adjacencies, neurons, analyses, parallelize=None,
+def dispatch(adjacencies, neurons, analyses, in_mode=None, parallelize=None,
              output=None, dry_run=False):
     """Dispatch a table of contents of adjacencies, ...
 
@@ -322,7 +373,7 @@ def dispatch(adjacencies, neurons, analyses, parallelize=None,
         LOG.info("Test plumbing: analyze: dispatch toc")
         return None
 
-    args = (adjacencies, neurons,  parallelize, output)
+    args = (adjacencies, neurons, in_mode, parallelize, output)
     results = {quantity: parallely_analyze(quantity, *args) for quantity in analyses}
 
     LOG.info("Done, analyzing %s matrices", len(adjacencies))
@@ -354,8 +405,6 @@ def run(config, in_mode=None, parallelize=None, *args,
     """..."""
     from connsense.pipeline import workspace
 
-    parallelize_analysis = parallelize.get(STEP, {}) if parallelize else None
-
     config = read(config)
     paths = _check_paths(config["paths"])
     input_paths = paths["input"]
@@ -378,8 +427,9 @@ def run(config, in_mode=None, parallelize=None, *args,
     _, hdf_group = output_paths["steps"].get(STEP, default_hdf(STEP))
     analyses = get_analyses(config)
     basedir = workspace.locate_base(rundir, STEP)
-    analyzed_results = dispatch(toc_dispatch, neurons, analyses, parallelize_analysis,
-                                (basedir, hdf_group), dry_run)
+    m = in_mode; p = parallelize.get(STEP, {}) if parallelize else None
+    analyzed_results = dispatch(toc_dispatch, neurons, analyses, in_mode=m, parallelize=p,
+                                output=(basedir, hdf_group), dry_run=dry_run)
 
     output = output_specified_in(paths, and_argued_to_be=output)
 
