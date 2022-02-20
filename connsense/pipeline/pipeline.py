@@ -122,9 +122,9 @@ class TopologicalAnalysis:
         """..."""
         return self._data
 
-    def dispatch(self, step, in_mode, *args, **kwargs):
+    def dispatch(self, step, action, in_mode, *args, **kwargs):
         """..."""
-        result = self.__steps__[step].run(self._config, in_mode, self._parallelize,
+        result = self.__steps__[step].run(self._config, action, in_mode, self._parallelize,
                                           *args, **kwargs)
         return result
 
@@ -174,7 +174,7 @@ class TopologicalAnalysis:
             LOG.warning("Dispatch pipeline step %s", step)
 
             self.running = step
-            result = self.dispatch(step, in_mode, *args, **kwargs)
+            result = self.dispatch(step, action, in_mode, *args, **kwargs)
             self.running = None
             self.state.complete[step] = result
 

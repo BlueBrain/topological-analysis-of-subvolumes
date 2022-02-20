@@ -25,7 +25,7 @@ from ..io import logging
 
 from ..randomize_connectivity.randomize import load_neuron_properties
 from .analysis import SingleMethodAnalysisFromSource
-from .analyze import parallely_analyze
+from .analyze import BATCHED_SUBTARGETS, parallely_analyze
 from .import matrices
 
 
@@ -324,23 +324,42 @@ def load_connectivity_randomized(paths, dry_run):
     return toc_rand
 
 
-def load_adjacencies(paths, dry_run=False):
+def load_adjacencies(paths, from_batch, dry_run=False):
     """..."""
     LOG.info("Load all adjacencies")
 
-    toc_orig = load_connectivity_original(paths, dry_run)
+    if from_batch is None:
+        toc_orig = load_connectivity_original(paths, dry_run)
 
-    toc_rand = load_connectivity_randomized(paths, dry_run)
+        toc_rand = load_connectivity_randomized(paths, dry_run)
 
-    if dry_run:
-        LOG.info("Test plumbing: analyze: load connectivity")
-        return None
+        if dry_run:
+            LOG.info("Test plumbing: analyze: load connectivity")
+            return None
 
-    LOG.info("Done loading connectivity.")
-    return (toc_orig, toc_rand)
+        LOG.info("Done loading connectivity.")
+        return (toc_orig, toc_rand)
+
+    if isinstance(from_batch, pd.DataFrame):
+        return from_batch
+
+    try:
+        path = Path(from_batch)
+    except TypeError:
+        raise TypeError(f"Expecting a path to dataframe, not {from_batch}")
+
+    batches_h5, and_hdf_group = BATCHED_SUBTARGETS
+    if path.is_dir():
+        path_h5 = path / batches_h5
+        if not path_h5.exists():
+            raise RuntimeError(f"Missing batch HDF {batches_h5} in dir {path}")
+    else:
+        path_h5 = path
+
+    return pd.read_hdf(path_h5, and_hdf_group)
 
 
-def dispatch(adjacencies, neurons, analyses, in_mode=None, parallelize=None,
+def dispatch(adjacencies, neurons, analyses, action=None, in_mode=None, parallelize=None,
              output=None, dry_run=False):
     """Dispatch a table of contents of adjacencies, ...
 
@@ -373,7 +392,7 @@ def dispatch(adjacencies, neurons, analyses, in_mode=None, parallelize=None,
         LOG.info("Test plumbing: analyze: dispatch toc")
         return None
 
-    args = (adjacencies, neurons, in_mode, parallelize, output)
+    args = (adjacencies, neurons, action, in_mode, parallelize, output)
     results = {quantity: parallely_analyze(quantity, *args) for quantity in analyses}
 
     LOG.info("Done, analyzing %s matrices", len(adjacencies))
@@ -381,7 +400,9 @@ def dispatch(adjacencies, neurons, analyses, in_mode=None, parallelize=None,
 
 
 def save_output(results, to_path):
-    """..."""
+    """...
+    Save the results if they contain data-stores
+    """
     LOG.info("Write analyses results to %s", to_path)
 
     p, group = to_path
@@ -391,7 +412,12 @@ def save_output(results, to_path):
         m = analysis.output_type
         return matrices.get_store(to_hdf_at_path=p, under_group=g, for_matrix_type=m)
 
-    #saved = {a: collect(batched_stores, in_store(a)) for a, batched_stores in results.items()}
+    def save_analysis(a, batches):
+        """..."""
+
+
+
+
     saved = {a: in_store(a).collect(batched_stores) for a, batched_stores in results.items()}
     LOG.info("Done saving %s analyses of results")
     for a, saved_analysis in saved.items():
@@ -400,8 +426,8 @@ def save_output(results, to_path):
     return saved
 
 
-def run(config, in_mode=None, parallelize=None, *args,
-        output=None, sample=None, dry_run=None, **kwargs):
+def run(config, action, in_mode=None, parallelize=None, output=None, batch=None,
+         sample=None, dry_run=None, **kwargs):
     """..."""
     from connsense.pipeline import workspace
 
@@ -416,7 +442,8 @@ def run(config, in_mode=None, parallelize=None, *args,
 
     neurons = load_neurons(input_paths, dry_run)
 
-    toc_adjs = load_adjacencies(input_paths, dry_run)
+    toc_adjs = load_adjacencies(input_paths, batch, dry_run)
+
     toc_dispatch = subset_subtargets(toc_adjs, sample, dry_run)
 
     if toc_dispatch is None:
@@ -428,22 +455,13 @@ def run(config, in_mode=None, parallelize=None, *args,
     analyses = get_analyses(config)
     basedir = workspace.locate_base(rundir, STEP)
     m = in_mode; p = parallelize.get(STEP, {}) if parallelize else None
-    analyzed_results = dispatch(toc_dispatch, neurons, analyses, in_mode=m, parallelize=p,
+    analyzed_results = dispatch(toc_dispatch, neurons, analyses, action, in_mode, parallelize=p,
                                 output=(basedir, hdf_group), dry_run=dry_run)
 
-    output = output_specified_in(paths, and_argued_to_be=output)
-
-    LOG.info("Write analyses to %s", output)
-    if dry_run:
-        LOG.info("TEST pipeline plumbing")
-        return "TESTED: Pipeline plumbing in place: TESTED"
-
-    saved = save_output(analyzed_results, to_path=output)
-
-    LOG.info("DONE %s analyses for TAP config at %s:\n %s", len(analyses), rundir,
-             pformat({a.name: len(s) for a, s in saved.items()}))
-
-    return saved#f"Result saved {output}"
+    LOG.warning("DONE %s analyses for TAP config at %s:\n %s", len(analyses), rundir,
+                pformat({a.name: len(s) for a, s in analyzed_results.items()}))
+    LOG.warning("Run the collection step to gather the parallel computation's results.")
+    return analyzed_results
 
 
 def load_batched_results(analyses, parallelization, output):

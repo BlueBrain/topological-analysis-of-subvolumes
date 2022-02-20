@@ -29,56 +29,56 @@ def get_neuron_properties(hdf_path, hdf_group):
             .set_index(["circuit", "subtarget"]))
 
 
-def apply(analyses, to_batch, using_neurons,
-          n_batches=None, label=None, bowl=None):
-    """..."""
-    LOG.info("ANALYZE %s \t batch %s / %s with %s targets",
-             [a.name for a in analyses],
-             label, n_batches, to_batch.shape[0])
+# def apply(analyses, to_batch, using_neurons,
+#           n_batches=None, label=None, bowl=None):
+#     """..."""
+#     LOG.info("ANALYZE %s \t batch %s / %s with %s targets",
+#              [a.name for a in analyses],
+#              label, n_batches, to_batch.shape[0])
 
-    def get_neurons(row):
-        """..."""
-        index = dict(zip(to_batch.index.names, row.name))
-        return (using_neurons.loc[index["circuit"], index["subtarget"]]
-                .reset_index(drop=True))
+#     def get_neurons(row):
+#         """..."""
+#         index = dict(zip(to_batch.index.names, row.name))
+#         return (using_neurons.loc[index["circuit"], index["subtarget"]]
+#                 .reset_index(drop=True))
 
-    n_analyses = len(analyses)
+#     n_analyses = len(analyses)
 
-    def apply(analysis, at_index):
-        """..."""
-        LOG.info("Apply analysis %s to batch %s", analysis.name, label)
+#     def apply(analysis, at_index):
+#         """..."""
+#         LOG.info("Apply analysis %s to batch %s", analysis.name, label)
 
-        memory_used = 0
-        def to_row(r):
-            """..."""
-            nrows = to_batch.shape[0]
-            log_info = (f"Batch {label} Analysis {analysis.name}"
-                        f" ({at_index} / {n_analyses})"
-                        f" matrix {r.idx} / {nrows}")
-            result = analysis.apply(r.matrix, get_neurons(r), log_info)
-            memory_result = sys.getsizeof(result)
-            memory_used += memory_result
-            LOG.info("\t\t\t MEMORY USAGE"
-                     " for analysis %s batch %s matrix %s / %s: %s / %s",
-                     analysis.name, label, r.idx, nrows, memory_result, memory_used)
+#         memory_used = 0
+#         def to_row(r):
+#             """..."""
+#             nrows = to_batch.shape[0]
+#             log_info = (f"Batch {label} Analysis {analysis.name}"
+#                         f" ({at_index} / {n_analyses})"
+#                         f" matrix {r.idx} / {nrows}")
+#             result = analysis.apply(r.matrix, get_neurons(r), log_info)
+#             memory_result = sys.getsizeof(result)
+#             memory_used += memory_result
+#             LOG.info("\t\t\t MEMORY USAGE"
+#                      " for analysis %s batch %s matrix %s / %s: %s / %s",
+#                      analysis.name, label, r.idx, nrows, memory_result, memory_used)
 
-        n_batch = to_batch.shape[0]
-        return to_batch.assign(idx=range(n_batch)).apply(to_row, axis=1)
+#         n_batch = to_batch.shape[0]
+#         return to_batch.assign(idx=range(n_batch)).apply(to_row, axis=1)
 
-    analyzed = {a.name: apply(a, i) for i, a in enumerate(analyses)}
+#     analyzed = {a.name: apply(a, i) for i, a in enumerate(analyses)}
 
-    LOG.info("DONE batch %s / %s with %s targets, columns %s: analyzed %s",
-             label, n_batches, batch.shape[0], batch.columns, len(analyzed))
-    if bowl:
-        assert label
-        bowl[label] = analyzed
-    return analyzed
+#     LOG.info("DONE batch %s / %s with %s targets, columns %s: analyzed %s",
+#              label, n_batches, batch.shape[0], batch.columns, len(analyzed))
+#     if bowl:
+#         assert label
+#         bowl[label] = analyzed
+#     return analyzed
 
 
 
 GIGABYTE = 2 ** 30
 
-BATCHED_SUBTARGETS = "batched_subtargets.h5"
+BATCHED_SUBTARGETS = ("batches.h5", "subtargets")
 
 
 def subset_subtarget(among_neurons):
@@ -124,8 +124,8 @@ def measure_quantity(a, of_subtarget, index_entry=None, using_neuron_properties=
     return result
 
 
-def apply_analysis(a, to_batch, among_neurons, in_mode=None, using_store=None,
-                   batch_index=None, log_info=None):
+def apply_analysis(a, to_batch, among_neurons, using_store=None, batch_index=None,
+                   log_info=None):
     """..."""
     label, batch = to_batch
     subset = subset_subtarget(among_neurons)
@@ -157,7 +157,88 @@ def apply_analysis(a, to_batch, among_neurons, in_mode=None, using_store=None,
     return  using_store
 
 
-def parallely_analyze(quantity, subtargets, neuron_properties, in_mode=None,
+def load_subtargets_batch(rundir, batched_subtargets_h5=None, group=None):
+    """Load subtargets from a HDF at rundir.
+
+    NOTE: This may need a relook -- I am guessing the default behavior.
+    ~     Check against where the subtarges are written.
+    """
+    batched_subtargets_h5 = batched_subtargets_h5 or "batched_subtargets.h5"
+    njobs = lambda : Path(rundir).name
+    subtargets_group = group or njobs()
+    batch = rundir / batched_subtargets_h5
+    return pd.read_hdf(batch, subtargets_group)
+
+
+def configure_launch_multi(number, quantity, using_subtargets, at_workspace,
+                           action=None, in_mode=None):
+    """
+    Arguments
+    -----------
+    number :: of compute nodes to run on
+    quantity :: analysis to run
+    using_subtargets :: TOC of subtargets to compute
+    at_workspace :: directory to use for input and output
+    """
+    LOG.info("Configure a %s multinode launch to analyze %s of %s subtargets working  %s",
+             number, quantity.name, len(using_subtargets), at_workspace)
+
+    batches = using_subtargets.batch.drop_duplicates().reset_index(drop=True).sort_values()
+    compute_nodes = np.linspace(0, number-1.e-6, batches.max() + 1, dtype=int)
+
+    chunked = using_subtargets.assign(compute_node=compute_nodes[using_subtargets.batch])
+
+    master_launchscript = at_workspace / "launchscript.sh"
+
+    def configure_chunk(c, subtargets):
+        """...
+        Here we have assumed:
+        run_basedir / <mode> / <step> / <substep> / <njobs>
+
+        For example if number of jobs is 40,
+        run_basedir / prod / analyze-connectivity / betti-counts / njobs-40
+
+        We need basedir to link to the executable `run-analysis`
+
+        TODO: Abstract out how out the layout of the base-rundir.
+        ~     Or provide a path of an executable to run single node analysis explicitly.
+        """
+        rundir = at_workspace / f"compute-node-{c}"
+        rundir.mkdir(parents=False, exist_ok=True)
+
+        basedir = at_workspace.parent.parent.parent.parent
+        rundir.joinpath("run-analysis.sbatch").symlink_to(basedir / "tap-analysis.sbatch")
+        rundir.joinpath("run-analysis").symlink_to(basedir/"run-analysis")
+        rundir.joinpath("config.json").symlink_to(basedir/"config.json")
+
+        h5, hdf_group = BATCHED_SUBTARGETS
+        path_h5 = rundir / h5
+
+        if path_h5.exists():
+            LOG.warning("OVERRIDE existing data for batched subtargets exists at %s\n"
+                        "Consider providing flags,"
+                        " for example allow override only in pipeline `mode=resume`", h5)
+
+        subtargets.to_hdf(path_h5, key=hdf_group, mode='w')
+
+        a = quantity.name
+        with open(master_launchscript, 'a') as to_launch:
+            to_launch.write(f"################## LAUNCH analysis {a} for chunk {c}"
+                            f" of {len(subtargets)} subtargets. #######################\n")
+
+            to_launch.write(f"pushd {rundir}\n")
+            script = "run-analysis.sbatch"
+            m = in_mode
+            c = "config.json"
+            to_launch.write(f"sbatch {script} --configure={c} --mode={m} --quantity={a} {action}\n")
+            to_launch.write("popd")
+
+        return rundir
+
+    return {c: configure_chunk(c, subtargets) for c, subtargets in chunked.groupby("compute_node")}
+
+
+def parallely_analyze(quantity, subtargets, neuron_properties, action=None, in_mode=None,
                       to_parallelize=None, to_save=None, log_info=None):
     """Run an analysis of quantity over all the subtargets in a table of contents.
 
@@ -187,46 +268,62 @@ def parallely_analyze(quantity, subtargets, neuron_properties, in_mode=None,
     """
     a = quantity
     toc = subtargets
-    properties = neuron_properties
 
     N = toc.shape[0]
     LOG.info("Analyze connectivity for %s subtargets", N)
     LOG.info("Example subtarget adjacency TOC: \n %s", pformat(toc.head()))
 
-    in_mode_for_basedir = {"run": 'w', "resume": 'a'}.get(in_mode, 'r')
-    b = check_basedir(to_save, quantity, to_parallelize, in_mode_for_basedir)
+    rundir, hdf_group = check_basedir(to_save, quantity, to_parallelize, action,
+                                      return_hdf_group=True)
+    assert rundir.exists, f"check basedir did not create {b}"
+    LOG.info("Checked basedir %s ", rundir)
     q = quantity.name
     compute_nodes, njobs = read_njobs(to_parallelize, for_quantity=q)
     n = njobs
-    batched = append_batch(toc, using_basedir=b, njobs=n)
-    n_batches = batched.batch.max() + 1
+
+    batched = append_batch(toc, using_basedir=rundir, njobs=n)
 
     if compute_nodes > 1:
-        raise NotImplementedError("Multi-node parallelization, not yet.")
+        multirun = configure_launch_multi(compute_nodes, quantity, using_subtargets=batched,
+                                          at_workspace=rundir, action=action, in_mode=in_mode)
+        LOG.info("Multinode run: \n %s", pformat(multirun))
+        return multirun
+
+    return dispatch_single_node(quantity, batched, neuron_properties, action,
+                                to_save=(rundir, hdf_group), log_info=log_info)
+
+
+def dispatch_single_node(to_compute, batched_subtargets, neuron_properties, action=None,
+                         to_save=None, log_info=None):
+    """Dispatch computation to single node with multi-processing.
+    """
+    LOG.warning("Dispatch (to %s) %s computation on %s subtargets on a single node.",
+                to_compute.name, action or "unspecified action", len(batched_subtargets))
+    analysis = to_compute; properties = neuron_properties
 
     manager = Manager()
     bowl = manager.dict()
     processes = []
 
-    basedir, group = to_save if to_save else (Path.cwd(), "analysis")
-    abase = Path(basedir) / a.name
-    assert abase.exists(), f"A workspace dir at {abase} must exist exist to run analysis {a.name}."
+    rundir, group = to_save
 
     def measure_batch(subtargets, *, index, bowl=None):
         """..."""
-        p = b / f"{index}.h5"; g = f"{group}/{a.name}"; t = a.output_type
+        p = rundir / f"{index}.h5"; g = f"{group}/{to_compute.name}"
+        t = to_compute.output_type
         s = matrices.get_store(to_hdf_at_path=p, under_group=g, for_matrix_type=t)
         of_subtargets = (index, filter_pending(subtargets, in_store=s))
 
-        m = in_mode
-        result = apply_analysis(a, to_batch=of_subtargets, among_neurons=properties,
-                                in_mode=m, using_store=s, batch_index=index,
-                                log_info=log_info)
+        result = apply_analysis(to_compute, to_batch=of_subtargets, among_neurons=properties,
+                                using_store=s, batch_index=index, log_info=log_info)
+
         if bowl is not None:
             bowl[index] = result
+
         return result
 
-    for batch, of_subtargets in batched.groupby("batch"):
+    n_batches = batched_subtargets.batch.max() + 1
+    for batch, of_subtargets in batched_subtargets.groupby("batch"):
         LOG.info("Spawn process %s / %s", batch+1, n_batches)
         p = Process(target=measure_batch,
                     args=(of_subtargets,), kwargs={"index": batch, "bowl": bowl})
@@ -238,12 +335,14 @@ def parallely_analyze(quantity, subtargets, neuron_properties, in_mode=None,
     for p in processes:
         p.join()
 
-    LOG.info("Parallely analyze %s: obtained %s chunks.", a.name, len(bowl))
+    LOG.info("Parallely analyze %s: obtained %s chunks.", analysis.name, len(bowl))
     batch_stores = {batch: stores for batch, stores in bowl.items()}
-    LOG.info("DONE analyzing %s in %s subtargets.", a.name, N)
+    LOG.info("DONE analyzing %s in %s subtargets.", analysis.name, len(batched_subtargets))
 
     return batch_stores
 
+
+BASEDIR_MODE = {"run": 'w', "resume": 'a', "inspect": 'r'}
 
 def check_basedir(to_save, quantity, to_parallelize=None, mode=None,
                   return_hdf_group=False):
@@ -251,9 +350,15 @@ def check_basedir(to_save, quantity, to_parallelize=None, mode=None,
 
     By default, the base directory will be prepared and returned.
     However, use `mode='r'` to get path to an existing basedir.
+
+    TODO: Rename this method -- basedir is ambigous
     """
-    assert not mode or mode in ('w', 'r', 'a')
-    mode = mode or 'w'
+    mode = BASEDIR_MODE.get(mode, mode)
+
+    LOG.info("Check basedir to save %s quantity %s in mode %s to paraellize %s",
+             to_save, quantity.name, mode, to_parallelize)
+    assert not mode or mode in ('w', 'r', 'a'), f"Illegal mode {mode}"
+    mode = mode or 'r'
 
     try:
         p, hdf_group = to_save
@@ -267,7 +372,7 @@ def check_basedir(to_save, quantity, to_parallelize=None, mode=None,
     assert path.exists(), "Cannot save in a directory that does not exist."
 
     if to_parallelize:
-        LOG.info("Check analysis basedir: \n %s", pformat(to_parallelize))
+        LOG.info("To paallelize, check analysis basedir: \n %s", pformat(to_parallelize))
         config_already = path/"parallelize.json"
         if mode == 'w':
             if config_already.exists():
@@ -294,24 +399,35 @@ def check_basedir(to_save, quantity, to_parallelize=None, mode=None,
     njobs = sq / f"njobs-{j}"
     if mode == 'w':
         njobs.mkdir(parents=False, exist_ok=True)
+    else:
+        LOG.warning("A rundir at %s not created because mode was not to write.", njobs)
     return (njobs, hdf_group) if return_hdf_group else njobs
 
 
 def append_batch(toc, using_basedir=None, njobs=1):
-    """Append a column of batches to a table of contents..."""
-    LOG.info("Append %s batches to %s subtargets in TOC: \n %s %s using basedir",
-             njobs, len(toc), pformat(toc.head()), "not" if not using_basedir else "")
+    """Append a column of batches to a table of contents...
+
+    If `using_basedir`, check for HDF dataframe containing a subset of adjacency matrices TOC
+    from the input store with an additional column that gives the batch to run each row in.
+
+    If the relevant pipeline step has not yet been run, batches will be computed for
+    the argued `toc` and if `using_basedir` will be saved in a HDF dataframe.
+    """
+    LOG.info("Append %s batches to %s subtargets in TOC: \n %s %s",
+             njobs, len(toc), pformat(toc.head()),
+             "not" if not using_basedir else f"using basedir{using_basedir}")
 
     def redo_batches():
-        return load_balance(toc, njobs, by="edge_count")
+        return load_balance_batches(toc, njobs, by="edge_count")
 
     if not using_basedir:
         return pd.concat([toc, redo_batches()], axis=1)
 
-    path = Path(using_basedir)/BATCHED_SUBTARGETS
-    previously_run = path.exists()
+    subtargets_h5, and_hdf_group = BATCHED_SUBTARGETS
+    path_h5 = Path(using_basedir)/subtargets_h5
+    previously_run = path_h5.exists()
     if previously_run:
-        previously = pd.read_hdf(path, key=f"njobs-{njobs}")
+        previously = pd.read_hdf(path_h5, key=and_hdf_group)
         batches = previously.reindex(toc.index)
         LOG.info("Found previously run batches of %s subtargets: \n %s",
                  len(batches), pformat(batches))
@@ -324,11 +440,11 @@ def append_batch(toc, using_basedir=None, njobs=1):
 
     batches = redo_batches()
     LOG.info("Computed %s subtarget batches: \n %s", len(batches), pformat(batches.head()))
-    batches.to_hdf(path, key=f"njobs-{njobs}", format="table", mode='w')
+    batches.to_hdf(path_h5, key=and_hdf_group, format="fixed", mode='w')
     return pd.concat([toc, batches], axis=1)
 
 
-def load_balance(toc, njobs, by=None):
+def load_balance_batches(toc, njobs, by=None):
     """..."""
     edge_counts =  toc.apply(lambda adj: adj.matrix.sum())
     computational_load = (np.cumsum(edge_counts.sort_values(ascending=True))
@@ -388,26 +504,57 @@ def batch_stores_at_basedir(b, under_group, for_matrix_type):
         yield matrices.get_store(to_hdf_at_path=p, under_group=g, for_matrix_type=m)
         index +=1
 
+    raise RuntimeError("Python should not have executed me")
 
-def load_parallel_run_analysis(a, parallelized, output_in):
-    """..."""
+
+def load_batched_subtargets(basedir):
+    """Load subtargets (i.e. a subset of adjacency matrices TOC from the input store,
+    for which an analysis will be run.
+
+    Arguments : INPROGRESS
+    ----------
+    to_analyze :: the analysis to run
+    parallelized :: config to parallize with
+    basedir :: path to the directory where the computation is being run
+    """
+    LOG.info("Load a batch of subtargets from %s", basedir)
+    batched_subtargets_h5, and_hdf_group = BATCHED_SUBTARGETS
+
+    path_h5 = Path(basedir) / batched_subtargets_h5
+    if not path_h5.exists():
+        raise RuntimeError(f"Not a valid TAP workspace: {basedir}."
+                           " No batch of subtargets found.")
+    return pd.read_hdf(path_h5, and_hdf_group)
+
+
+def load_parallel_run_analysis(a, parallelized, analyses_rundir):
+    """Load data stores produced by a single-node parallel computation,
+    each of which should have a produced a HDF store in a sub-directory
+    where the analyses for a TAP pipeline are being run.
+    """
     analysis = a
     a = analysis.name
     compute_nodes, njobs = read_njobs(parallelized, for_quantity=a)
     n = njobs
 
-    base, hdf_group = check_basedir(output_in, analysis, parallelized, mode='r',
+    base, hdf_group = check_basedir(analyses_rundir, analysis, parallelized, mode='r',
                                     return_hdf_group=True)
-    subtarget_batches = pd.read_hdf(Path(base) / BATCHED_SUBTARGETS, f"njobs-{n}")
+    subtarget_batches = load_batched_subtargets(Path(base))
 
     n_batches = subtarget_batches.value_counts()
-    batches = {b: Path(base) / f"{b}.h5" for b in subtarget_batches.drop_duplicates().values}
+    LOG.info("Loading parallel run analysis %s, batch sizes: \n %s", a, pformat(n_batches))
 
+    batches = {b: Path(base) / f"{b}.h5" for b in subtarget_batches.drop_duplicates().values}
     for b, path in batches.items():
-        assert path.exists(), f"Missing batch {b} of parallel analysis job at {base}."
+        if not path.exists():
+            raise RuntimeError(f"Missing batch {b} of parallel analysis job at {base}"
+                               " To be a valid TAP workspace a previous run should have"
+                               f" created data stores for each of the {len(n_batches)} batches")
 
     g = f"{hdf_group}/{a}"
     m = analysis.output_type
+    LOG.info("Load data stores computed in a %s-parallel run for analysis %s",
+             len(batches), g)
     stores = {b: matrices.get_store(to_hdf_at_path=p, under_group=g, for_matrix_type=m)
               for b, p in batches.items()}
     return stores

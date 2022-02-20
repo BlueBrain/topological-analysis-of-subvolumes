@@ -155,47 +155,13 @@ def main(argued):
         raise NotImplementedError("An automated run of all steps."
                                   " Please run individual steps manually from the CLI")
 
-    a = argued.action; s = argued.sample; o = argued.output; t = argued.test
-    result = topaz.run(steps, action=a, in_mode=m,
-                       sample=argued.sample, output=argued.output, dry_run=argued.test)
+    a = argued.action; b = argued.batch; s = argued.sample; o = argued.output; t = argued.test
+    result = topaz.run(steps, action=a, in_mode=m, batch=b, sample=s, output=o, dry_run=t)
 
     LOG.info("DONE running pipeline")
 
     return result
 
-
-# if __name__ == "__main__":ure
-
-#     LOG.warning("Parse arguments.")
-#     parser = ArgumentParser(description="Topological analysis of flatmapped subtargets")
-
-#     parser.add_argument("steps",
-#                         help=("Pipeline step to run. Use `all` to run the full pipeline.\n"
-#                               "To initialize a workspace: topological_analysis.py init config.json"
-#                               "To run a subset of steps, chain them as string using semicolon to join.\n"
-#                               "For example 'define-subtargets;extract-neurons'. Spaces will be removed."))
-
-#     parser.add_argument("config",
-#                         help="Path to the configuration to run the pipeline.")
-
-#     parser.add_argument("-j", "--njobs", type=int
-#                        ,help="Number of jobs in parallel.")
-
-#     parser.add_argument("--output",
-#                         help="Path to the directory to output in.", default=None)
-
-#     parser.add_argument("--sample",
-#                         help="A float to sample subtargets with", default=None)
-
-#     parser.add_argument("--dry-run", dest="test",  action="store_true",
-#                         help=("Use this to test the pipeline's plumbing "
-#                               "before running any juices through it."))
-#     parser.set_defaults(test=False)
-
-#     args = parser.parse_args()
-
-#     LOG.warning(str(args))
-#     main(args)
 
 if __name__ == "__main__":
 
@@ -253,6 +219,16 @@ if __name__ == "__main__":
                               "tap --configure=config.json --parallelize=parallel.json \\"
                               "    --mode=prod run\n"
                               "to run in production mode."))
+
+    parser.add_argument("-b", "--batch", required=False,
+                        help=("Path to a `.csv` or `.h5` that contains the subtargets to compute.\n"
+                              "The dataframe should contain the input to run the pipeline stage computation\n"
+                              "For example, analyses can be run on a selection of subtarget adjacency matrices"
+                              "that can be saved in this datasaved, for a later run.\n"
+                              "This option will be useful to programmatically produce shell scripts to launch"
+                              "multiple single-node computation.\n"
+                              "This will allow use to configure a multi-node parallel computation"
+                              " for analyse that require more than a single compute node."))
 
     parser.add_argument("--output",
                         help="Path to the directory to output in.", default=None)
