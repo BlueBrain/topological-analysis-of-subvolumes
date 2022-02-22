@@ -507,7 +507,8 @@ def batch_stores_at_basedir(b, under_group, for_matrix_type):
     raise RuntimeError("Python should not have executed me")
 
 
-def load_batched_subtargets(basedir):
+def load_batched_subtargets(basedir, compute_nodes=None, as_paths=False,
+                            COMPUTE_NODE="compute-node-{}", append_compute_node=False):
     """Load subtargets (i.e. a subset of adjacency matrices TOC from the input store,
     for which an analysis will be run.
 
@@ -516,15 +517,35 @@ def load_batched_subtargets(basedir):
     to_analyze :: the analysis to run
     parallelized :: config to parallize with
     basedir :: path to the directory where the computation is being run
+    COMPUTE_NODE :: string-pattern that names compute nodes...
     """
-    LOG.info("Load a batch of subtargets from %s", basedir)
+    LOG.info("Load a batch of subtargets from %s using %s compute nodes",
+             basedir, compute_nodes)
     batched_subtargets_h5, and_hdf_group = BATCHED_SUBTARGETS
 
-    path_h5 = Path(basedir) / batched_subtargets_h5
-    if not path_h5.exists():
-        raise RuntimeError(f"Not a valid TAP workspace: {basedir}."
-                           " No batch of subtargets found.")
-    return pd.read_hdf(path_h5, and_hdf_group)
+    def locate_compute_node(c):
+        return Path(basedir) if c is None else Path(basedir) / COMPUTE_NODE.format(c)
+
+    def get_compute_node(c):
+        path_compute_node = locate_compute_node(c)
+        path_h5 =  path_compute_node / batched_subtargets_h5
+        if not path_h5.exists():
+            raise RuntimeError(f"Not a valid TAP workspace: {basedir}."
+                               " No batch of subtargets found at compute node "
+                               f"{path_compute_node}.")
+        def locate_batch(b):
+            return path_compute_node / f"{b}.h5"
+
+        batches = pd.read_hdf(path_h5, and_hdf_group).batch
+        LOG.info("Batches in %s: \n %s", path_h5, pformat(batches))
+        return batches.apply(locate_batch).rename("path") if as_paths else batches
+
+    if not compute_nodes:
+        return get_compute_node(None)
+
+    col_compute_node = ({"keys": compute_nodes, "names": ["compute_node"]}
+                        if append_compute_node else {})
+    return pd.concat([get_compute_node(c) for c in compute_nodes], axis=0, **col_compute_node)
 
 
 def load_parallel_run_analysis(a, parallelized, analyses_rundir):
@@ -539,22 +560,27 @@ def load_parallel_run_analysis(a, parallelized, analyses_rundir):
 
     base, hdf_group = check_basedir(analyses_rundir, analysis, parallelized, mode='r',
                                     return_hdf_group=True)
-    subtarget_batches = load_batched_subtargets(Path(base))
+    subtarget_batches = load_batched_subtargets(Path(base), range(compute_nodes), as_paths=True)
+
+    LOG.info("Assemble stores for subtargets located at \n %s", pformat(subtarget_batches.values))
 
     n_batches = subtarget_batches.value_counts()
     LOG.info("Loading parallel run analysis %s, batch sizes: \n %s", a, pformat(n_batches))
 
-    batches = {b: Path(base) / f"{b}.h5" for b in subtarget_batches.drop_duplicates().values}
-    for b, path in batches.items():
-        if not path.exists():
-            raise RuntimeError(f"Missing batch {b} of parallel analysis job at {base}"
-                               " To be a valid TAP workspace a previous run should have"
-                               f" created data stores for each of the {len(n_batches)} batches")
+    def load_stores(batches):
+        for path in batches.values:
+            if not path.exists():
+                raise RuntimeError(f"Missing batch of parallel analysis job at {path}"
+                                " To be a valid TAP workspace a previous run should have"
+                                f" created data stores for each of the {len(n_batches)} batches")
 
-    g = f"{hdf_group}/{a}"
-    m = analysis.output_type
-    LOG.info("Load data stores computed in a %s-parallel run for analysis %s",
-             len(batches), g)
-    stores = {b: matrices.get_store(to_hdf_at_path=p, under_group=g, for_matrix_type=m)
-              for b, p in batches.items()}
-    return stores
+        g = f"{hdf_group}/{a}"
+        m = analysis.output_type
+        LOG.info("Load data stores computed in a %s-parallel run for analysis %s",
+                len(batches), g)
+        stores = {b: matrices.get_store(to_hdf_at_path=p, under_group=g, for_matrix_type=m)
+                  for b, p in batches.items()}
+        return stores
+
+    return load_stores(subtarget_batches.drop_duplicates())
+    return load_stores({b: Path(b) for b in subtarget_batches.drop_duplicates().values})

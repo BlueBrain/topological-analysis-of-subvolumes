@@ -65,6 +65,19 @@ class MatrixStore:
     """
     keysize = 1
 
+    def _check_hdf_group(self):
+        """The store needs a HDF group.
+        """
+        try:
+            with h5py.File(self._root, 'a') as hdf:
+               return hdf.require_group(self._group)
+        except OSError as oserr:
+            LOG.warning("HDF store %s may be ready-only: %s", self._root), oserr
+            with h5py.File(self._root, 'r') as hdf:
+                return hdf.require_group(self._group)
+        return False
+
+
     def __init__(self, root, group, using_handler,
                  dset_pattern="matrix_{0}",
                  key_toc="toc", key_mat="payload"):
@@ -78,8 +91,6 @@ class MatrixStore:
         self._key_toc = key_toc
         self._key_mat = key_mat
 
-        with h5py.File(self._root, 'a') as hdf:
-            _= hdf.require_group(self._group)
 
     @property
     def path(self):

@@ -65,7 +65,7 @@ def main(argued):
                                           neuron_properties=neurons, action=argued.action,
                                           to_save=(in_basedir, hdf_group))
     LOG.warning("DONE running analysis %s for batch %s of %s subtargets saving (%s, %s).",
-                analysis.name, argued.batch, len(toc_adjs), in_basedir, hdf_group)
+                analysis.name, argued.batches, len(toc_adjs), in_basedir, hdf_group)
     return result
 
 
