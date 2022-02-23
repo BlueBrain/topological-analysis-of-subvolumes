@@ -65,25 +65,46 @@ class MatrixStore:
     """
     keysize = 1
 
-    def _check_hdf_group(self):
+    @classmethod
+    def _check_hdf_group(cls, root, group, in_mode):
         """The store needs a HDF group.
         """
-        try:
-            with h5py.File(self._root, 'a') as hdf:
-               return hdf.require_group(self._group)
-        except OSError as oserr:
-            LOG.warning("HDF store %s may be ready-only: %s", self._root), oserr
-            with h5py.File(self._root, 'r') as hdf:
-                return hdf.require_group(self._group)
+        g = group
+        def check_hdf(h):
+            h.require_group(g)
+            return True
+
+        if in_mode=='a' or in_mode=="append":
+            with h5py.File(root, 'a') as h:
+                return check_hdf(h)
+            return False
+
+        if in_mode=='r' or in_mode=="read":
+            with h5py.File(root, 'r') as h:
+                try:
+                    return check_hdf(h)
+                except ValueError as error:
+                    LOG.error("Does %s/%s exist?: %s", root, group, error)
+                    return False
+                return False
+            return False
+
+        LOG.error("Unnown mode to open a matrix store %s", in_mode)
+
         return False
 
-
-    def __init__(self, root, group, using_handler,
+    def __init__(self, root, group, *, in_mode='a', using_handler=None,
                  dset_pattern="matrix_{0}",
                  key_toc="toc", key_mat="payload"):
         """..."""
         LOG.info("Initialize a %s matrix store loading / writing data at %s / %s",
                  self.__class__.__name__, root, group)
+
+        if not self._check_hdf_group(root, group, in_mode):
+            LOG.error("FAILED CHECK HDF %s.\n"
+                      "Data for group %s may not have been computed.", root, group)
+            raise ValueError(f"Cannot open HDF {root}/{group} in mode {in_mode}. Does it exist?")
+
         self._root = root
         self._group = group
         self._using_handler = using_handler
@@ -538,11 +559,16 @@ def StoreType(for_matrix_type):
     raise TypeError(f"Unhandled type for matrix value {for_matrix_type}: {type(for_matrix_type)}")
 
 
-def get_store(to_hdf_at_path, under_group, for_matrix_type, **kwargs):
+def get_store(to_hdf_at_path, under_group, for_matrix_type, in_mode='a', **kwargs):
     """..."""
     if not for_matrix_type:
         return None
 
     Store = StoreType(for_matrix_type)
 
-    return Store(to_hdf_at_path, under_group, **kwargs)
+    m = in_mode
+    try:
+        return Store(to_hdf_at_path, under_group, in_mode=m, **kwargs)
+    except ValueError as err:
+        LOG.error("Failed to load matrix store: %s", err)
+    return None

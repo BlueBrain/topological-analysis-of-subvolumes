@@ -80,18 +80,19 @@ class HDFStore:
     def analyses(self):
         """A TOC for analyses results available in the HDF store.
         """
-        def toc(analysis):
+        def toc(analysis, store):
             """..."""
-            agroup = self._groups[anzconn.STEP]
-            astore = anzconn.get_value_store(analysis, at_path=(self._root, agroup))
             try:
-                return astore.toc
+                return store.toc
             except FileNotFoundError as error:
-                LOG.error("Analysis %s NO TOC found: %s", analysis.name, error)
+                LOG.error("Analysis %s NO TOC found: %s", analysis, error)
                 return None
             return None
 
-        return {name: toc(analysis) for name, analysis in self._analyses.items()}
+        agroup = self._groups[anzconn.STEP]
+        stores = {name: anzconn.get_value_store(analysis, at_path=(self._root, agroup), in_mode='r')
+                  for name, analysis in self._analyses.items()}
+        return {analysis: toc(analysis, store) for analysis, store in stores.items() if store}
 
     @lazy
     def circuits(self):

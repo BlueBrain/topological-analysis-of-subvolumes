@@ -229,12 +229,12 @@ def get_analyses(config, as_dict=False):
             for name, description in configured.items()}
 
 
-def get_value_store(analysis, at_path, from_cache=None):
+def get_value_store(analysis, at_path, from_cache=None, in_mode='a'):
     """..."""
     if not from_cache:
-        to_hdf_at_path, under_group = at_path
+        to_hdf_at_path, under_group = at_path; m = in_mode
         return matrices.get_store(to_hdf_at_path, under_group + "/" + analysis.name,
-                                  for_matrix_type=analysis.output_type)
+                                  for_matrix_type=analysis.output_type, in_mode=m)
     try:
         store = from_cache[analysis]
     except KeyError:
