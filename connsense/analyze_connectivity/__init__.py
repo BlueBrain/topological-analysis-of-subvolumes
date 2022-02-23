@@ -220,7 +220,7 @@ def get_analyses(config, as_dict=False):
 
     configured = analyze_params["analyses"]
 
-    LOG.warning("configured analyses %s", configured )
+    LOG.warning("configured analyses %s", configured)
 
     if not as_dict:
         return [SingleMethodAnalysisFromSource(name, description)
@@ -360,7 +360,7 @@ def load_adjacencies(paths, from_batch, dry_run=False):
 
 
 def dispatch(adjacencies, neurons, analyses, action=None, in_mode=None, parallelize=None,
-             output=None, dry_run=False):
+             output=None, tap=None, dry_run=False):
     """Dispatch a table of contents of adjacencies, ...
 
     Computation for an analysis will be run in parallel over the subtargets,
@@ -392,7 +392,7 @@ def dispatch(adjacencies, neurons, analyses, action=None, in_mode=None, parallel
         LOG.info("Test plumbing: analyze: dispatch toc")
         return None
 
-    args = (adjacencies, neurons, action, in_mode, parallelize, output)
+    args = (adjacencies, neurons, action, in_mode, parallelize, tap, output)
     results = {quantity: parallely_analyze(quantity, *args) for quantity in analyses}
 
     LOG.info("Done, analyzing %s matrices", len(adjacencies))
@@ -427,7 +427,7 @@ def save_output(results, to_path):
 
 
 def run(config, action, in_mode=None, parallelize=None, output=None, batch=None,
-         sample=None, dry_run=None, **kwargs):
+        sample=None, tap=None, dry_run=None, **kwargs):
     """..."""
     from connsense.pipeline import workspace
 
@@ -456,7 +456,7 @@ def run(config, action, in_mode=None, parallelize=None, output=None, batch=None,
     basedir = workspace.locate_base(rundir, STEP)
     m = in_mode; p = parallelize.get(STEP, {}) if parallelize else None
     analyzed_results = dispatch(toc_dispatch, neurons, analyses, action, in_mode, parallelize=p,
-                                output=(basedir, hdf_group), dry_run=dry_run)
+                                output=(basedir, hdf_group), tap=tap, dry_run=dry_run)
 
     LOG.warning("DONE %s analyses for TAP config at %s:\n %s", len(analyses), rundir,
                 pformat({a.name: len(s) for a, s in analyzed_results.items()}))

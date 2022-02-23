@@ -146,7 +146,7 @@ class TopologicalAnalysis:
 
         return gather(self._config, in_mode, self._parallelize, *args, **kwargs)
 
-    def run(self, steps=None, action=None, in_mode=None, *args, **kwargs):
+    def run(self, steps=None, action=None, in_mode=None, *args, tap=self, **kwargs):
         """Run the pipeline.
         """
         if self._mode == "inspect":

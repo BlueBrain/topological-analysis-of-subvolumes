@@ -119,8 +119,39 @@ class SingleMethodAnalysisFromSource:
         self._module = module
         return method
 
-    def apply(self, adjacency, node_properties=None, log_info=None,
-              **kwargs):
+    def _input_analyses(self, tap, subtarget):
+        """Get other analyses from the TAP that are needed for this one.
+
+        TODO: Provide better documnetation, and log messages to help the user
+        """
+        import inspect
+        signat = inspect.signature(self._analysis)
+
+        index_entry = tuple(subtarget)
+
+        def evaluate_analysis(a):
+            try:
+                toc = tap.analyses[a]
+            except KeyError:
+                LOG.error("No analysis %s in store", a)
+                return None
+
+            try:
+                return toc.loc[index_entry]
+            except KeyError:
+                LOG.error("No analyses %a value in store for %s ", a, index_entry)
+                return None
+
+            LOG.error("Could not find a stored tap value for analysis %s of subtarget %s",
+                      a, index_entry)
+            return None
+
+        return {a: evaluate_analysis(a) for a in signat.parameters
+                if a not in ("adjacency", "adj", "nodes", "args", "kwargs")}
+
+
+    def apply(self, adjacency, node_properties=None, tap=None, subtarget=None,
+              log_info=None, **kwargs):
         """Use keyword arguments to test interactively,
         instead of reloading a config.
         """
@@ -136,14 +167,16 @@ class SingleMethodAnalysisFromSource:
         if node_properties is not None:
             assert node_properties.shape[0] == matrix.shape[0]
 
-        result = self._analysis(matrix, node_properties,
-                                *self._args, **self._kwargs, **kwargs)
+        input_analyses = self._input_analyses(tap, subtarget)
+        result = self._analysis(matrix, node_properties, *self._args,
+                                 **input_analyses, **self._kwargs, **kwargs)
 
         if log_info:
             LOG.info("Done analysis %s of %s\n to matrix of shape %s",
                      self.name, log_info, matrix.shape)
 
         return result
+
 
     @staticmethod
     def collect(data):
