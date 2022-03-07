@@ -113,10 +113,10 @@ def measure_quantity(a, of_subtarget, index_entry=None, using_neuron_properties=
     analysis = a
     neurons = using_neuron_properties
     s = of_subtarget
-    i = s.idx + 1
+    i = s.batch + 1
     l = index_entry["subtarget"]
-    LOG.info("Apply analysis %s to subtarget %s (%s / %s) %s",
-             analysis.name, l, i, batch_size or "",
+    LOG.info("Apply analysis %s to subtarget %s (%s / %s): \n%s\n%s",
+             analysis.name, l, i, batch_size or "", pformat(index_entry),
              log_info or "")
 
     result = analysis.apply(s.matrix, neurons, tapping, index_entry, log_info)
@@ -347,8 +347,8 @@ def dispatch_single_node(to_compute, batched_subtargets, neuron_properties, acti
 
 BASEDIR_MODE = {"run": 'w', "resume": 'a', "inspect": 'r'}
 
-def check_basedir(to_save, quantity, to_parallelize=None, mode=None,
-                  return_hdf_group=False):
+def check_basedir(to_save, quantity, to_parallelize=None, mode=None, return_hdf_group=False):
+
     """The locaiton `to_save` in could have been used in a previous run.
 
     By default, the base directory will be prepared and returned.
@@ -358,7 +358,7 @@ def check_basedir(to_save, quantity, to_parallelize=None, mode=None,
     """
     mode = BASEDIR_MODE.get(mode, mode)
 
-    LOG.info("Check basedir to save %s quantity %s in mode %s to paraellize %s",
+    LOG.info("Check basedir to save %s quantity %s in mode %s to paralellize %s",
              to_save, quantity.name, mode, to_parallelize)
     assert not mode or mode in ('w', 'r', 'a'), f"Illegal mode {mode}"
     mode = mode or 'r'

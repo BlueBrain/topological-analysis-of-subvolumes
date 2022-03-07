@@ -22,6 +22,17 @@ def _read_steps(argued):
     return [s.strip().lower() for s in argued.step.split(';')] if argued.step else None
 
 
+def _read_substeps(argued):
+    """Read the pipeline substeps from arguments.
+
+    NOTE: Individual substeps of the pipeline are quite complex, and during the development
+    so far (20220218) we have tested mosty for `analyze-connevtivity` substeps.
+    We will come back here once we are confident about all of our analyses  ---
+    and logging so that we can be understand the state of the pipeline.
+    """
+    return [s.strip().lower() for s in argued.step.split(';')] if argued.substep else None
+
+
 def _read_output_in_config(c, and_argued_to_be):
     """...
     "output": {"store": output_hdf, "steps": output_steps}}
@@ -147,6 +158,7 @@ def main(argued):
 
     LOG.info("Run the pipeline.")
     steps = _read_steps(argued)
+    substeps = _read_substeps(argued)
 
     if not steps:
         raise ValueError("Provide one or more step to run, 'all` to run all the steps.")
@@ -156,7 +168,7 @@ def main(argued):
                                   " Please run individual steps manually from the CLI")
 
     a = argued.action; b = argued.batch; s = argued.sample; o = argued.output; t = argued.test
-    result = topaz.run(steps, action=a, in_mode=m, batch=b, sample=s, output=o, dry_run=t)
+    result = topaz.run(steps, substeps, action=a, in_mode=m, batch=b, sample=s, output=o, dry_run=t)
 
     LOG.info("DONE running pipeline")
 
@@ -166,7 +178,6 @@ def main(argued):
 if __name__ == "__main__":
 
     LOG.warning("Analyze circuit subtarget topology.")
-
 
     parser = ArgumentParser(description="Topological analysis of flatmapped subtargets.")
 

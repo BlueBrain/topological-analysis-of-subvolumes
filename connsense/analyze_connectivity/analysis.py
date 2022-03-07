@@ -90,9 +90,8 @@ class SingleMethodAnalysisFromSource:
     @property
     def quantity(self):
         """To name the column in a dataframe, or an item in a series."""
-        return self._description.get("quantity",
-                                     self._description.get("method",
-                                                           self._analysis.__name__))
+        method =  self._description.get("method", self._analysis.__name__)
+        return self._description.get("quantity", method)
 
     @property
     def output_type(self):
@@ -169,7 +168,7 @@ class SingleMethodAnalysisFromSource:
 
         input_analyses = self._input_analyses(tap, subtarget)
         result = self._analysis(matrix, node_properties, *self._args,
-                                 **input_analyses, **self._kwargs, **kwargs)
+                                **input_analyses, **self._kwargs, **kwargs)
 
         if log_info:
             LOG.info("Done analysis %s of %s\n to matrix of shape %s",

@@ -452,11 +452,15 @@ def run(config, action, in_mode=None, parallelize=None, output=None, batch=None,
             return None
 
     _, hdf_group = output_paths["steps"].get(STEP, default_hdf(STEP))
+
     analyses = get_analyses(config)
+    LOG.info("Analyses to run %s", [a.name for a in analyses])
+
     basedir = workspace.locate_base(rundir, STEP)
     m = in_mode; p = parallelize.get(STEP, {}) if parallelize else None
-    analyzed_results = dispatch(toc_dispatch, neurons, analyses, action, in_mode, parallelize=p,
-                                output=(basedir, hdf_group), tap=tap, dry_run=dry_run)
+    analyzed_results = dispatch(toc_dispatch, neurons, analyses, action, in_mode,
+                                parallelize=p, output=(basedir, hdf_group),
+                                tap=tap, dry_run=dry_run)
 
     LOG.warning("DONE %s analyses for TAP config at %s:\n %s", len(analyses), rundir,
                 pformat({a.name: len(s) for a, s in analyzed_results.items()}))

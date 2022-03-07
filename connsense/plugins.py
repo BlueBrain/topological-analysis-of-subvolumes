@@ -67,7 +67,7 @@ def get_module(from_object, with_function=None):
 
         return items
 
-    def check(module, has_function=None):
+    def check(module, has_functions=None):
         """..."""
         if not has_functions:
             return module

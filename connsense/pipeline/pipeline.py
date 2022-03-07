@@ -137,16 +137,15 @@ class TopologicalAnalysis:
         """
         assert steps and len(steps) == 1, "Only a single step may be collected."
 
-        s = steps[0]
-
+        step = self.__steps__[steps[0]]
         try:
-            gather = self.__steps__[s].collect
-        except AttributeError:
-            raise NotImplementedError(f"A method to collect in {self.__steps__[s]}")
+            gather = step.collect
+        except AttributeError as aerror:
+            raise NotImplementedError(f"A method to collect in {step}") from aerror
 
         return gather(self._config, in_mode, self._parallelize, *args, **kwargs)
 
-    def run(self, steps=None, action=None, in_mode=None, *args, tap=self, **kwargs):
+    def run(self, steps=None, substeps=None, action=None, in_mode=None, *args, **kwargs):
         """Run the pipeline.
         """
         if self._mode == "inspect":
@@ -162,12 +161,11 @@ class TopologicalAnalysis:
         if action.lower() in ("collect", "merge"):
             return self.collect(steps, in_mode, *args, **kwargs)
 
-        LOG.warning("Dispatch from %s queue: %s",
-                    len(self.state.queue), self.state.queue)
         if steps:
-            self.state = PipelineState(complete=self.state.complete,
-                                       running=self.state.running,
-                                       queue=steps)
+            s = self.state
+            self.state = PipelineState(complete=s.complete, running=s.running, queue=steps)
+        LOG.warning("Dispatch from %s queue: %s", len(self.state.queue), self.state.queue)
+
         while self.state.queue:
             step = self.state.queue.pop(0)
 
