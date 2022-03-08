@@ -426,8 +426,23 @@ def save_output(results, to_path):
     return saved
 
 
-def run(config, action, in_mode=None, parallelize=None, output=None, batch=None,
-        sample=None, tap=None, dry_run=None, **kwargs):
+def filter_analyses(ns, substep):
+    """Filter an analyze-connectivity substep --- provided at the CLI.
+    """
+    analyses = ns
+    if not substep:
+        return analyses
+
+    try:
+        substep_analysis = analyses[substep]
+    except KeyError as kerr:
+        raise KeyError(f"analyze-connectivity <substep> {substep}"
+                       " must be missing in the config.") from kerr
+    return [substep_analysis]
+
+
+def run(config, action, in_mode=None, parallelize=None, substep=None,
+        output=None, batch=None, sample=None, tap=None, dry_run=None, **kwargs):
     """..."""
     from connsense.pipeline import workspace
 
@@ -436,7 +451,7 @@ def run(config, action, in_mode=None, parallelize=None, output=None, batch=None,
     input_paths = paths["input"]
     output_paths = paths["output"]
 
-    LOG.warning("DONE analyzing: %s", pformat(config))
+    LOG.warning("Run analyses in config : %s", pformat(config))
 
     rundir = workspace.get_rundir(config, mode=in_mode, **kwargs)
 
@@ -453,8 +468,10 @@ def run(config, action, in_mode=None, parallelize=None, output=None, batch=None,
 
     _, hdf_group = output_paths["steps"].get(STEP, default_hdf(STEP))
 
-    analyses = get_analyses(config)
-    LOG.info("Analyses to run %s", [a.name for a in analyses])
+    configured = get_analyses(config, substep)
+    analyses = filter_analyses(configured, substep)
+    LOG.info("Analyses in the configuration %s", [a.name for a in analyses])
+    LOG.info("Analyses to run %s", pformat(analyses))
 
     basedir = workspace.locate_base(rundir, STEP)
     m = in_mode; p = parallelize.get(STEP, {}) if parallelize else None
@@ -474,8 +491,12 @@ def load_batched_results(analyses, parallelization, output):
     return {a: load_parallel_run_analysis(a, parallelization, output) for a in analyses}
 
 
-def collect(config, in_mode, parallelize, *args, output=None, **kwargs):
-    """..."""
+def collect(config, in_mode, parallelize, *args, substep=None, output=None, **kwargs):
+    """Collect batched results into a single store.
+
+    substep :: Name of the analysis to store that is provided at the CLI as analyze-connectivity substep.
+    ~         If `None` is provided, all the analyses configured will be run.
+    """
     from connsense.pipeline import workspace
 
     config = read(config)
@@ -487,7 +508,10 @@ def collect(config, in_mode, parallelize, *args, output=None, **kwargs):
     to_parallelize = parallelize.get(STEP, {}) if parallelize else None
 
     _, hdf_group = output_paths["steps"].get(STEP, default_hdf(STEP))
-    analyses = get_analyses(config)
+    configured = get_analyses(config, substep)
+    analyses = filter_analyses(configured, substep)
+    LOG.info("Collect analyses %s", pformat(analyses))
+
     rundir = workspace.get_rundir(config, mode=in_mode, **kwargs)
     basedir = workspace.locate_base(rundir, STEP)
     batched_results = load_batched_results(analyses, to_parallelize, (basedir, hdf_group))

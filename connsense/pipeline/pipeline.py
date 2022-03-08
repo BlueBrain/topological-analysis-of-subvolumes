@@ -122,22 +122,21 @@ class TopologicalAnalysis:
         """..."""
         return self._data
 
-    def dispatch(self, step, action, in_mode, *args, **kwargs):
+    def dispatch(self, step, substep, action, in_mode, *args, **kwargs):
         """..."""
-        result = self.__steps__[step].run(self._config, action, in_mode, self._parallelize,
-                                          *args, **kwargs)
+        LOG.info("Pipeline dispatch %s %s %s", step, substep, action)
+        result = (self.__steps__[step]
+                  .run(self._config, action, in_mode, self._parallelize,
+                       *args, substep=substep, tap=self.data, **kwargs))
         return result
 
     def get_h5group(self, step):
         """..."""
         return self._data_groups.get(step)
 
-    def collect(self, steps, in_mode, *args, **kwargs):
+    def collect(self, step, substep, in_mode, *args, **kwargs):
         """Collect the batched results generated in a single step.
         """
-        assert steps and len(steps) == 1, "Only a single step may be collected."
-
-        step = self.__steps__[steps[0]]
         try:
             gather = step.collect
         except AttributeError as aerror:
@@ -145,8 +144,12 @@ class TopologicalAnalysis:
 
         return gather(self._config, in_mode, self._parallelize, *args, **kwargs)
 
-    def run(self, steps=None, substeps=None, action=None, in_mode=None, *args, **kwargs):
+    def run_queue(self, steps=None, substeps=None, action=None, in_mode=None,
+                  *args, **kwargs):
         """Run the pipeline.
+        This used to be the `run` method for analyze-connectivity ---
+        This method will not work --- we will come back when we are ready to
+        run a pipeline queue --- for now use the `run` method
         """
         if self._mode == "inspect":
             if not in_mode == "inspect":
@@ -181,3 +184,28 @@ class TopologicalAnalysis:
         LOG.warning("DONE running %s steps: ", len(self.state.complete))
 
         return self.state
+
+    def run(self, step, substep=None, action=None, in_mode=None, *args, **kwargs):
+        """Run the pipeline, one step and if defined one substep at a time.
+        We can chain all the steps together later.
+        """
+        LOG.warning("RUN pipeline action %s for step %s %s ", action, step, substep)
+
+        if self._mode == "inspect":
+            if not in_mode == "inspect":
+                raise RuntimeError("Cannot run a read-only pipeline."
+                                   " You can use read-only mode to inspect the data"
+                                   " that has already been computed.")
+            if action and action.lower() != "inspect":
+                raise RuntimeError(f"Cannot run {action} for a pipeline in mode inspect\n"
+                                   "In mode inspect, there is no action to do,\n"
+                                   " so use action=None or action='inspect'")
+
+        if action.lower() in ("collect", "merge"):
+            return self.collect(step, substep, in_mode, *args, **kwargs)
+
+        result = self.dispatch(step, substep, action, in_mode, *args, **kwargs)
+
+        LOG.warning("DONE run action %s for pipeline step %s %s", action, step, substep)
+        LOG.info("RESULT %s %s: %s", step, substep, result)
+        return result

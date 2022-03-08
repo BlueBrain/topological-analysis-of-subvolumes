@@ -19,6 +19,7 @@ from connsense.io.write_results import (read as read_results,
                                         default_hdf)
 from connsense.apps import topological_analysis as topaz
 from connsense.pipeline import workspace
+from connsense.pipeline.store import HDFStore as TAPStore
 from connsense import analyze_connectivity as anzconn
 from connsense.analyze_connectivity import analyze
 
@@ -61,9 +62,10 @@ def main(argued):
     LOG.info("Compute analysis %s on %s subtargets, saving results to (%s, %s)",
              analysis.name, len(toc_adjs), in_basedir, hdf_group)
 
+    pipeline_store = TAPStore(config)
     result = analyze.dispatch_single_node(to_compute=analysis, batched_subtargets=toc_adjs,
                                           neuron_properties=neurons, action=argued.action,
-                                          to_save=(in_basedir, hdf_group))
+                                          to_tap=pipeline_store, to_save=(in_basedir, hdf_group))
     LOG.warning("DONE running analysis %s for batch %s of %s subtargets saving (%s, %s).",
                 analysis.name, argued.batches, len(toc_adjs), in_basedir, hdf_group)
     return result

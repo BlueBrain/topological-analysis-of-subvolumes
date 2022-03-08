@@ -1,5 +1,6 @@
 """ConnSense: An app to run connectome utility pipeline.
 """
+from collections import OrderedDict
 from argparse import ArgumentParser
 from pathlib import Path
 from pprint import pformat
@@ -22,6 +23,12 @@ def _read_steps(argued):
     return [s.strip().lower() for s in argued.step.split(';')] if argued.step else None
 
 
+def _read_step(argued):
+    """Read the step provided at the CLI invocation.
+    """
+    return argued.step
+
+
 def _read_substeps(argued):
     """Read the pipeline substeps from arguments.
 
@@ -31,6 +38,12 @@ def _read_substeps(argued):
     and logging so that we can be understand the state of the pipeline.
     """
     return [s.strip().lower() for s in argued.step.split(';')] if argued.substep else None
+
+
+def _read_substep(argued):
+    """Read the single substep provided at the CLI invocation.
+    """
+    return argued.substep
 
 
 def _read_output_in_config(c, and_argued_to_be):
@@ -66,12 +79,12 @@ def lower(argument):
     return argument.lower() if argument else None
 
 
-SUBSTEPS = {"define-subtargets": "grids",
-            "extract-neurons": None,
-            "evaluate-subtargets": "metrics",
-            "extract-connectivity": "connectomes",
-            "randomize-connectivity": "algorithms",
-            "analyze-connectivity": "analyses"}
+SUBSTEPS = OrderedDict([("define-subtargets", "grids"),
+                        ("extract-neurons", None),
+                        ("evaluate-subtargets", "metrics"),
+                        ("extract-connectivity", "connectomes"),
+                        ("randomize-connectivity", "algorithms"),
+                        ("analyze-connectivity", "analyses")])
 
 
 def parameterize_substeps(s, in_config):
@@ -157,18 +170,13 @@ def main(argued):
              argued.configure, argued.parallelize)
 
     LOG.info("Run the pipeline.")
-    steps = _read_steps(argued)
-    substeps = _read_substeps(argued)
 
-    if not steps:
-        raise ValueError("Provide one or more step to run, 'all` to run all the steps.")
+    if not s:
+        raise ValueError("Provide a step to run: ")
 
-    if steps == "all":
-        raise NotImplementedError("An automated run of all steps."
-                                  " Please run individual steps manually from the CLI")
-
-    a = argued.action; b = argued.batch; s = argued.sample; o = argued.output; t = argued.test
-    result = topaz.run(steps, substeps, action=a, in_mode=m, batch=b, sample=s, output=o, dry_run=t)
+    a = argued.action; b = argued.batch; p = argued.sample; o = argued.output; t = argued.test
+    result = topaz.run(step=s, substep=ss, action=a, in_mode=m, batch=b, sample=p, output=o,
+                       dry_run=t)
 
     LOG.info("DONE running pipeline")
 
@@ -192,13 +200,10 @@ if __name__ == "__main__":
                               "\t(4) collect: collect the results into a single store."))
 
     parser.add_argument("step", nargs='?', default=None,
-                        help=("Pipeline step to run. Use `all` to run the full pipeline.\n"
-                              "To run a subset of steps, chain them as string using semicolon to join.\n"
-                              "For example 'define-subtargets;extract-neurons'. Spaces will be removed.\n"
-                              "Argument `steps` may be skipped for initializing the pipeline"
-                              "To initialize a workspace: topological_analysis.py init config.json "
-                              "will create a directory to run the pipeline in ---"
-                              " but without any subfolders for individual pipeline steps. "))
+                        help=("Pipeline step run --- only one step may be run.\n"
+                              "Skip this argument when initializing a pipeline run:\n"
+                              "python tap --configure=config.json --parallelize=parallel.json init\n"
+                              "which will setup a workspace to run the entire pipeline."))
 
     parser.add_argument("substep", nargs='?', default=None,
                         help=("Some of the pipeline steps can be duvided into "
@@ -207,9 +212,8 @@ if __name__ == "__main__":
                               "each for each subtarget independently of the others.\n"
                               "Provide a pipeline step's sub-step to run only that one.\n"
                               "For example,\n"
-                              "tap init analyze-connectivity simplices \\\n"
-                              "\t--configure=pipeline.json \\\n"
-                              "\t--parallelize=parallel.json"))
+                              "python tap <action> analyze-connectivity simplices\n"
+                              "to run an action that analyzes simplices"))
 
     parser.add_argument("-c", "--configure", required=True,
                         help=("Path to the (JSON) configuration that describes what to run.\n"

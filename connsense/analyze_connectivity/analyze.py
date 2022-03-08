@@ -74,8 +74,6 @@ def get_neuron_properties(hdf_path, hdf_group):
 #         bowl[label] = analyzed
 #     return analyzed
 
-
-
 GIGABYTE = 2 ** 30
 
 BATCHED_SUBTARGETS = ("batches.h5", "subtargets")
