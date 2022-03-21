@@ -14,13 +14,13 @@
         }
     },
     "pipeline": {
-      "root": "/gpfs/bbp.cscs.ch/project/proj83/home/sood/analyses/manuscript/topological-analysis-subvolumes/test/simplices",
+      "root": "/gpfs/bbp.cscs.ch/project/proj83/home/sood/analyses/manuscript/topological-analysis-subvolumes/test/bedge-counts",
       "input": {
         "store": "topological_sampling.h5",
         "steps": "all"
       },
       "output": {
-        "store": "topological_sampling_out_0.h5",
+        "store": "topological_sampling_out.h5",
         "steps": "analyze-connectivity"
       },
       "steps": {
@@ -98,28 +98,6 @@
       ]
     },
     "randomize-connectivity": {
-      "common": {
-        "COMMENT": ["Provide parameters for individual algorithms in the next section.",
-                    "In this section provide parameters common to all the algorithms."],
-      },
-      "algorithms": {
-        "erin": {
-          "source": "/gpfs/bbp.cscs.ch/project/proj83/home/sood/analyses/manuscript/topological-analysis-subvolumes/topological-analysis-of-subvolumes/randomization/library/rewire.py",
-          "kwargs": {"direction": "OUT"},
-          "name": "connections-rewired-controlling-in-degree"
-        },
-        "erout":{
-          "source": "/gpfs/bbp.cscs.ch/project/proj83/home/sood/analyses/manuscript/topological-analysis-subvolumes/topological-analysis-of-subvolumes/randomization/library/rewire.py",
-          "kwargs": {"direction": "IN"},
-          "name": "connections-rewired-controlling-out-degree"
-        },
-        "ER_shuffle": {
-          "source": "/gpfs/bbp.cscs.ch/project/proj83/home/sood/analyses/manuscript/topological-analysis-subvolumes/topologists_connectome_analysis/library/randomization.py",
-          "method":  "ER_shuffle",
-          "kwargs": {},
-          "name": "ER_shuffle"
-        }
-      }
     },
     "analyze-connectivity": {
       "common": {
@@ -128,8 +106,29 @@
       },
       "analyses": {
         "simplices": {
-          "source": "/gpfs/bbp.cscs.ch/project/proj83/home/sood/proj83/connectome_analysis//library/topology.py",
+	        "source": "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py",
           "method": "list_simplices_by_dimension",
+          "kwargs": {},
+          "output": "SeriesOfMatrices"
+        },
+        "node-participation": {
+	        "source": "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py",
+          "method": "node_participation",
+          "kwargs": {},
+          "output": "pandas.DataFrame"
+        },
+	      "betti-counts": {
+	        "source": "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py",
+          "method": "betti_counts",
+          "kwargs": {
+	          "approximation": [-1, -1, 10000, 10000, 100000, 100000, -1, -1]
+          },
+          "output": "pandas.Series"
+        },
+	      "bedge-counts": {
+	        "source": "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py",
+          "method": "bedge_counts",
+          "kwargs": {},
           "output": "SeriesOfMatrices"
         }
       }
