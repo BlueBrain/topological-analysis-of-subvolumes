@@ -171,8 +171,8 @@ class SingleMethodAnalysisFromSource:
                                 **input_analyses, **self._kwargs, **kwargs)
 
         if log_info:
-            LOG.info("Done analysis %s of %s\n to matrix of shape %s",
-                     self.name, log_info, matrix.shape)
+            LOG.info("Done analysis %s of adjacency matrix of shape %s from %s",
+                     self.name, matrix.shape, log_info)
 
         return result
 

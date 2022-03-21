@@ -11,12 +11,12 @@ import json
 
 from ..io.write_results import (read_toc_plus_payload, read_node_properties,
                                 read_subtargets)
-from ..io import logging
-
-LOG = logging.get_logger("pipeline.")
-
 from .step import Step
 from .store import HDFStore
+from ..io import logging
+
+
+LOG = logging.get_logger("pipeline.")
 
 PipelineState = namedtuple("PipelineState", ["complete", "running", "queue"],
                            defaults=[None, None, None])
@@ -137,12 +137,13 @@ class TopologicalAnalysis:
     def collect(self, step, substep, in_mode, *args, **kwargs):
         """Collect the batched results generated in a single step.
         """
+        runner = self.__steps__[step]
         try:
-            gather = step.collect
+            gather = runner.collect
         except AttributeError as aerror:
             raise NotImplementedError(f"A method to collect in {step}") from aerror
 
-        return gather(self._config, in_mode, self._parallelize, *args, **kwargs)
+        return gather(self._config, in_mode, self._parallelize, substep=substep, **kwargs)
 
     def run_queue(self, steps=None, substeps=None, action=None, in_mode=None,
                   *args, **kwargs):

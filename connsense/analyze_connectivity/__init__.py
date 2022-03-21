@@ -229,6 +229,21 @@ def get_analyses(config, as_dict=False):
             for name, description in configured.items()}
 
 
+def filter_analyses(ns, substep):
+    """Filter an analyze-connectivity substep --- provided at the CLI.
+    """
+    analyses = ns
+    if not substep:
+        return analyses
+
+    try:
+        substep_analysis = analyses[substep]
+    except KeyError as kerr:
+        raise KeyError(f"analyze-connectivity <substep> {substep}"
+                       " must be missing in the config.") from kerr
+    return [substep_analysis]
+
+
 def get_value_store(analysis, at_path, from_cache=None, in_mode='a'):
     """..."""
     if not from_cache:
@@ -412,12 +427,6 @@ def save_output(results, to_path):
         m = analysis.output_type
         return matrices.get_store(to_hdf_at_path=p, under_group=g, for_matrix_type=m)
 
-    def save_analysis(a, batches):
-        """..."""
-
-
-
-
     saved = {a: in_store(a).collect(batched_stores) for a, batched_stores in results.items()}
     LOG.info("Done saving %s analyses of results")
     for a, saved_analysis in saved.items():
@@ -426,25 +435,13 @@ def save_output(results, to_path):
     return saved
 
 
-def filter_analyses(ns, substep):
-    """Filter an analyze-connectivity substep --- provided at the CLI.
-    """
-    analyses = ns
-    if not substep:
-        return analyses
-
-    try:
-        substep_analysis = analyses[substep]
-    except KeyError as kerr:
-        raise KeyError(f"analyze-connectivity <substep> {substep}"
-                       " must be missing in the config.") from kerr
-    return [substep_analysis]
-
-
 def run(config, action, in_mode=None, parallelize=None, substep=None,
         output=None, batch=None, sample=None, tap=None, dry_run=None, **kwargs):
     """..."""
     from connsense.pipeline import workspace
+
+    assert substep, \
+        "Missing argument `substep`: Can run only an argued analysis, not all at once!"
 
     config = read(config)
     paths = _check_paths(config["paths"])
@@ -468,7 +465,7 @@ def run(config, action, in_mode=None, parallelize=None, substep=None,
 
     _, hdf_group = output_paths["steps"].get(STEP, default_hdf(STEP))
 
-    configured = get_analyses(config, substep)
+    configured = get_analyses(config, as_dict=True)
     analyses = filter_analyses(configured, substep)
     LOG.info("Analyses in the configuration %s", [a.name for a in analyses])
     LOG.info("Analyses to run %s", pformat(analyses))
@@ -491,7 +488,7 @@ def load_batched_results(analyses, parallelization, output):
     return {a: load_parallel_run_analysis(a, parallelization, output) for a in analyses}
 
 
-def collect(config, in_mode, parallelize, *args, substep=None, output=None, **kwargs):
+def collect(config, in_mode, parallelize, substep=None, output=None, **kwargs):
     """Collect batched results into a single store.
 
     substep :: Name of the analysis to store that is provided at the CLI as analyze-connectivity substep.
@@ -508,7 +505,7 @@ def collect(config, in_mode, parallelize, *args, substep=None, output=None, **kw
     to_parallelize = parallelize.get(STEP, {}) if parallelize else None
 
     _, hdf_group = output_paths["steps"].get(STEP, default_hdf(STEP))
-    configured = get_analyses(config, substep)
+    configured = get_analyses(config, as_dict=True)
     analyses = filter_analyses(configured, substep)
     LOG.info("Collect analyses %s", pformat(analyses))
 

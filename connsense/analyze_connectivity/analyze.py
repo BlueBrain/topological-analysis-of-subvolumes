@@ -111,7 +111,7 @@ def measure_quantity(a, of_subtarget, index_entry=None, using_neuron_properties=
     analysis = a
     neurons = using_neuron_properties
     s = of_subtarget
-    i = s.batch + 1
+    i = s.idx + 1
     l = index_entry["subtarget"]
     LOG.info("Apply analysis %s to subtarget %s (%s / %s): \n%s\n%s",
              analysis.name, l, i, batch_size or "", pformat(index_entry),
@@ -222,8 +222,8 @@ def configure_launch_multi(number, quantity, using_subtargets, at_workspace,
 
         a = quantity.name
         with open(master_launchscript, 'a') as to_launch:
-            to_launch.write(f"################## LAUNCH analysis {a} for chunk {c}"
-                            f" of {len(subtargets)} subtargets. #######################\n")
+            to_launch.write(f"%%%%%%%%%%%%%%%%%% LAUNCH analysis {a} for chunk {c}"
+                            f" of {len(subtargets)} subtargets. %%%%%%%%%%%%%%%%%%%%%%%\n")
 
             to_launch.write(f"pushd {rundir}\n")
             script = "run-analysis.sbatch"
