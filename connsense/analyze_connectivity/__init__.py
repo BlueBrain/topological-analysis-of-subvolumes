@@ -435,6 +435,34 @@ def save_output(results, to_path):
     return saved
 
 
+def apply_controls(config, toc, **kwargs):
+    """Apply configured controls to an adjacency table ot contents, as argued in  `kwargs``.
+
+    A control is configured as :
+       "erdos-renyi": {
+          "source": "/path/to/the/source/file.py",
+          "method": "name-of the shuffling method in the source file",
+          "number_samples": 5,
+          "seeds": [0, 1, 2, 3, 4, 5],
+          "kwargs": {}
+        }
+    """
+    from .randomize import RandomControls, read_randomization
+
+    LOG.info("Apply controls to a table of contents.")
+    try:
+        control = kwargs["control"]
+    except KeyError:
+        LOG.info("No controls were argued.")
+        return toc
+
+    algorithm = read_randomization(config, control)
+
+    random_controls = RandomControls(name=control, description=algorithm, be_lazy=True)
+
+    return toc.apply(lambda subvolume: random_controls.apply(subvolume))
+
+
 def run(config, action, in_mode=None, parallelize=None, substep=None,
         output=None, batch=None, sample=None, tap=None, dry_run=None, **kwargs):
     """..."""
@@ -456,7 +484,9 @@ def run(config, action, in_mode=None, parallelize=None, substep=None,
 
     toc_adjs = load_adjacencies(input_paths, batch, dry_run)
 
-    toc_dispatch = subset_subtargets(toc_adjs, sample, dry_run)
+    toc_subset = subset_subtargets(toc_adjs, sample, dry_run)
+
+    toc_dispatch = apply_controls(toc_subset, **kwargs)
 
     if toc_dispatch is None:
         if not dry_run:

@@ -158,5 +158,4 @@ class SingleMethodAlgorithmFromSource(Algorithm):
         if node_properties is not None:
             assert node_properties.shape[0] == matrix.shape[0]
 
-        return self._shuffle(matrix, node_properties,
-                             *self._args, **self._kwargs)
+        return self._shuffle(matrix, node_properties, *self._args, **self._kwargs)

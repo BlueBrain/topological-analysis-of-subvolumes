@@ -449,7 +449,7 @@ class SeriesOfMatricesStore(MatrixStore):
 
         toc_long.index = toc_long.index.reorder_levels(names[1:] + [names[0]])
 
-        return toc_long)b, batch._root, batch._group, self._root, self._group)
+        return toc_long(b, batch._root, batch._group, self._root, self._group)
             framed = frame(b, batch)
             i = 0
 

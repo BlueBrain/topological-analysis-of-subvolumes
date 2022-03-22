@@ -21,6 +21,19 @@ def get_rundir(config, step=None, substep=None, mode=None, with_base=False,
                *args, **kwargs):
     """..
     ."""
+    def apply_controls(rundir):
+        """Check of a control method has been argued, and if so
+        create a specific folder.
+        """
+        try:
+            control = kwargs["control"]
+        except KeyError:
+            return rundir
+
+        control_run  = rundir / control
+        control_run.mkdir(exist_ok=True, parents=False)
+        return control_run
+
     assert not mode or mode in ("test", "develop", "prod"), str(mode)
 
     pipeline = config["paths"]
@@ -37,18 +50,18 @@ def get_rundir(config, step=None, substep=None, mode=None, with_base=False,
 
     if not step:
         assert not substep, f"Substep {f} of step None maketh sense None"
-        return (rundir, modir) if with_base else modir
+        return apply_controls((rundir, modir) if with_base else modir)
 
     stepdir = modir / step
     stepdir.mkdir(parents=False, exist_ok=True)
 
     if not substep or substep == "_":
-        return (rundir, stepdir) if with_base else stepdir
+        return apply_controls((rundir, stepdir) if with_base else stepdir)
 
     substepdir = stepdir / substep
     substepdir.mkdir(parents=False, exist_ok=True)
 
-    return (rundir, substepdir) if with_base else substepdir
+    return apply_controls((rundir, substepdir) if with_base else substepdir)
 
 
 def check_configs(c, and_to_parallelize, at_location, must_exist=False, create=False):

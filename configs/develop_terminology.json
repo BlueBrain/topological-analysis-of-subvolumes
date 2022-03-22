@@ -97,7 +97,29 @@
         ]
       ]
     },
-    "randomize-connectivity": {
+    "randomize-connectivity":{
+      "common": {
+        "COMMENT": ["Notice that random controls are modeled in the pipeline separately from ",
+                    "the `randomize-connecitivity`"]
+      }
+    },
+    "control-connectivity": {
+      "common": {
+        "COMMENT": ["Control connectivity for topological analysis of circuit subvolumes\n",
+                    "Provide parameters for individual analyses in the next section.",
+                    "In this section, provide parameters commmon to all the analyses."]
+      },
+      "algorithms": {
+        "COMMENT": ["For each algorithm provide keyword argument `sampling`for how to sample.",
+                    "The `sampling` value can be an integer to indicate the number of samples to make,",
+                    "or a list of integers that will be used as random seeds for sampling."],
+        "erdos-renyi": {
+          "source": "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/randomization.py",
+          "method": "ER_shuffle",
+          "samples": [0, 1, 2, 3, 4, 5],
+          "kwargs": {}
+        }
+      }
     },
     "analyze-connectivity": {
       "common": {
@@ -105,10 +127,15 @@
                     "In this section provide parameters common to all the analysis."]
       },
       "analyses": {
+        "simplex-counts": {
+	        "source": "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py",
+          "method": "simplex_counts",
+          "controls": ["erdos-renyi"],
+          "output": "pandas.Series"
+        }
         "simplices": {
 	        "source": "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py",
           "method": "list_simplices_by_dimension",
-          "kwargs": {},
           "output": "SeriesOfMatrices"
         },
         "node-participation": {
@@ -128,7 +155,6 @@
 	      "bedge-counts": {
 	        "source": "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py",
           "method": "bedge_counts",
-          "kwargs": {},
           "output": "SeriesOfMatrices"
         }
       }

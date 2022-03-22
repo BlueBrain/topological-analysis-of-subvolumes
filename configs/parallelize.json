@@ -1,5 +1,5 @@
 {
-  "VERSION": "0.0.0",
+ "VERSION": "0.0.1",
   "COMMENTS": [
     "Specify how to parallilize the pipeline steps.",
     "This is a work in progress, and will evolve before stabilizing",
@@ -34,7 +34,7 @@
       },
       "modules": {
         "COMMENTS": "A list modules to load at runtime.",
-        "list" = []
+        "list": []
       }
     },
     "analyses": {
@@ -46,6 +46,21 @@
         "max-per-subtarget": {"memory": "50GB", "time": "600s"},
         "number-compute-nodes": 1,
         "number-tasks-per-node": 5
+      },
+      "node-participation": {
+        "max-per-subtarget": {"memory": "50GB", "time": "600s"},
+        "number-compute-nodes": 1,
+        "number-tasks-per-node": 5
+      },
+      "betti-counts": {
+        "max-per-subtarget": {"memory": "50GB", "time": "600s"},
+        "number-compute-nodes": 10,
+        "number-tasks-per-node": 4
+      },
+      "bedge-counts": {
+        "max-per-subtarget": {"memory": "50GB", "time": "600s"},
+        "number-compute-nodes": 10,
+        "number-tasks-per-node": 4
       }
     }
   }

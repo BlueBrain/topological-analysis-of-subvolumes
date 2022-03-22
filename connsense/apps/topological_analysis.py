@@ -174,9 +174,11 @@ def main(argued):
     if not s:
         raise ValueError("Provide a step to run: ")
 
-    a = argued.action; b = argued.batch; p = argued.sample; o = argued.output; t = argued.test
-    result = topaz.run(step=s, substep=ss, action=a, in_mode=m, batch=b, sample=p, output=o,
-                       dry_run=t)
+    a = argued.action; b = argued.batch; c = argued.control
+    p = argued.sample; o = argued.output; t = argued.test
+    result = topaz.run(step=s, substep=ss, action=a, in_mode=m, control=c, batch=b,
+                       sample=p, output=o, dry_run=t)
+
 
     LOG.info("DONE running pipeline")
 
@@ -244,6 +246,15 @@ if __name__ == "__main__":
                               "multiple single-node computation.\n"
                               "This will allow use to configure a multi-node parallel computation"
                               " for analyse that require more than a single compute node."))
+
+    parser.add_argument("-c", "--control", required=False, default=None,
+                        help=("Apply a random control to a subvolume, and compute an analysis.\n"
+                              "The random control itself should be configured in the config loaded from the "
+                              "reference provided as the argument, for example  `--configure=<config.json>`.\n"
+                              "The random controls should be specified in the config for each analyses,\n"
+                              "and a future version will be able to produce an execution script / config "
+                              "from this information. For now it makes goods practice for the purpose of\n"
+                              " documentaiton."))
 
     parser.add_argument("--output",
                         help="Path to the directory to output in.", default=None)
