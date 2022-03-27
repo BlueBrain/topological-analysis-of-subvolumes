@@ -2,6 +2,7 @@
 from ..plugins import import_module
 
 
+from pprint import pformat
 from ..io.utils import widen_by_index
 from ..io.logging import get_logger
 
@@ -121,6 +122,8 @@ class SingleMethodAnalysisFromSource:
     def _input_analyses(self, tap, subtarget):
         """Get other analyses from the TAP that are needed for this one.
 
+        To do so, lookup the index entry subtarget in each analysis stored in the TAP instance tap.
+
         TODO: Provide better documnetation, and log messages to help the user
         """
         import inspect
@@ -128,13 +131,15 @@ class SingleMethodAnalysisFromSource:
 
         index_entry = tuple(subtarget)
 
-        def evaluate_analysis(a):
+        def check_toc(of_analysis):
             try:
-                toc = tap.analyses[a]
+                toc = tap.analyses[of_analysis]
             except KeyError:
-                LOG.error("No analysis %s in store", a)
+                LOG.error("No such analysis %s in store at %s", of_analysis, tap._root)
                 return None
+            return toc
 
+        def lookup_analysis(a, in_toc):
             try:
                 return toc.loc[index_entry]
             except KeyError:
@@ -145,8 +150,12 @@ class SingleMethodAnalysisFromSource:
                       a, index_entry)
             return None
 
-        return {a: evaluate_analysis(a) for a in signat.parameters
-                if a not in ("adjacency", "adj", "nodes", "args", "kwargs")}
+        not_analyses = ("adjacency", "adj", "nodes", "node_properties", "controls"
+                        "args", "kwargs")
+        possibly_analysis = (p for p in signat.parameters if p not in not_analyses)
+        tocs = (check_toc(of_analysis=a) for a in possibly_analysis)
+        available = [(analysis, toc) for analysis, toc in zip(possibly_analysis, tocs) if toc]
+        return {a: lookup_analysis(a, in_toc=t) for a, t in available}
 
 
     def apply(self, adjacency, node_properties=None, tap=None, subtarget=None,
@@ -167,6 +176,7 @@ class SingleMethodAnalysisFromSource:
             assert node_properties.shape[0] == matrix.shape[0]
 
         input_analyses = self._input_analyses(tap, subtarget)
+        LOG.info("input analysis to subtarget %s: \n%s", subtarget, pformat(input_analyses))
         result = self._analysis(matrix, node_properties, *self._args,
                                 **input_analyses, **self._kwargs, **kwargs)
 

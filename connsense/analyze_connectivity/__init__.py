@@ -180,21 +180,15 @@ def sample_subtarget(adjacency_matrices, by_description):
 
 def subset_subtargets(toc, sample, dry_run):
     """..."""
+    LOG.info("Subset %s subtargets sampling %s", 0 if toc is None else len(toc), sample)
     if dry_run:
         LOG.info("Test plumbing: analyze_connectivity: subset_subtargets")
         return None
 
-    if isinstance(toc, tuple):
-        original, randomized = toc
-        all_matrices = ((None if randomized is None else randomized.rename("matrix"))
-                        if original is None
-                        else (original.rename("matrix") if randomized is None
-                              else pd.concat([original, randomized]).rename("matrix")))
-        if all_matrices is None:
-            LOG.error("No matrices to subset")
-            return None
-    else:
-        all_matrices = toc.rename("matrix")
+    if toc is None:
+        return None
+
+    all_matrices = toc.rename("matrix")
 
     if not sample:
         return all_matrices
@@ -339,7 +333,7 @@ def load_connectivity_randomized(paths, dry_run):
     return toc_rand
 
 
-def load_adjacencies(paths, from_batch, dry_run=False):
+def load_adjacencies(paths, from_batch=None, dry_run=False):
     """..."""
     LOG.info("Load all adjacencies")
 
@@ -353,7 +347,9 @@ def load_adjacencies(paths, from_batch, dry_run=False):
             return None
 
         LOG.info("Done loading connectivity.")
-        return (toc_orig, toc_rand)
+        return ((None if toc_rand is None else toc_rand.rename("matrix")) if toc_orig is None
+                else (toc_orig.rename("matrix") if toc_rand is None
+                      else pd.concat([toc_orig, toc_rand]).rename("matrix")))
 
     if isinstance(from_batch, pd.DataFrame):
         return from_batch
@@ -435,7 +431,7 @@ def save_output(results, to_path):
     return saved
 
 
-def apply_controls(config, toc, **kwargs):
+def apply_controls(configured, toc, log_info=None, **kwargs):
     """Apply configured controls to an adjacency table ot contents, as argued in  `kwargs``.
 
     A control is configured as :
@@ -447,20 +443,20 @@ def apply_controls(config, toc, **kwargs):
           "kwargs": {}
         }
     """
-    from .randomize import RandomControls, read_randomization
+    from .randomize import read_random_controls
 
     LOG.info("Apply controls to a table of contents.")
     try:
-        control = kwargs["control"]
+        argued = kwargs["control"]
     except KeyError:
         LOG.info("No controls were argued.")
         return toc
 
-    algorithm = read_randomization(config, control)
+    controls = read_random_controls(argued, in_config=configured)
 
-    random_controls = RandomControls(name=control, description=algorithm, be_lazy=True)
+    controlled = toc.apply(controls)
 
-    return toc.apply(lambda subvolume: random_controls.apply(subvolume))
+    return pd.concat([v for _, v in controlled.items()], keys=controlled.columns)
 
 
 def run(config, action, in_mode=None, parallelize=None, substep=None,

@@ -448,8 +448,32 @@ class SeriesOfMatricesStore(MatrixStore):
         names = toc_long.index.names
 
         toc_long.index = toc_long.index.reorder_levels(names[1:] + [names[0]])
+        return toc_long
 
-        return toc_long(b, batch._root, batch._group, self._root, self._group)
+    def dump(self, content):
+        """Expecting content to be a pandas Dataframe of matrices."""
+        p = self.prepare_toc(of_paths=content.apply(self.write, axis=1))
+        return self.append_toc(of_paths=p)
+
+    def collect(self, stores):
+        """Collect a batch of stores into this one.
+        """
+        LOG.info("Collect %s batches of stores", len(stores))
+
+        def frame(b, batch):
+            """A table of contents (TOC) dataframe.
+            """
+            long = batch.toc
+            LOG.info("series of matrices %s --> a dataframe input: %s", b, long.shape)
+            colvars = long.index.get_level_values(-1).unique()
+            colidxname = long.index.names[-1]
+            wide = pd.concat([long.xs(d, level=colidxname) for d in colvars], axis=1,
+                             keys=list(colvars), names=[colidxname])
+            LOG.info("series of matrices %s --> a dataframe output: %s", b,  wide.shape)
+            return wide
+
+        def move(b, batch):
+            """..."""
             framed = frame(b, batch)
             i = 0
 

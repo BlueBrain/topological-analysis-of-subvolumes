@@ -1,6 +1,8 @@
 """Load a `randomization.Algorihtm from source code.`"""
 from randomization import Algorithm
+import pandas as pd
 from ..plugins import import_module
+
 
 
 class AlgorithmFromSource(Algorithm):
@@ -50,8 +52,10 @@ class AlgorithmFromSource(Algorithm):
         """..."""
         return self._name
 
-    def apply(self, adjacency, node_properties):
-        """..."""
+    def apply(self, adjacency, node_properties=None):
+        """...Apply the algorithm
+        This implementation has not been tested, having mostly used it's subclass...
+        """
         def apply_method_indexed(i):
             """..."""
             function = self._functions[i]
@@ -148,7 +152,7 @@ class SingleMethodAlgorithmFromSource(Algorithm):
         return method
 
 
-    def apply(self, adjacency, node_properties=None, log_info=None):
+    def apply(self, adjacency, node_properties=None):
         """..."""
         try:
             matrix = adjacency.matrix

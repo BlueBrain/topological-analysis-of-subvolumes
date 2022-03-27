@@ -29,51 +29,6 @@ def get_neuron_properties(hdf_path, hdf_group):
             .set_index(["circuit", "subtarget"]))
 
 
-# def apply(analyses, to_batch, using_neurons,
-#           n_batches=None, label=None, bowl=None):
-#     """..."""
-#     LOG.info("ANALYZE %s \t batch %s / %s with %s targets",
-#              [a.name for a in analyses],
-#              label, n_batches, to_batch.shape[0])
-
-#     def get_neurons(row):
-#         """..."""
-#         index = dict(zip(to_batch.index.names, row.name))
-#         return (using_neurons.loc[index["circuit"], index["subtarget"]]
-#                 .reset_index(drop=True))
-
-#     n_analyses = len(analyses)
-
-#     def apply(analysis, at_index):
-#         """..."""
-#         LOG.info("Apply analysis %s to batch %s", analysis.name, label)
-
-#         memory_used = 0
-#         def to_row(r):
-#             """..."""
-#             nrows = to_batch.shape[0]
-#             log_info = (f"Batch {label} Analysis {analysis.name}"
-#                         f" ({at_index} / {n_analyses})"
-#                         f" matrix {r.idx} / {nrows}")
-#             result = analysis.apply(r.matrix, get_neurons(r), log_info)
-#             memory_result = sys.getsizeof(result)
-#             memory_used += memory_result
-#             LOG.info("\t\t\t MEMORY USAGE"
-#                      " for analysis %s batch %s matrix %s / %s: %s / %s",
-#                      analysis.name, label, r.idx, nrows, memory_result, memory_used)
-
-#         n_batch = to_batch.shape[0]
-#         return to_batch.assign(idx=range(n_batch)).apply(to_row, axis=1)
-
-#     analyzed = {a.name: apply(a, i) for i, a in enumerate(analyses)}
-
-#     LOG.info("DONE batch %s / %s with %s targets, columns %s: analyzed %s",
-#              label, n_batches, batch.shape[0], batch.columns, len(analyzed))
-#     if bowl:
-#         assert label
-#         bowl[label] = analyzed
-#     return analyzed
-
 GIGABYTE = 2 ** 30
 
 BATCHED_SUBTARGETS = ("batches.h5", "subtargets")
@@ -447,9 +402,9 @@ def append_batch(toc, using_basedir=None, njobs=1):
 
 def load_balance_batches(toc, njobs, by=None):
     """..."""
-    edge_counts =  toc.apply(lambda adj: adj.matrix.sum())
+    edge_counts =  toc.apply(lambda adj: adj.matrix.sum() + 1)
     computational_load = (np.cumsum(edge_counts.sort_values(ascending=True))
-                          / edge_counts.sum())
+                          /edge_counts.sum())
     batches = ((njobs - 1) * computational_load).apply(int)
 
     LOG.info("Load balanced batches for %s subtargets: \n %s", len(toc),
