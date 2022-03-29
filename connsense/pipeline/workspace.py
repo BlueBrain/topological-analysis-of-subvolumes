@@ -17,22 +17,32 @@ STEP = "setup-pipeline"
 LOG = logging.get_logger(STEP)
 
 
-def get_rundir(config, step=None, substep=None, mode=None, with_base=False,
+def get_rundir(config, step=None, substep=None, controls=None, mode=None, with_base=False,
                *args, **kwargs):
     """..
-    ."""
+    """
+
     def apply_controls(rundir):
         """Check of a control method has been argued, and if so
         create a specific folder.
         """
-        try:
-            control = kwargs["control"]
-        except KeyError:
+        if not controls:
             return rundir
 
-        control_run  = rundir / control
-        control_run.mkdir(exist_ok=True, parents=False)
-        return control_run
+        try:
+            base, subdir = rundir
+        except TypeError:
+            controlled = rundir / "controls"
+            controlled.mkdir(exist_ok=True, parents=False)
+            argued = controlled / controls
+            argued.mkdir(exist_ok=True, parents=False)
+            return argued
+
+        controlled = subdir / "controls"
+        controlled.mkdir(exist_ok=True, parents=False)
+        argued = controlled / controls
+        argued.mkdir(exist_ok=True, parents=False)
+        return (base, argued)
 
     assert not mode or mode in ("test", "develop", "prod"), str(mode)
 
@@ -61,7 +71,10 @@ def get_rundir(config, step=None, substep=None, mode=None, with_base=False,
     substepdir = stepdir / substep
     substepdir.mkdir(parents=False, exist_ok=True)
 
-    return apply_controls((rundir, substepdir) if with_base else substepdir)
+    result = apply_controls((rundir, substepdir) if with_base else substepdir)
+    LOG.info("get rundir for mode %s, step %s, substep %s, controls %s: %s",
+             mode, step, substep, controls, result)
+    return result
 
 
 def check_configs(c, and_to_parallelize, at_location, must_exist=False, create=False):
@@ -110,7 +123,7 @@ def timestamp(dir):
     return at_time
 
 
-def initialize(config, step=None, substep=None, mode=None, parallelize=None):
+def initialize(config, step=None, substep=None, controls=None, mode=None, parallelize=None):
     """Set up a run of the pipeline.
     """
     c = config; s = step; ss = substep; m = mode; p = parallelize
@@ -120,7 +133,7 @@ def initialize(config, step=None, substep=None, mode=None, parallelize=None):
     else:
         LOG.info("witout parallelization.")
 
-    to_run, stage = get_rundir(c, s, ss, mode, with_base=True)
+    to_run, stage = get_rundir(c, s, ss, controls, mode, with_base=True)
 
     if not s:
         assert not ss, f"Substep {ss} of step None maketh sense None"
@@ -144,12 +157,12 @@ def cleanup(config, **kwargs):
     raise NotImplementedError
 
 
-def current(config, step, substep, mode, to_parallelize):
+def current(config, step, substep, controls, mode, to_parallelize):
     """..."""
-    run, stage = get_rundir(config, step, substep, mode, with_base=True)
+    run, stage = get_rundir(config, step, substep, controls, mode, with_base=True)
 
     if not stage.exists():
-        stage = initialize(config, step, substep, mode, to_parallelize)
+        stage = initialize(config, step, substep, controls, mode, to_parallelize)
 
     return stage
 

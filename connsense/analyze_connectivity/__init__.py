@@ -284,7 +284,10 @@ def load_neurons(paths, dry_run=False):
         LOG.info("Test plumbing: analyze: load neurons")
         return None
 
-    neurons = load_neuron_properties(hdf, group)
+    neurons = (read_results((hdf, group), STEP)
+               .droplevel(["flat_x", "flat_y"])
+               .reset_index().set_index(["circuit", "subtarget"]))
+
     LOG.info("Done loading extracted neuron properties: %s", neurons.shape)
     return neurons
 
@@ -370,8 +373,8 @@ def load_adjacencies(paths, from_batch=None, dry_run=False):
     return pd.read_hdf(path_h5, and_hdf_group)
 
 
-def dispatch(adjacencies, neurons, analyses, action=None, in_mode=None, parallelize=None,
-             output=None, tap=None, dry_run=False):
+def dispatch(adjacencies, neurons, analyses, action=None, in_mode=None, controls=None,
+              parallelize=None, output=None, tap=None, dry_run=False):
     """Dispatch a table of contents of adjacencies, ...
 
     Computation for an analysis will be run in parallel over the subtargets,
@@ -403,7 +406,7 @@ def dispatch(adjacencies, neurons, analyses, action=None, in_mode=None, parallel
         LOG.info("Test plumbing: analyze: dispatch toc")
         return None
 
-    args = (adjacencies, neurons, action, in_mode, parallelize, tap, output)
+    args = (adjacencies, neurons, action, in_mode, controls, parallelize, tap, output)
     results = {quantity: parallely_analyze(quantity, *args) for quantity in analyses}
 
     LOG.info("Done, analyzing %s matrices", len(adjacencies))
@@ -445,21 +448,22 @@ def apply_controls(configured, toc, log_info=None, **kwargs):
     """
     from .randomize import read_random_controls
 
-    LOG.info("Apply controls to a table of contents.")
-    try:
-        argued = kwargs["control"]
-    except KeyError:
+    argued = kwargs.get("controls", None)
+
+    if not argued:
         LOG.info("No controls were argued.")
         return toc
 
+    LOG.info("Apply %s controls to a table of contents.", argued)
+
     controls = read_random_controls(argued, in_config=configured)
 
-    controlled = toc.apply(controls)
+    controlled = toc.droplevel("algorithm").apply(controls)
 
     return pd.concat([v for _, v in controlled.items()], keys=controlled.columns)
 
 
-def run(config, action, in_mode=None, parallelize=None, substep=None,
+def run(config, action, in_mode=None, parallelize=None, substep=None, controls=None,
         output=None, batch=None, sample=None, tap=None, dry_run=None, **kwargs):
     """..."""
     from connsense.pipeline import workspace
@@ -482,7 +486,7 @@ def run(config, action, in_mode=None, parallelize=None, substep=None,
 
     toc_subset = subset_subtargets(toc_adjs, sample, dry_run)
 
-    toc_dispatch = apply_controls(toc_subset, **kwargs)
+    toc_dispatch = apply_controls(config, toc_subset, controls=controls, **kwargs)
 
     if toc_dispatch is None:
         if not dry_run:
@@ -499,7 +503,9 @@ def run(config, action, in_mode=None, parallelize=None, substep=None,
     basedir = workspace.locate_base(rundir, STEP)
     m = in_mode; p = parallelize.get(STEP, {}) if parallelize else None
     analyzed_results = dispatch(toc_dispatch, neurons, analyses, action, in_mode,
-                                parallelize=p, output=(basedir, hdf_group),
+                                controls=controls,
+                                parallelize=p,
+                                output=(basedir, hdf_group),
                                 tap=tap, dry_run=dry_run)
 
     LOG.warning("DONE %s analyses for TAP config at %s:\n %s", len(analyses), rundir,

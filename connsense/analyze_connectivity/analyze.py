@@ -193,7 +193,7 @@ def configure_launch_multi(number, quantity, using_subtargets, at_workspace,
 
 
 def parallely_analyze(quantity, subtargets, neuron_properties, action=None, in_mode=None,
-                      to_parallelize=None, to_tap=None, to_save=None, log_info=None):
+                      controls=None, to_parallelize=None, to_tap=None, to_save=None, log_info=None):
     """Run an analysis of quantity over all the subtargets in a table of contents.
 
     Computation for an analysis will be run in parallel over the subtargets,
@@ -225,12 +225,16 @@ def parallely_analyze(quantity, subtargets, neuron_properties, action=None, in_m
     toc = subtargets
 
     N = toc.shape[0]
-    LOG.info("Analyze connectivity for %s subtargets", N)
+
+    LOG.info("Analyze connectivity for %s subtargets, saving to %s", N, to_save)
     LOG.info("Example subtarget adjacency TOC: \n %s", pformat(toc.head()))
 
+
     rundir, hdf_group = check_basedir(to_save, quantity, to_parallelize, action,
-                                      return_hdf_group=True)
+                                      controls=controls, return_hdf_group=True)
+
     assert rundir.exists, f"check basedir did not create {b}"
+
     LOG.info("Checked basedir %s ", rundir)
     q = quantity.name
     compute_nodes, njobs = read_njobs(to_parallelize, for_quantity=q)
@@ -300,7 +304,8 @@ def dispatch_single_node(to_compute, batched_subtargets, neuron_properties, acti
 
 BASEDIR_MODE = {"run": 'w', "resume": 'a', "inspect": 'r'}
 
-def check_basedir(to_save, quantity, to_parallelize=None, mode=None, return_hdf_group=False):
+def check_basedir(to_save, quantity, to_parallelize=None, mode=None, controls=None,
+                  return_hdf_group=False):
 
     """The locaiton `to_save` in could have been used in a previous run.
 
@@ -350,14 +355,38 @@ def check_basedir(to_save, quantity, to_parallelize=None, mode=None, return_hdf_
         if mode == 'w' and not cpath.exists():
             write_config(to_parallelize[quantity], to_json=cpath)
 
-    q = quantity.name
-    _, j = read_njobs(to_parallelize, for_quantity=q)
-    njobs = sq / f"njobs-{j}"
-    if mode == 'w':
-        njobs.mkdir(parents=False, exist_ok=True)
-    else:
-        LOG.warning("A rundir at %s not created because mode was not to write.", njobs)
-    return (njobs, hdf_group) if return_hdf_group else njobs
+    def get_jobs(at_path):
+        q = quantity.name
+        _, j = read_njobs(to_parallelize, for_quantity=q)
+        njobs = at_path / f"njobs-{j}"
+        if mode == 'w':
+            njobs.mkdir(parents=False, exist_ok=True)
+        else:
+            LOG.warning("A rundir at %s not created because mode was not to write.", njobs)
+        return (njobs, hdf_group) if return_hdf_group else njobs
+
+    if not controls:
+        return get_jobs(at_path=sq)
+
+    controlled_base = sq / "controls"
+    if mode == "w":
+        controlled_base.mkdir(parents=False, exist_ok=True)
+
+    if to_parallelize and quantity in to_parallelize["analyses"]:
+        cpath = controlled_base / "parallelize.json"
+        if mode == 'w' and not cpath.exists():
+            write_config(to_parallelize[quantity], to_json=cpath)
+
+    controlled = controlled_base / controls
+    if mode == "w":
+        controlled.mkdir(parents=False, exist_ok=True)
+
+    if to_parallelize and quantity in to_parallelize["analyses"]:
+        cpath = controlled / "parallelize.json"
+        if mode == 'w' and not cpath.exists():
+            write_config(to_parallelize[quantity], to_json=cpath)
+
+    return get_jobs(at_path=controlled)
 
 
 def append_batch(toc, using_basedir=None, njobs=1):
@@ -492,7 +521,12 @@ def load_batched_subtargets(basedir, compute_nodes=None, as_paths=False,
         def locate_batch(b):
             return path_compute_node / f"{b}.h5"
 
-        batches = pd.read_hdf(path_h5, and_hdf_group).batch
+        LOG.info("Find batches in %s / %s", path_h5, and_hdf_group)
+        batches = pd.read_hdf(path_h5, and_hdf_group)
+        try:
+            batches = batches.batch
+        except AttributeError:
+            LOG.info("No batches, must have been a single run without parallelization.")
         LOG.info("Batches in %s: \n %s", path_h5, pformat(batches))
         return batches.apply(locate_batch).rename("path") if as_paths else batches
 
@@ -511,12 +545,13 @@ def load_parallel_run_analysis(a, parallelized, analyses_rundir):
     """
     analysis = a
     a = analysis.name
-    compute_nodes, njobs = read_njobs(parallelized, for_quantity=a)
+    n_compute_nodes, njobs = read_njobs(parallelized, for_quantity=a)
+    compute_nodes = range(n_compute_nodes) if n_compute_nodes > 1 else None
     n = njobs
 
     base, hdf_group = check_basedir(analyses_rundir, analysis, parallelized, mode='r',
                                     return_hdf_group=True)
-    subtarget_batches = load_batched_subtargets(Path(base), range(compute_nodes), as_paths=True)
+    subtarget_batches = load_batched_subtargets(Path(base), compute_nodes, as_paths=True)
 
     LOG.info("Assemble stores for subtargets located at \n %s", pformat(subtarget_batches.values))
 

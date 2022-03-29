@@ -139,10 +139,10 @@ def check_mode(argued):
     return argued.mode
 
 
-def get_current(action, mode, config, step, substep, with_parallelization=None):
+def get_current(action, mode, config, step, substep, controls=None, with_parallelization=None):
     """..."""
     current_run = workspace.initialize if is_to_init(action) else workspace.current
-    return current_run(config, step, substep, mode, with_parallelization)
+    return current_run(config, step, substep, controls, mode, with_parallelization)
 
 
 def main(argued):
@@ -156,7 +156,8 @@ def main(argued):
     p = pipeline.TopologicalAnalysis.read_parallelization(argued.parallelize)
     s, ss = check_step(argued, against_config=c)
     m = check_mode(argued)
-    current_run = get_current(action=a.action, mode=m, config=c, step=s, substep=ss,
+    current_run = get_current(action=a.action, mode=m, config=c,
+                              step=s, substep=ss, controls=a.controls,
                               with_parallelization=p)
     LOG.info("Workspace initialized at %s", current_run)
 
@@ -174,9 +175,9 @@ def main(argued):
     if not s:
         raise ValueError("Provide a step to run: ")
 
-    a = argued.action; b = argued.batch; c = argued.control
+    a = argued.action; b = argued.batch; c = argued.controls
     p = argued.sample; o = argued.output; t = argued.test
-    result = topaz.run(step=s, substep=ss, action=a, in_mode=m, control=c, batch=b,
+    result = topaz.run(step=s, substep=ss, action=a, in_mode=m, controls=c, batch=b,
                        sample=p, output=o, dry_run=t)
 
 
@@ -247,7 +248,7 @@ if __name__ == "__main__":
                               "This will allow use to configure a multi-node parallel computation"
                               " for analyse that require more than a single compute node."))
 
-    parser.add_argument("-c", "--control", required=False, default=None,
+    parser.add_argument("-x", "--controls", required=False, default=None,
                         help=("Apply a random control to a subvolume, and compute an analysis.\n"
                               "The random control itself should be configured in the config loaded from the "
                               "reference provided as the argument, for example  `--configure=<config.json>`.\n"
