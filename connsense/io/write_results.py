@@ -74,13 +74,12 @@ def write_toc_plus_payload(extracted, to_path, payload_type=None, format=None):
 class LazyMatrix:
     """..."""
     from lazy import lazy
-    def __init__(self, path_hdf, path_dset):
+    def __init__(self, path_hdf, dset):
         """..."""
         self._hdf = path_hdf
-        self._dset = path_dset
+        self._dset = dset
 
-    @lazy
-    def matrix(self):
+    def get_value(self):
         """..."""
         with h5py.File(self._hdf, 'r') as hdf:
             dset = hdf[self._dset]
@@ -89,8 +88,12 @@ class LazyMatrix:
 
     @lazy
     def value(self):
+        return self.get_value()
+
+    @lazy
+    def matrix(self):
         """..."""
-        return self.matrix
+        return self.value
 
 
 def read_toc_plus_payload(path, for_step):

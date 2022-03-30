@@ -7,6 +7,7 @@ from multiprocessing import Process, Manager
 import joblib
 from pathlib import Path
 
+import h5py
 import numpy as np
 import pandas as pd
 
@@ -124,7 +125,14 @@ def load_subtargets_batch(rundir, batched_subtargets_h5=None, group=None):
     return pd.read_hdf(batch, subtargets_group)
 
 
-def configure_launch_multi(number, quantity, using_subtargets, at_workspace,
+def _remove_link(path):
+    try:
+        return path.unlink()
+    except FileNotFoundError:
+        pass
+    return None
+
+def configure_launch_multi(number, quantity, using_subtargets, control, at_workspace,
                            action=None, in_mode=None):
     """
     Arguments
@@ -132,21 +140,19 @@ def configure_launch_multi(number, quantity, using_subtargets, at_workspace,
     number :: of compute nodes to run on
     quantity :: analysis to run
     using_subtargets :: TOC of subtargets to compute
+    control :: A JSON config to use to load a control, Use None when ther eis not control.
     at_workspace :: directory to use for input and output
     """
     LOG.info("Configure a %s multinode launch to analyze %s of %s subtargets working  %s",
              number, quantity.name, len(using_subtargets), at_workspace)
 
-    batches = using_subtargets.batch.drop_duplicates().reset_index(drop=True).sort_values()
-    compute_nodes = np.linspace(0, number-1.e-6, batches.max() + 1, dtype=int)
+    basedir, to_run_in = at_workspace
 
-    chunked = using_subtargets.assign(compute_node=compute_nodes[using_subtargets.batch])
-
-    master_launchscript = at_workspace / "launchscript.sh"
+    master_launchscript = to_run_in / "launchscript.sh"
 
     def configure_chunk(c, subtargets):
         """...
-        Here we have assumed:
+        Here we have assumed something like:
         run_basedir / <mode> / <step> / <substep> / <njobs>
 
         For example if number of jobs is 40,
@@ -154,16 +160,29 @@ def configure_launch_multi(number, quantity, using_subtargets, at_workspace,
 
         We need basedir to link to the executable `run-analysis`
 
+        NOTE: We have implemented random controls using the same idea...
+        TODO: Update the doc for conttrols...
         TODO: Abstract out how out the layout of the base-rundir.
         ~     Or provide a path of an executable to run single node analysis explicitly.
         """
-        rundir = at_workspace / f"compute-node-{c}"
+        rundir = to_run_in / f"compute-node-{c}"
         rundir.mkdir(parents=False, exist_ok=True)
 
-        basedir = at_workspace.parent.parent.parent.parent
-        rundir.joinpath("run-analysis.sbatch").symlink_to(basedir / "tap-analysis.sbatch")
-        rundir.joinpath("run-analysis").symlink_to(basedir/"run-analysis")
-        rundir.joinpath("config.json").symlink_to(basedir/"config.json")
+        sbatch = rundir/"run-analysis.sbatch"
+        _remove_link(sbatch)
+        sbatch.symlink_to(basedir/"tap-analysis.sbatch")
+
+        run_analysis = rundir.joinpath("run-analysis")
+        _remove_link(run_analysis)
+        run_analysis.symlink_to(basedir/"run-analysis")
+
+        config = rundir.joinpath("config.json")
+        _remove_link(config)
+        config.symlink_to(basedir/"config.json")
+
+        control_config = rundir/"control.json"
+        _remove_link(control_config)
+        control_config.symlink_to(control)
 
         h5, hdf_group = BATCHED_SUBTARGETS
         path_h5 = rundir / h5
@@ -173,7 +192,9 @@ def configure_launch_multi(number, quantity, using_subtargets, at_workspace,
                         "Consider providing flags,"
                         " for example allow override only in pipeline `mode=resume`", h5)
 
-        subtargets.to_hdf(path_h5, key=hdf_group, mode='w')
+        LOG.info("Write %s subtargets to %s / %s: \n%s", subtargets.shape[0], path_h5, hdf_group,
+                 pformat(subtargets))
+        subtargets[["batch", "compute_node"]].to_hdf(path_h5, key=hdf_group, mode='w')
 
         a = quantity.name
         with open(master_launchscript, 'a') as to_launch:
@@ -189,7 +210,21 @@ def configure_launch_multi(number, quantity, using_subtargets, at_workspace,
 
         return rundir
 
+    batches = using_subtargets.batch.drop_duplicates().reset_index(drop=True).sort_values()
+    compute_nodes = np.linspace(0, number-1.e-6, batches.max() + 1, dtype=int)
+
+    chunked = using_subtargets.assign(compute_node=compute_nodes[using_subtargets.batch])
     return {c: configure_chunk(c, subtargets) for c, subtargets in chunked.groupby("compute_node")}
+
+
+def get_index(subtargets):
+    """..."""
+    return subtargets.index.to_frame().reset_index(drop=True)
+
+
+def get_algorithms(subtargets):
+    """..."""
+    return get_index(subtargets).algorithm.unique()
 
 
 def parallely_analyze(quantity, subtargets, neuron_properties, action=None, in_mode=None,
@@ -208,7 +243,7 @@ def parallely_analyze(quantity, subtargets, neuron_properties, action=None, in_m
 
     to_save :: Tuple(basedir, hdf_group) where
     ~            basedir :: Path to the directory where analysis results will be assembled,
-    ~                       i.e. where the temporary HDF for each subtarget analysis will be written
+    ~                       i.e. where the tempurary HDF for each subtarget analysis will be written
     ~                       into an HDF store, for example `temp.h5` under the specified hdf-group.
     ~                       Example: (<tap-root>/"analysis", "analysis") where
     ~                                <tap-root> is specified in the config as `config[paths][root]`.
@@ -229,27 +264,58 @@ def parallely_analyze(quantity, subtargets, neuron_properties, action=None, in_m
     LOG.info("Analyze connectivity for %s subtargets, saving to %s", N, to_save)
     LOG.info("Example subtarget adjacency TOC: \n %s", pformat(toc.head()))
 
+    if controls is None:
+        rundir, hdf_group = check_basedir(to_save, quantity, to_parallelize, action,
+                                          controls=None, return_hdf_group=True)
+        base = rundir.parent.parent.parent.parent
+        LOG.info("Checked rundir %s without controls %s \n\t with base at %s", rundir, base)
 
-    rundir, hdf_group = check_basedir(to_save, quantity, to_parallelize, action,
-                                      controls=controls, return_hdf_group=True)
+        assert rundir.exists, f"check basedir did not create {b}"
 
-    assert rundir.exists, f"check basedir did not create {b}"
+        q = quantity.name
+        compute_nodes, njobs = read_njobs(to_parallelize, for_quantity=q)
+        n = njobs
 
-    LOG.info("Checked basedir %s ", rundir)
-    q = quantity.name
-    compute_nodes, njobs = read_njobs(to_parallelize, for_quantity=q)
-    n = njobs
+        batched = append_batch(toc, using_basedir=rundir, njobs=n)
 
-    batched = append_batch(toc, using_basedir=rundir, njobs=n)
+        if compute_nodes > 1:
+            multirun = configure_launch_multi(compute_nodes, quantity,
+                                              using_subtargets=batched, control=None,
+                                              at_workspace=(base, rundir),
+                                              action=action, in_mode=in_mode)
+            LOG.info("Multinode run: \n %s", pformat(multirun))
+            return multirun
 
-    if compute_nodes > 1:
-        multirun = configure_launch_multi(compute_nodes, quantity, using_subtargets=batched,
-                                          at_workspace=rundir, action=action, in_mode=in_mode)
+        return dispatch_single_node(quantity, batched, neuron_properties, action, to_tap,
+                                    to_save=(rundir, hdf_group), log_info=log_info)
+
+    rundirs, hdf_group = check_basedir(to_save, quantity, to_parallelize, action,
+                                       controls=controls.algorithms.index, return_hdf_group=True)
+
+    def analyze_controlled(an, algorithm):
+        """..."""
+        to_run = rundirs[an]
+        assert to_run.exists, f"check basedir for not created rundir {to_run}"
+
+        base = to_run.parent.parent.parent.parent.parent
+        LOG.info("Checked rundir %s for control algorithm %s \n\t with base %s",
+                 rundirs, algorithm, base)
+
+        q = quantity.name
+        compute_nodes, njobs = read_njobs(to_parallelize, for_quantity=q)
+        n = njobs
+
+        atoc = pd.concat([toc.droplevel("algorithm")], keys=[algorithm.name], names=["algorithm"])
+        batched = append_batch(atoc, for_control=algorithm, using_basedir=to_run, njobs=n)
+
+        multirun = configure_launch_multi(compute_nodes, quantity,
+                                          using_subtargets=batched, control=to_run/"control.json",
+                                          at_workspace=(base, to_run), action=action,
+                                          in_mode=in_mode)
         LOG.info("Multinode run: \n %s", pformat(multirun))
         return multirun
 
-    return dispatch_single_node(quantity, batched, neuron_properties, action, to_tap,
-                                to_save=(rundir, hdf_group), log_info=log_info)
+    return {an: analyze_controlled(an, algorithm) for an, algorithm in controls.algorithms.items()}
 
 
 def dispatch_single_node(to_compute, batched_subtargets, neuron_properties, action=None,
@@ -304,8 +370,9 @@ def dispatch_single_node(to_compute, batched_subtargets, neuron_properties, acti
 
 BASEDIR_MODE = {"run": 'w', "resume": 'a', "inspect": 'r'}
 
+
 def check_basedir(to_save, quantity, to_parallelize=None, mode=None, controls=None,
-                  return_hdf_group=False):
+                  return_hdf_group=False, strict=False):
 
     """The locaiton `to_save` in could have been used in a previous run.
 
@@ -333,10 +400,10 @@ def check_basedir(to_save, quantity, to_parallelize=None, mode=None, controls=No
     assert path.exists(), "Cannot save in a directory that does not exist."
 
     if to_parallelize:
-        LOG.info("To paallelize, check analysis basedir: \n %s", pformat(to_parallelize))
+        LOG.info("To parallelize, check analysis basedir: \n %s", pformat(to_parallelize))
         config_already = path/"parallelize.json"
         if mode == 'w':
-            if config_already.exists():
+            if strict and config_already.exists():
                 raise ValueError(f"Location {to_save} has already been used to run.\n"
                                  "Please use a different location for the TAP workspace,\n"
                                  "or `tap resume ...` instead of `tap run ...`"
@@ -363,33 +430,52 @@ def check_basedir(to_save, quantity, to_parallelize=None, mode=None, controls=No
             njobs.mkdir(parents=False, exist_ok=True)
         else:
             LOG.warning("A rundir at %s not created because mode was not to write.", njobs)
+        return njobs
         return (njobs, hdf_group) if return_hdf_group else njobs
 
-    if not controls:
-        return get_jobs(at_path=sq)
+    if controls is None:
+        njobs = get_jobs(at_path=sq)
+        return (njobs, hdf_group) if return_hdf_group else njobs
 
-    controlled_base = sq / "controls"
-    if mode == "w":
-        controlled_base.mkdir(parents=False, exist_ok=True)
+    path_controls = sq / "controls"
+    if mode == 'w':
+        path_controls.mkdir(parents=False, exist_ok=True)
 
-    if to_parallelize and quantity in to_parallelize["analyses"]:
-        cpath = controlled_base / "parallelize.json"
-        if mode == 'w' and not cpath.exists():
-            write_config(to_parallelize[quantity], to_json=cpath)
+        if to_parallelize and quantity in to_parallelize["analyses"]:
+            cpath = path_controls / "parallelize.json"
+            if mode == 'w' and not cpath.exists():
+                write_config(to_parallelize[quantity], to_json=cpath)
 
-    controlled = controlled_base / controls
-    if mode == "w":
-        controlled.mkdir(parents=False, exist_ok=True)
+    def get_control(c):
+        p = path_controls / c
+        if mode == "w":
+            p.mkdir(parents=False, exist_ok=True)
 
-    if to_parallelize and quantity in to_parallelize["analyses"]:
-        cpath = controlled / "parallelize.json"
-        if mode == 'w' and not cpath.exists():
-            write_config(to_parallelize[quantity], to_json=cpath)
+            if to_parallelize and quantity in to_parallelize["analyses"]:
+                cpath = p / "parallelize.json"
+                if mode == 'w' and not cpath.exists():
+                    write_config(to_parallelize[quantity], to_json=cpath)
 
-    return get_jobs(at_path=controlled)
+        return get_jobs(at_path=p)
+
+    controlled = {c: get_control(c) for c in controls}
+
+    return (controlled, hdf_group) if return_hdf_group else controlled
 
 
-def append_batch(toc, using_basedir=None, njobs=1):
+def configure_algorithm(for_control, using_basedir):
+    """..."""
+    from connsense.io.read_config import write
+    control_json = Path(using_basedir.parent) / "control.json"
+    write(for_control.description, control_json)
+
+    in_basedir = using_basedir/"control.json"
+    _remove_link(in_basedir)
+    in_basedir.symlink_to(control_json)
+    return
+
+
+def append_batch(toc, for_control=None, using_basedir=None, njobs=1):
     """Append a column of batches to a table of contents...
 
     If `using_basedir`, check for HDF dataframe containing a subset of adjacency matrices TOC
@@ -397,13 +483,16 @@ def append_batch(toc, using_basedir=None, njobs=1):
 
     If the relevant pipeline step has not yet been run, batches will be computed for
     the argued `toc` and if `using_basedir` will be saved in a HDF dataframe.
+
+    If for control by an algorithm, then the algorithm will be asked to write it's information too,
+    so that it can be loaded by a downstream step that launches the parallel computations.
     """
     LOG.info("Append %s batches to %s subtargets in TOC: \n %s %s",
              njobs, len(toc), pformat(toc.head()),
              "not" if not using_basedir else f"using basedir{using_basedir}")
 
     def redo_batches():
-        return load_balance_batches(toc, njobs, by="edge_count")
+        return load_balance_batches(toc, njobs, for_control, by="edge_count")
 
     if not using_basedir:
         return pd.concat([toc, redo_batches()], axis=1)
@@ -426,12 +515,37 @@ def append_batch(toc, using_basedir=None, njobs=1):
     batches = redo_batches()
     LOG.info("Computed %s subtarget batches: \n %s", len(batches), pformat(batches.head()))
     batches.to_hdf(path_h5, key=and_hdf_group, format="fixed", mode='w')
+    configure_algorithm(for_control, using_basedir)
+
     return pd.concat([toc, batches], axis=1)
 
 
-def load_balance_batches(toc, njobs, by=None):
+def get_size(index, for_control=None):
+    """Get size of an adjancency object,
+    which could be a sparse matrix or a lazy random wrapper around it.
+    """
+    def apply(adj):
+        try:
+            original = adj.original
+        except AttributeError:
+            original = adj
+
+        try:
+            matrix = original.matrix
+        except AttributeError:
+            matrix = original
+
+        s = matrix.sum() + 1
+        LOG.info("Control %s: Get size for subvolume %s / %s: %s",
+                  for_control.name if for_control else "original",  index[adj], len(index), s)
+        return s
+    return apply
+
+
+def load_balance_batches(toc, njobs, for_control=None,  by=None):
     """..."""
-    edge_counts =  toc.apply(lambda adj: adj.matrix.sum() + 1)
+    index_adj = pd.Series(range(len(toc)), index=toc.values)
+    edge_counts =  toc.apply(get_size(index_adj, for_control))
     computational_load = (np.cumsum(edge_counts.sort_values(ascending=True))
                           /edge_counts.sum())
     batches = ((njobs - 1) * computational_load).apply(int)

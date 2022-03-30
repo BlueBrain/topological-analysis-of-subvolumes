@@ -337,7 +337,10 @@ def load_connectivity_randomized(paths, dry_run):
 
 
 def load_adjacencies(paths, from_batch=None, dry_run=False):
-    """..."""
+    """Adjacencies can be loaded from the HDF-store specified in the paths,
+    or from path to a batch that contains a store and a JSON file to control
+    the adjacency before an analysis.
+    """
     LOG.info("Load all adjacencies")
 
     if from_batch is None:
@@ -434,6 +437,19 @@ def save_output(results, to_path):
     return saved
 
 
+def read_controls(configured, argued):
+    """..."""
+    from .randomize import read_random_controls
+
+    if not argued:
+        LOG.info("No controls were argued.")
+        return None
+
+    LOG.info("Apply %s controls to a table of contents.", argued)
+
+    return read_random_controls(argued, in_config=configured)
+
+
 def apply_controls(configured, toc, log_info=None, **kwargs):
     """Apply configured controls to an adjacency table ot contents, as argued in  `kwargs``.
 
@@ -445,18 +461,13 @@ def apply_controls(configured, toc, log_info=None, **kwargs):
           "seeds": [0, 1, 2, 3, 4, 5],
           "kwargs": {}
         }
+
+
+    NOTE: This may not apply anymore. Keep this until no need as a reference
     """
-    from .randomize import read_random_controls
-
-    argued = kwargs.get("controls", None)
-
-    if not argued:
-        LOG.info("No controls were argued.")
+    controls = read_controls(configured, **kwargs)
+    if controls is None:
         return toc
-
-    LOG.info("Apply %s controls to a table of contents.", argued)
-
-    controls = read_random_controls(argued, in_config=configured)
 
     controlled = toc.droplevel("algorithm").apply(controls)
 
@@ -484,9 +495,10 @@ def run(config, action, in_mode=None, parallelize=None, substep=None, controls=N
 
     toc_adjs = load_adjacencies(input_paths, batch, dry_run)
 
-    toc_subset = subset_subtargets(toc_adjs, sample, dry_run)
+    toc_dispatch = subset_subtargets(toc_adjs, sample, dry_run)
+#    toc_subset = subset_subtargets(toc_adjs, sample, dry_run)
 
-    toc_dispatch = apply_controls(config, toc_subset, controls=controls, **kwargs)
+#    toc_dispatch = apply_controls(config, toc_subset, controls=controls, **kwargs)
 
     if toc_dispatch is None:
         if not dry_run:
@@ -503,7 +515,7 @@ def run(config, action, in_mode=None, parallelize=None, substep=None, controls=N
     basedir = workspace.locate_base(rundir, STEP)
     m = in_mode; p = parallelize.get(STEP, {}) if parallelize else None
     analyzed_results = dispatch(toc_dispatch, neurons, analyses, action, in_mode,
-                                controls=controls,
+                                controls=read_controls(config, controls),
                                 parallelize=p,
                                 output=(basedir, hdf_group),
                                 tap=tap, dry_run=dry_run)

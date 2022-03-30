@@ -555,7 +555,6 @@ def StoreType(for_matrix_type):
         return SeriesOfMatricesStore
 
     raise TypeError(f"Unhandled matrix value type {for_matrix_type}")
-    raise TypeError(f"Unhandled type for matrix value {for_matrix_type}: {type(for_matrix_type)}")
 
 
 def get_store(to_hdf_at_path, under_group, for_matrix_type, in_mode='a', **kwargs):

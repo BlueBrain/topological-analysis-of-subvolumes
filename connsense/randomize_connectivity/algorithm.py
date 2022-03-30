@@ -1,12 +1,19 @@
 """Load a `randomization.Algorihtm from source code.`"""
-from randomization import Algorithm
+from copy import deepcopy
+
 import pandas as pd
+
+from randomization import Algorithm
 from ..plugins import import_module
 
 
-
 class AlgorithmFromSource(Algorithm):
-    """..."""
+    """...
+    NOTE: This is underdeveloped and not used.
+    ~     May be we want to have more than `SingleMethodAlgorithmFromSource`,
+    ~     But a `MultiMethodAlgorithmFromSource` can also be useful.
+    ~     So keep this one as a baseclass.
+    """
     @staticmethod
     def read_source(description):
         """"..."""
@@ -106,6 +113,12 @@ class SingleMethodAlgorithmFromSource(Algorithm):
         return description["source"]
 
     @staticmethod
+    def read_seed(description):
+        """It is assumed that the randomization method wrapped here needs a seed.
+        """
+        return description.get("seed", None)
+
+    @staticmethod
     def read_args(description):
         """..."""
         return description.get("args", [])
@@ -120,6 +133,7 @@ class SingleMethodAlgorithmFromSource(Algorithm):
         self._name = name
         self._description = description
         self._source = self.read_source(description)
+        self._seed = self.read_seed(description)
         self._args = self.read_args(description)
         self._kwargs = self.read_kwargs(description)
         self._method = self.read_method(description)
@@ -129,6 +143,11 @@ class SingleMethodAlgorithmFromSource(Algorithm):
     def name(self):
         """..."""
         return self._name
+
+    @property
+    def description(self):
+        """..."""
+        return self._description
 
     def load(self, description):
         """..."""
@@ -151,7 +170,6 @@ class SingleMethodAlgorithmFromSource(Algorithm):
         self._module = module
         return method
 
-
     def apply(self, adjacency, node_properties=None):
         """..."""
         try:
@@ -162,4 +180,9 @@ class SingleMethodAlgorithmFromSource(Algorithm):
         if node_properties is not None:
             assert node_properties.shape[0] == matrix.shape[0]
 
-        return self._shuffle(matrix, node_properties, *self._args, **self._kwargs)
+        args = deepcopy(self._args)
+        kwargs = deepcopy(self._kwargs)
+        if self._seed:
+            kwargs["seed"] = self._seed
+
+        return self._shuffle(matrix, node_properties, *args, **kwargs)

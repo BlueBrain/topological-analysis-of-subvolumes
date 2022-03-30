@@ -9,8 +9,10 @@ from lazy import lazy
 import pandas as pd
 
 from connsense.io import logging
+from connsense.io.write_results import LazyMatrix, read_toc_plus_payload
 from connsense.randomize_connectivity.algorithm import SingleMethodAlgorithmFromSource
 
+from connsense.analyze_connectivity import BATCHED_SUBTARGETS
 
 STEP = "analyze-connectivity"
 LOG = logging.get_logger(STEP)
@@ -47,6 +49,48 @@ class LazyRandom:
         LOG.info("\t [REFERENCE]%s", self._log_info)
         return self._shuffle.apply(self.original, self._node_properties, **self._params)
 
+    @staticmethod
+    def dump_toc(of_subtargets, to_dir):
+        """Write a toc of lazy-random matrices to a destination.
+        A `LazyRandom` object carries a module inside it and hence cannot be pickled.
+        We need to save the origical toc with index that of original adjacencies.
+        A loader can be used ot load ...
+        """
+        h5, hdf_group = BATCHED_SUBTARGETS
+        path_h5 = to_dir / h5
+        if path_h5.exists():
+            LOG.warning("OVERRIDE existing data for batched subtargets exists at %s\n"
+                        "Consider providing flags,"
+                        " for example allow override only in pipeline `mode=resume`", h5)
+        return (of_subtargets.apply(lambda lazy_random: lazy_random._original)
+                .to_hdf(path_h5, key=hdf_group, mode='w'))
+
+    @staticmethod
+    def load_toc(of_subtargets):
+        """Load a toc of subtargets containing the original connectivity dumped as above.
+        and wrap in shuffler.
+        """
+        raise NotImplementedError
+
+
+class LazyRandomMatrix(LazyMatrix):
+    """Make the lazy matrix randomized
+    """
+    def __init__(self, path_hdf, dset, shuffle):
+        """..."""
+        self._hdf = path_hdf
+        self._dset = dset
+        self._shuffle = shuffle
+
+    @lazy
+    def original(self):
+        """..."""
+        return read_toc_plus_payload((self._hdf, dset), STEP)
+
+    def get_value(self):
+        """..."""
+        return self._shuffle(self.original)
+
 
 class RandomControls:
     """A random control to help with connectivity measurements.
@@ -61,19 +105,19 @@ class RandomControls:
         }
     """
     @staticmethod
-    def read_samples(description):
+    def read_seeds(description):
         """..."""
-        samples = description.get("samples", [])
-        assert isinstance(samples, list),(
+        seeds = description.get("seeds", [])
+        assert isinstance(seeds, list),(
             "Provide a list of random seeds --"
             " we may allow an integer representing number of controls in a future version.")
-        return samples
+        return seeds
 
     def __init__(self, name, description, be_lazy=True):
         """..."""
         self._name = name
         self._description = description
-        self._samples = self.read_samples(description)
+        self._seeds = self.read_seeds(description)
         self._lazily = be_lazy
 
         self._index_algo = None
@@ -87,22 +131,36 @@ class RandomControls:
         """Set the seed to prepare an algorithm method for this random control.
         """
         description = deepcopy(self._description)
-        description["kwargs"] = {"seed": s}
+        _=description.pop("seeds", None)
+        description["seed"] = s
         return SingleMethodAlgorithmFromSource(self.name_sample(s), description)
 
     @lazy
-    def samples(self):
+    def algorithms(self):
         """..."""
-        names = [self.name_sample(s) for s in self._samples]
-        algorithms = pd.Series([self.seed_algorithm(s) for s in  self._samples],
+        names = [self.name_sample(s) for s in self._seeds]
+        algorithms = pd.Series([self.seed_algorithm(s) for s in  self._seeds],
                                index=pd.Index(names, name="algorithm"))
         self._index_algo = {a: i for i, a in enumerate(algorithms)}
         return algorithms
 
+    def __getitem__(self, key):
+        """..."""
+        return self.algorithms[key]
+
+    def __iter__(self):
+        """Iter throught the random control algorithms.
+        """
+        return self.algorithms.index.values
+
+    def __len__(self):
+        """..."""
+        return len(self.algorithms)
+
     def __call__(self, adjacency, node_properties=None, log_info=None):
         """Apply random controls...
         """
-        n = len(self.samples)
+        n = len(self.algorithms)
 
         def to_inputs_algorithm(a):
             """..."""
@@ -114,7 +172,7 @@ class RandomControls:
             return LazyRandom(matrix=adjacency, using_shuffling=a,
                               node_properties=node_properties, log_info=log_info)
 
-        return self.samples.apply(to_inputs_algorithm)
+        return self.algorithms.apply(to_inputs_algorithm)
 
 
 def read_randomization(configured, argument=None):
