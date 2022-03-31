@@ -5,6 +5,7 @@ import os
 from pprint import pformat
 from multiprocessing import Process, Manager
 import joblib
+from copy import deepcopy
 from pathlib import Path
 
 import h5py
@@ -286,7 +287,7 @@ def parallely_analyze(quantity, subtargets, neuron_properties, action=None, in_m
             LOG.info("Multinode run: \n %s", pformat(multirun))
             return multirun
 
-        return dispatch_single_node(quantity, batched, neuron_properties, action, to_tap,
+        return dispatch_single_node(quantity, batched, neuron_properties, to_tap,
                                     to_save=(rundir, hdf_group), log_info=log_info)
 
     rundirs, hdf_group = check_basedir(to_save, quantity, to_parallelize, action,
@@ -305,8 +306,9 @@ def parallely_analyze(quantity, subtargets, neuron_properties, action=None, in_m
         compute_nodes, njobs = read_njobs(to_parallelize, for_quantity=q)
         n = njobs
 
-        atoc = pd.concat([toc.droplevel("algorithm")], keys=[algorithm.name], names=["algorithm"])
-        batched = append_batch(atoc, for_control=algorithm, using_basedir=to_run, njobs=n)
+#       #atoc = pd.concat([toc.droplevel("algorithm")], keys=[algorithm.name], names=["algorithm"])
+        #batched = append_batch(atoc, for_control=algorithm, using_basedir=to_run, njobs=n)
+        batched = append_batch(toc, for_control=algorithm, using_basedir=to_run, njobs=n)
 
         multirun = configure_launch_multi(compute_nodes, quantity,
                                           using_subtargets=batched, control=to_run/"control.json",
@@ -318,12 +320,12 @@ def parallely_analyze(quantity, subtargets, neuron_properties, action=None, in_m
     return {an: analyze_controlled(an, algorithm) for an, algorithm in controls.algorithms.items()}
 
 
-def dispatch_single_node(to_compute, batched_subtargets, neuron_properties, action=None,
-                         to_tap=None, to_save=None, log_info=None):
+def dispatch_single_node(to_compute, batched_subtargets, neuron_properties, to_tap, to_save,
+                         log_info=None):
     """Dispatch computation to single node with multi-processing.
     """
-    LOG.warning("Dispatch (to %s) %s computation on %s subtargets on a single node.",
-                to_compute.name, action or "unspecified action", len(batched_subtargets))
+    LOG.warning("Dispatch (to %s) computation on %s subtargets on a single node.",
+                to_compute.name, len(batched_subtargets))
     analysis = to_compute; properties = neuron_properties
 
     manager = Manager()
@@ -467,7 +469,9 @@ def configure_algorithm(for_control, using_basedir):
     """..."""
     from connsense.io.read_config import write
     control_json = Path(using_basedir.parent) / "control.json"
-    write(for_control.description, control_json)
+    description = deepcopy(for_control.description)
+    description["name"] = for_control.name
+    write(description, control_json)
 
     in_basedir = using_basedir/"control.json"
     _remove_link(in_basedir)
@@ -537,7 +541,7 @@ def get_size(index, for_control=None):
 
         s = matrix.sum() + 1
         LOG.info("Control %s: Get size for subvolume %s / %s: %s",
-                  for_control.name if for_control else "original",  index[adj], len(index), s)
+                 for_control.name if for_control else "original",  index[adj], len(index), s)
         return s
     return apply
 

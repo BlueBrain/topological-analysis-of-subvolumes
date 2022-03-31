@@ -182,7 +182,11 @@ class SingleMethodAlgorithmFromSource(Algorithm):
 
         args = deepcopy(self._args)
         kwargs = deepcopy(self._kwargs)
-        if self._seed:
+        if self._seed is not None:
             kwargs["seed"] = self._seed
 
         return self._shuffle(matrix, node_properties, *args, **kwargs)
+
+    def __call__(self, adjacency, node_properties=None):
+        """..."""
+        return self.apply(adjacency, node_properties)

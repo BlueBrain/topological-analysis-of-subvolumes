@@ -18,7 +18,7 @@ STEP = "analyze-connectivity"
 LOG = logging.get_logger(STEP)
 
 
-class LazyRandom:
+class LazyRandomMatrix:
     """Randomize an adjacenciy matrix, but lazily.
     """
     def __init__(self, matrix, using_shuffling, node_properties=None, log_info=None, **kwargs):
@@ -73,23 +73,12 @@ class LazyRandom:
         raise NotImplementedError
 
 
-class LazyRandomMatrix(LazyMatrix):
-    """Make the lazy matrix randomized
-    """
-    def __init__(self, path_hdf, dset, shuffle):
+def lazy_random(control):
+    """..."""
+    def apply(adjacency, node_properties=None):
         """..."""
-        self._hdf = path_hdf
-        self._dset = dset
-        self._shuffle = shuffle
-
-    @lazy
-    def original(self):
-        """..."""
-        return read_toc_plus_payload((self._hdf, dset), STEP)
-
-    def get_value(self):
-        """..."""
-        return self._shuffle(self.original)
+        return LazyRandomMatrix(adjacency, control, node_properties)
+    return apply
 
 
 class RandomControls:
@@ -169,8 +158,8 @@ class RandomControls:
             if not self._lazily:
                 return a.apply(adjacency, node_properties, log_info)
 
-            return LazyRandom(matrix=adjacency, using_shuffling=a,
-                              node_properties=node_properties, log_info=log_info)
+            return LazyRandomMatrix(matrix=adjacency, using_shuffling=a,
+                                    node_properties=node_properties, log_info=log_info)
 
         return self.algorithms.apply(to_inputs_algorithm)
 

@@ -9,6 +9,9 @@ This is a work in progress. (Vishal Sood 20220220)
 from argparse import ArgumentParser
 from pathlib import Path
 from pprint import pformat
+import json
+
+import pandas as pd
 
 from connsense import pipeline
 from connsense.io import logging
@@ -17,11 +20,14 @@ from connsense.io.write_results import (read as read_results,
                                         write as write_dataframe,
                                         write_toc_plus_payload,
                                         default_hdf)
+from connsense.io import read_config
 from connsense.apps import topological_analysis as topaz
 from connsense.pipeline import workspace
 from connsense.pipeline.store import HDFStore as TAPStore
+from connsense.randomize_connectivity.algorithm import SingleMethodAlgorithmFromSource
 from connsense import analyze_connectivity as anzconn
 from connsense.analyze_connectivity import analyze
+from connsense.analyze_connectivity.randomize import lazy_random
 
 STEP = "analyze-connectivity"
 LOG = logging.get_logger("Toplogical analysis of flatmapped subtargets.")
@@ -38,6 +44,38 @@ def resolve_analysis(argued, against_config):
     return analyses[argued.quantity]
 
 
+def read_control(in_file):
+    """..."""
+    if not in_file.exists(): return None
+    with open(in_file, 'r') as f : description = json.load(f)
+
+    LOG.info("Read controls with description: \n%s", pformat(description))
+
+    name = description.pop("name")
+    return SingleMethodAlgorithmFromSource(name, description)
+
+
+def update_algorithm(in_toc, to_value):
+    """...Change, from original, to the value specified.
+    """
+    return pd.concat([in_toc.droplevel("algorithm")], keys=[to_value], names=["algorithm"])
+
+
+def apply_control(in_file, to_toc, using_batches):
+    """..."""
+    control = read_control(in_file)
+    if not control:
+        LOG.info("No controls to apply")
+        return to_toc
+
+    LOG.info("Apply control %s to a %s entry TOC: \n%s", control.name,  len(to_toc), pformat(to_toc))
+    of_controlled_values = to_toc.apply(lazy_random(control))
+    controlled_toc = update_algorithm(in_toc=of_controlled_values, to_value=control.name)
+    LOG.info("DONE applying controls: \n%s", pformat(controlled_toc))
+    controlled_batches = update_algorithm(using_batches, to_value=control.name)
+    return (controlled_toc, controlled_batches)
+
+
 def main(argued):
     """..."""
     LOG.info("Initialize the topological analysis pipeline.")
@@ -52,10 +90,13 @@ def main(argued):
     in_basedir = Path(argued.batches or Path.cwd())
     neurons = anzconn.load_neurons(input_paths)
 
-    toc_adjs = anzconn.load_adjacencies(input_paths, from_batch=in_basedir)
+    original, assigned = anzconn.load_adjacencies(input_paths, from_batch=in_basedir)
+    toc_adjs, batches = apply_control(in_basedir/"control.json", to_toc=original, using_batches=assigned)
+    batched = pd.concat([toc_adjs, batches], axis=1)
 
-    LOG.info("Resolve analysis to run")
     analysis = resolve_analysis(argued, against_config=c)
+    LOG.info("Run analysis %s for a %s batched adjacencies: \n%s", analysis, len(batched),
+             pformat(batched))
 
     _, hdf_group = output_paths["steps"].get(STEP, default_hdf(STEP))
 
@@ -63,8 +104,7 @@ def main(argued):
              analysis.name, len(toc_adjs), in_basedir, hdf_group)
 
     pipeline_store = TAPStore(config)
-    result = analyze.dispatch_single_node(to_compute=analysis, batched_subtargets=toc_adjs,
-                                          neuron_properties=neurons, action=argued.action,
+    result = analyze.dispatch_single_node(analysis, batched, neurons,
                                           to_tap=pipeline_store, to_save=(in_basedir, hdf_group))
     LOG.warning("DONE running analysis %s for batch %s of %s subtargets saving (%s, %s).",
                 analysis.name, argued.batches, len(toc_adjs), in_basedir, hdf_group)

@@ -340,25 +340,22 @@ def load_adjacencies(paths, from_batch=None, dry_run=False):
     """Adjacencies can be loaded from the HDF-store specified in the paths,
     or from path to a batch that contains a store and a JSON file to control
     the adjacency before an analysis.
+
+    Return
+    ---------
+    The original TOC of adjacencies, or a subset if from batch.
     """
     LOG.info("Load all adjacencies")
 
+    toc_orig = load_connectivity_original(paths, dry_run).rename("matrix")
     if from_batch is None:
-        toc_orig = load_connectivity_original(paths, dry_run)
-
-        toc_rand = load_connectivity_randomized(paths, dry_run)
 
         if dry_run:
             LOG.info("Test plumbing: analyze: load connectivity")
             return None
 
         LOG.info("Done loading connectivity.")
-        return ((None if toc_rand is None else toc_rand.rename("matrix")) if toc_orig is None
-                else (toc_orig.rename("matrix") if toc_rand is None
-                      else pd.concat([toc_orig, toc_rand]).rename("matrix")))
-
-    if isinstance(from_batch, pd.DataFrame):
-        return from_batch
+        return toc_orig
 
     try:
         path = Path(from_batch)
@@ -373,7 +370,10 @@ def load_adjacencies(paths, from_batch=None, dry_run=False):
     else:
         path_h5 = path
 
-    return pd.read_hdf(path_h5, and_hdf_group)
+    batches =  pd.read_hdf(path_h5, and_hdf_group)
+
+    LOG.info("Done loading batched connectivity with %s entries: \n%s.", len(batches), pformat(batches))
+    return (toc_orig.reindex(batches.index), batches)
 
 
 def dispatch(adjacencies, neurons, analyses, action=None, in_mode=None, controls=None,
