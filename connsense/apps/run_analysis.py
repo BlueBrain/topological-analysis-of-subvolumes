@@ -109,9 +109,52 @@ def apply_control(in_file, to_toc, using_batches, using_cache):
     return pd.concat([controlled_toc, controlled_batches], axis=1)
 
 
-def main(argued):
+def get_parser():
+    """A parser to interpret CLI args...
+    """
+    parser = ArgumentParser(description="Topological analysis of flatmapped subtargets.",
+                            formatter_class=RawTextHelpFormatter)
+
+    parser.add_argument("action",
+                        help=("A pipeline (step) action to do."
+                              " Following is a list of actions."
+                              " The action may be expected to apply to all the pipeline steps,"
+                              " unless otherwise indicated.\n"
+                              "\t(1) run: to run..., initializing if not already done\n"
+                              "\t(2) resume: resume from the current state\n"))
+
+    parser.add_argument("-c", "--configure", required=True,
+                        help=("Path to the (JSON) configuration that describes what to run.\n"
+                              "The config should specify the input and output paths,"
+                              "  and parameters  for each of the pipeline steps."))
+
+    parser.add_argument("-q", "--quantity", required=True,
+                        help=("Name of the analysis to run, that should appear in the config."))
+
+    parser.add_argument("-m", "--mode", required=False, default=None,
+                        help=("Specify how the action should be performed. should be done\n"
+                              "For example:\n"
+                              "tap --configure=config.json --parallelize=parallel.json \\"
+                              "    --mode=prod run\n"
+                              "to run in production mode."))
+    parser.add_argument("-b", "--batches", required=False, default=None,
+                        help=("Location of a HDF containing a dataframe that "
+                              "assigns batches to subtargets.\n"
+                              "Default behavior will assume that the current working directory"
+                              " is where the batches HDF are."))
+
+    parser.set_defaults(test=False)
+
+    return parser
+
+
+def main(argued=None):
     """..."""
     LOG.info("Initialize the topological analysis pipeline.")
+
+    if not argued:
+        parser = get_parser()
+        argued = parser.parse_args()
 
     at_path = Path(argued.configure)
     config = pipeline.TopologicalAnalysis.read_config(at_path)
@@ -150,39 +193,7 @@ if __name__ == "__main__":
 
     LOG.warning("Analyze circuit subtarget topology.")
 
-    parser = ArgumentParser(description="Topological analysis of flatmapped subtargets.",
-                            formatter_class=RawTextHelpFormatter)
-
-    parser.add_argument("action",
-                        help=("A pipeline (step) action to do."
-                              " Following is a list of actions."
-                              " The action may be expected to apply to all the pipeline steps,"
-                              " unless otherwise indicated.\n"
-                              "\t(1) run: to run..., initializing if not already done\n"
-                              "\t(2) resume: resume from the current state\n"))
-
-    parser.add_argument("-c", "--configure", required=True,
-                        help=("Path to the (JSON) configuration that describes what to run.\n"
-                              "The config should specify the input and output paths,"
-                              "  and parameters  for each of the pipeline steps."))
-
-    parser.add_argument("-q", "--quantity", required=True,
-                        help=("Name of the analysis to run, that should appear in the config."))
-
-    parser.add_argument("-m", "--mode", required=False, default=None,
-                        help=("Specify how the action should be performed. should be done\n"
-                              "For example:\n"
-                              "tap --configure=config.json --parallelize=parallel.json \\"
-                              "    --mode=prod run\n"
-                              "to run in production mode."))
-    parser.add_argument("-b", "--batches", required=False, default=None,
-                        help=("Location of a HDF containing a dataframe that "
-                              "assigns batches to subtargets.\n"
-                              "Default behavior will assume that the current working directory"
-                              " is where the batches HDF are."))
-
-    parser.set_defaults(test=False)
-
+    parser = get_parser()
     args = parser.parse_args()
 
     LOG.warning(str(args))

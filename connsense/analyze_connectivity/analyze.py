@@ -15,6 +15,7 @@ import pandas as pd
 from analysis import  Analysis
 from ..io.read_config import write as write_config
 from ..io.write_results import read as read_results
+from ..io.slurm import SlurmConfig
 from ..io import logging
 from .import matrices
 
@@ -133,8 +134,17 @@ def _remove_link(path):
         pass
     return None
 
+
+
+def cmd_sbatch(slurm_params, at_path):
+    LOG.info("Prepare a Slurm command using sbatch params: \n%s", slurm_params)
+    slurm_params["executable"] = "tap-analysis"
+    slurm_config = SlurmConfig(slurm_params)
+    return slurm_config.save(to_filepath=at_path/"tap-analysis.sbatch")
+
+
 def configure_launch_multi(number, quantity, using_subtargets, control, at_workspace,
-                           action=None, in_mode=None):
+                           action=None, in_mode=None, slurm_config=None):
     """
     Arguments
     -----------
@@ -159,7 +169,7 @@ def configure_launch_multi(number, quantity, using_subtargets, control, at_works
         For example if number of jobs is 40,
         run_basedir / prod / analyze-connectivity / betti-counts / njobs-40
 
-        We need basedir to link to the executable `run-analysis`
+        We need basedir to link to the executable `tap-analysis` (look at the project's setup.py)
 
         NOTE: We have implemented random controls using the same idea...
         TODO: Update the doc for conttrols...
@@ -169,13 +179,13 @@ def configure_launch_multi(number, quantity, using_subtargets, control, at_works
         rundir = to_run_in / f"compute-node-{c}"
         rundir.mkdir(parents=False, exist_ok=True)
 
-        sbatch = rundir/"run-analysis.sbatch"
-        _remove_link(sbatch)
-        sbatch.symlink_to(basedir/"tap-analysis.sbatch")
+        # sbatch = rundir/"tap-analysis.sbatch"
+        # _remove_link(sbatch)
+        # sbatch.symlink_to(basedir/"tap-analysis.sbatch")
 
-        run_analysis = rundir.joinpath("run-analysis")
-        _remove_link(run_analysis)
-        run_analysis.symlink_to(basedir/"run-analysis")
+        # run_analysis = rundir.joinpath("tap-analysis")
+        # _remove_link(run_analysis)
+        # run_analysis.symlink_to(basedir/"tap-analysis")
 
         config = rundir.joinpath("config.json")
         _remove_link(config)
@@ -198,17 +208,20 @@ def configure_launch_multi(number, quantity, using_subtargets, control, at_works
                  pformat(subtargets))
         subtargets[["batch", "compute_node"]].to_hdf(path_h5, key=hdf_group, mode='w')
 
-        a = quantity.name
         with open(master_launchscript, 'a') as to_launch:
-            to_launch.write(f"%%%%%%%%%%%%%%%%%% LAUNCH analysis {a} for chunk {c}"
-                            f" of {len(subtargets)} subtargets. %%%%%%%%%%%%%%%%%%%%%%%\n")
+            script = cmd_sbatch(slurm_config or {}, at_path=rundir).name
 
-            to_launch.write(f"pushd {rundir}\n")
-            script = "run-analysis.sbatch"
-            m = in_mode
-            c = "config.json"
-            to_launch.write(f"sbatch {script} --configure={c} --mode={m} --quantity={a} {action}\n")
-            to_launch.write("popd")
+            def write(aline):
+                to_launch.write(aline + '\n')
+
+            write(f"##################### LAUNCH analysis {quantity.name} for chunk {c}"
+                  f" of {len(subtargets)} subtargets. ######################")
+
+            write(f"pushd {rundir}")
+
+            write(f"sbatch {script} --configure=config.json --mode={in_mode} --quantity={quantity.name} {action}")
+
+            write("popd")
 
         return rundir
 
@@ -230,7 +243,8 @@ def get_algorithms(subtargets):
 
 
 def parallely_analyze(quantity, subtargets, neuron_properties, action=None, in_mode=None,
-                      controls=None, to_parallelize=None, to_tap=None, to_save=None, log_info=None):
+                      controls=None, to_parallelize=None, to_tap=None, to_save=None,
+                      log_info=None):
     """Run an analysis of quantity over all the subtargets in a table of contents.
 
     Computation for an analysis will be run in parallel over the subtargets,
@@ -248,7 +262,7 @@ def parallely_analyze(quantity, subtargets, neuron_properties, action=None, in_m
     ~                       i.e. where the tempurary HDF for each subtarget analysis will be written
     ~                       into an HDF store, for example `temp.h5` under the specified hdf-group.
     ~                       Example: (<tap-root>/"analysis", "analysis") where
-    ~                                <tap-root> is specified in the config as `config[paths][root]`.
+    ~                               <tap-root> is specified in the config as `config[paths][root]`.
     ~                                For an analysis `A` then results for a given batch `B` of
     ~                                subtargets results should go to
     ~                                <tap-root>/"analysis"/<analysis-name>/<batch-index>/"tap.h5"
@@ -280,11 +294,14 @@ def parallely_analyze(quantity, subtargets, neuron_properties, action=None, in_m
 
         batched = append_batch(toc, using_basedir=rundir, njobs=n)
 
+        to_sbatch = to_parallelize["analyses"].get(q, {}).get("sbatch", None)
+
         if compute_nodes > 1:
             multirun = configure_launch_multi(compute_nodes, quantity,
                                               using_subtargets=batched, control=None,
                                               at_workspace=(base, rundir),
-                                              action=action, in_mode=in_mode)
+                                              action=action, in_mode=in_mode,
+                                              slurm_config=to_sbatch)
             LOG.info("Multinode run: \n %s", pformat(multirun))
             return multirun
 
@@ -311,8 +328,9 @@ def parallely_analyze(quantity, subtargets, neuron_properties, action=None, in_m
 
         multirun = configure_launch_multi(compute_nodes, quantity,
                                           using_subtargets=batched, control=to_run/"control.json",
-                                          at_workspace=(base, to_run), action=action,
-                                          in_mode=in_mode)
+                                          at_workspace=(base, to_run),
+                                          action=action, in_mode=in_mode,
+                                          slurm_config=to_sbatch)
         LOG.info("Multinode run: \n %s", pformat(multirun))
         return multirun
 

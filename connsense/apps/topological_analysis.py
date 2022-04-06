@@ -144,9 +144,14 @@ def get_current(action, mode, config, step, substep, controls=None, with_paralle
     return current_run(config, step, substep, controls, mode, with_parallelization)
 
 
-def main(argued):
+def main(argued=None):
     """..."""
-    LOG.info("Initialize the topological analysis pipeline.")
+    if not argued:
+        parser = get_parser()
+        argued = parser.parse_args()
+
+    LOG.info("Initialize the topological analysis pipeline: \n%s", pformat(argued))
+
     at_path = Path(argued.configure)
     c = pipeline.TopologicalAnalysis.read_config(at_path)
     a = argued
@@ -185,34 +190,7 @@ def main(argued):
     return result
 
 
-def read_description():
-    """..."""
-    path = Path.cwd() / "project.org"
-    description = ""
-    if not path.exists():
-        LOG.info("No description at %s", path)
-        description += "Topological analysis of circuit subvolumes."
-
-    else:
-        LOG.info("Read description from %s", path)
-        with open(path, 'r') as f:
-            description += "\n\n" + f.read()
-
-    # path_c = Path.cwd() / "config.json"
-    # if not path_c.exists():
-    #     LOG.info("No configuration found in run dir %s", path_c)
-    # else:
-    #     LOG.info("Read config from %s", path_c)
-
-    # config = read_config.read(path_c)
-    # description += "\n\n" + pformat(config)
-    return description
-
-
-if __name__ == "__main__":
-
-    LOG.warning("Analyze circuit subtarget topology.")
-
+def get_parser():
     parser = ArgumentParser(description=read_description(),
                             formatter_class=RawTextHelpFormatter)
 
@@ -290,6 +268,31 @@ if __name__ == "__main__":
                         help=("Use this to test the pipeline's plumbing before running any juices through it."))
 
     parser.set_defaults(test=False)
+
+    return parser
+
+
+def read_description():
+    """..."""
+    path = Path.cwd() / "project.org"
+    description = ""
+    if not path.exists():
+        LOG.info("No description at %s", path)
+        description += "Topological analysis of circuit subvolumes."
+
+    else:
+        LOG.info("Read description from %s", path)
+        with open(path, 'r') as f:
+            description += "\n\n" + f.read()
+
+    return description
+
+
+if __name__ == "__main__":
+
+    LOG.warning("Analyze circuit subtarget topology.")
+
+    parser = get_parser()
 
     args = parser.parse_args()
 

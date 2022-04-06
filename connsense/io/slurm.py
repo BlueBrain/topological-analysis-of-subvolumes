@@ -15,7 +15,7 @@ class SlurmConfig:
     SLURMKEYS = {"name": "job-name"}
 
     @classmethod
-    def document_field(cls, field, description):
+    def _document_field(cls, field, description):
         """..."""
         try:
             doc = cls.__docfield__
@@ -25,7 +25,7 @@ class SlurmConfig:
         doc[field] = description
         return doc
 
-    def _read_field(self, f, description=None, default=None, required=True):
+    def _read_field(self, f, description=None, default=None, required=False):
         """..."""
         try:
             value = self._config[f]
@@ -34,7 +34,7 @@ class SlurmConfig:
                 return default
             raise KeyError(f"Missing slurm field {f}")
 
-        self._docfield(f, description)
+        self._document_field(f, description)
         return value
 
     def __init__(self, fldict):
@@ -42,29 +42,29 @@ class SlurmConfig:
         """
         self._config = fldict
 
-        self._name = self._read_field("name", "Name to give to the job.")
+        self._name = self._read_field("name", "Name to give to the job.", required=True)
 
-        self._account = self._read_field("account", "Account to bill for the run.")
+        self._account = self._read_field("account", "Account to bill for the run.", required=True)
 
-        self._executable = self._read_field("executable", "The Python executable to run.")
+        self._executable = self._read_field("executable", "The Python executable to run.", required=True)
 
         self._modules = self._read_field("modules", "A list of modules to load", [])
 
         self._env = self._read_field("env", "To run the simulation in, set and unset environment variables.")
 
-        self._venv = self._read_field("venv", "Path to the virtual environment to use.", required=None)
+        self._venv = self._read_field("venv", "Path to the virtual environment to use.")
 
-        self._output = self._read_field("output", "slurm's stdout", f"{self.job_name}.out")
-        self._error  = self._read_field("error", "slurm's stderr", f"{self.job_name}.err")
+        self._output = self._read_field("output", "slurm's stdout", f"{self._name}.out")
+        self._error  = self._read_field("error", "slurm's stderr", f"{self._name}.err")
 
         self._partition = self._read_field("partition", "Slurm partition", "prod")
         self._nodes = self._read_field("nodes", "Number of nodes to allocate",  1)
-        self._time = self._read_table("time", "Time to allocate", "24:00:00")
-        self._exclusive = self._read_table("exclusive", "Should the allocation be exclusiven to this job",  True)
-        self._constraint = self._read_table("constraint", "Constraints for allocation", cpu)
-        self._mem = self._read_table("mem", "to allocate, defaults to all of it",  0)
-        self._qos = self._read_table("qos", "for heavier / longer jobs", "normal")
-        self._mail = self._read_table("mail", "to mail progress to", None)
+        self._time = self._read_field("time", "Time to allocate", "24:00:00")
+        self._exclusive = self._read_field("exclusive", "Should the allocation be exclusiven to this job",  True)
+        self._constraint = self._read_field("constraint", "Constraints for allocation", "cpu")
+        self._mem = self._read_field("mem", "to allocate, defaults to all of it",  0)
+        self._qos = self._read_field("qos", "for heavier / longer jobs", "normal")
+        self._mail = self._read_field("mail", "to mail progress to", None)
 
 
     def _keyval(self, attrname):
@@ -92,7 +92,7 @@ class SlurmConfig:
                 value = value.replace('-', '__')
             return f"#SBATCH --{key}" + ("" if value is None else f"={value}")
 
-        return [tag_sbatch(*self._keyval(attr)) for attr in ["nodes",
+        return [tag_sbatch(self._keyval(attr)) for attr in ["nodes",
                                                              "time",
                                                              "exclusive",
                                                              "constraint",
@@ -103,20 +103,17 @@ class SlurmConfig:
                                                              "output",
                                                              "error"]]
 
-
     def _source_venv(self):
         """..."""
-        if not self.venv:
+        if not self._venv:
             return None
 
-        path = Path(self.venv)
+        path = Path(self._venv)
         location = path.as_posix() + ("/bin/activate" if path.is_dir() else "")
         return f"source {location}\n"
 
     def save(self, to_filepath):
-        """...
-        """
-
+        """..."""
         def write_modules(to_file):
             """..."""
             if not self._modules:
@@ -128,13 +125,13 @@ class SlurmConfig:
 
         def write_env(to_file):
             """..."""
-            if not self.env:
+            if not self._env:
                 return
 
-            for var, value in self.env["set"].items():
+            for var, value in self._env["set"].items():
                 to_file.write(f"export {var}={value}\n")
 
-            for var in self.env["unset"]:
+            for var in self._env["unset"]:
                 to_file.write(f"unset {var}\n")
 
         with open(to_filepath, 'w') as f:
@@ -147,6 +144,6 @@ class SlurmConfig:
             venv = self._source_venv()
             if venv:
                 f.write(venv)
-            f.write(f'python {self.executable} "$@"\n')
+            f.write(f'{self._executable} "$@"\n')
 
         return to_filepath

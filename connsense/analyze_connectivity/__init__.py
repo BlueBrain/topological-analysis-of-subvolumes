@@ -474,6 +474,12 @@ def apply_controls(configured, toc, log_info=None, **kwargs):
     return pd.concat([v for _, v in controlled.items()], keys=controlled.columns)
 
 
+def read_parallelization(config):
+    """..."""
+    step = config.get(STEP, {})
+    return step
+
+
 def run(config, action, in_mode=None, parallelize=None, substep=None, controls=None,
         output=None, batch=None, sample=None, tap=None, dry_run=None, **kwargs):
     """..."""
@@ -513,7 +519,7 @@ def run(config, action, in_mode=None, parallelize=None, substep=None, controls=N
     LOG.info("Analyses to run %s", pformat(analyses))
 
     basedir = workspace.locate_base(rundir, STEP)
-    m = in_mode; p = parallelize.get(STEP, {}) if parallelize else None
+    m = in_mode; p = read_parallelization(parallelize) if parallelize else None
     analyzed_results = dispatch(toc_dispatch, neurons, analyses, action, in_mode,
                                 controls=read_controls(config, controls),
                                 parallelize=p,
