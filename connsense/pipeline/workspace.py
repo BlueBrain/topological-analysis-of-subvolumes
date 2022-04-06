@@ -77,7 +77,7 @@ def get_rundir(config, step=None, substep=None, controls=None, mode=None, with_b
     return result
 
 
-def check_configs(c, and_to_parallelize, at_location, must_exist=False, create=False):
+def check_configs(c, and_to_parallelize, at_location, must_exist=False, create=False, strict=False):
     """Check if a config file exists at a location, and create it if it does not.
     Either a config must exist at a location, or it must not.
     """
@@ -85,7 +85,7 @@ def check_configs(c, and_to_parallelize, at_location, must_exist=False, create=F
     pc = at_location / "config.json"
     pp = at_location / "parallel.json" if and_to_parallelize else None
 
-    if must_exist:
+    if strict and must_exist:
         if not pc.exists():
             raise FileNotFoundError(f"Location {at_location} must have a config but does not."
                                     "\n\tInitialize the parent folders first. Start at the base.\n"
@@ -102,7 +102,7 @@ def check_configs(c, and_to_parallelize, at_location, must_exist=False, create=F
         return (pc, pp)
 
     l = at_location
-    if pc.exists() and pp and pp.exists():
+    if strict and pc.exists() and pp and pp.exists():
         raise FileExistsError(f"Location {l} seems to already have run configs")
 
     check_config = True if pc.exists() or not create else read_config.write(c, to_json=pc)

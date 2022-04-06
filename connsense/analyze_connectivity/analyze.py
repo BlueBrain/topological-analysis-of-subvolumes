@@ -280,11 +280,12 @@ def parallely_analyze(quantity, subtargets, neuron_properties, action=None, in_m
     LOG.info("Analyze connectivity for %s subtargets, saving to %s", N, to_save)
     LOG.info("Example subtarget adjacency TOC: \n %s", pformat(toc.head()))
 
+
     if controls is None:
         rundir, hdf_group = check_basedir(to_save, quantity, to_parallelize, action,
                                           controls=None, return_hdf_group=True)
         base = rundir.parent.parent.parent.parent
-        LOG.info("Checked rundir %s without controls %s \n\t with base at %s", rundir, base)
+        LOG.info("Checked rundir %s without controls \n\t with base at %s", rundir, base)
 
         assert rundir.exists, f"check basedir did not create {b}"
 
@@ -294,7 +295,7 @@ def parallely_analyze(quantity, subtargets, neuron_properties, action=None, in_m
 
         batched = append_batch(toc, using_basedir=rundir, njobs=n)
 
-        to_sbatch = to_parallelize["analyses"].get(q, {}).get("sbatch", None)
+        to_sbatch = to_parallelize["analyses"].get(quantity.name, {}).get("sbatch", None)
 
         if compute_nodes > 1:
             multirun = configure_launch_multi(compute_nodes, quantity,
@@ -325,6 +326,8 @@ def parallely_analyze(quantity, subtargets, neuron_properties, action=None, in_m
         n = njobs
 
         batched = append_batch(toc, for_control=algorithm, using_basedir=to_run, njobs=n)
+
+        to_sbatch = to_parallelize["analyses"].get(quantity.name, {}).get("sbatch", None)
 
         multirun = configure_launch_multi(compute_nodes, quantity,
                                           using_subtargets=batched, control=to_run/"control.json",
