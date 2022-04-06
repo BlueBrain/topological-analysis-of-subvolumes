@@ -1,12 +1,12 @@
 """ConnSense: An app to run connectome utility pipeline.
 """
 from collections import OrderedDict
-from argparse import ArgumentParser
+from argparse import ArgumentParser, RawTextHelpFormatter
 from pathlib import Path
 from pprint import pformat
 
 from connsense import pipeline
-from connsense.io import logging
+from connsense.io import logging, read_config
 from connsense.pipeline import workspace
 
 LOG = logging.get_logger("Toplogical analysis of flatmapped subtargets.")
@@ -89,14 +89,13 @@ SUBSTEPS = OrderedDict([("define-subtargets", "grids"),
 
 def parameterize_substeps(s, in_config):
     """..."""
-    LOG.info("parameterize substeps for step %s in config \n %s", s,
-             pformat(in_config["parameters"][s]))
-
+    parameters = in_config["parameters"]
+    LOG.info("parameterize substeps for step %s in config \n %s", s, pformat("parameters"))
     param = SUBSTEPS[s]
     if not param:
         return None
 
-    return in_config["parameters"][s][param]
+    return parameters[s][param]
 
 
 def check_step(as_argued, against_config):
@@ -186,21 +185,46 @@ def main(argued):
     return result
 
 
+def read_description():
+    """..."""
+    path = Path.cwd() / "project.org"
+    description = ""
+    if not path.exists():
+        LOG.info("No description at %s", path)
+        description += "Topological analysis of circuit subvolumes."
+
+    else:
+        LOG.info("Read description from %s", path)
+        with open(path, 'r') as f:
+            description += "\n\n" + f.read()
+
+    # path_c = Path.cwd() / "config.json"
+    # if not path_c.exists():
+    #     LOG.info("No configuration found in run dir %s", path_c)
+    # else:
+    #     LOG.info("Read config from %s", path_c)
+
+    # config = read_config.read(path_c)
+    # description += "\n\n" + pformat(config)
+    return description
+
+
 if __name__ == "__main__":
 
     LOG.warning("Analyze circuit subtarget topology.")
 
-    parser = ArgumentParser(description="Topological analysis of flatmapped subtargets.")
+    parser = ArgumentParser(description=read_description(),
+                            formatter_class=RawTextHelpFormatter)
 
     parser.add_argument("action",
-                        help=("A pipeline (step) action to do."
-                              " Following is a list of actions."
-                              " The action may be expected to apply to all the pipeline steps,"
-                              " unless otherwise indicated.\n"
+                        help=("A pipeline (step) action to do." " Following is a list of actions.\n"
                               "\t(1) init: to setup and intiialize.\n"
                               "\t(2) run: to run..., initializing if not already done\n"
                               "\t(3) resume: resume from the current state\n"
-                              "\t(4) collect: collect the results into a single store."))
+                              "\t(4) collect: collect the results into a single store.\n"
+                              "The action may be expected to apply to all the pipeline steps unless\n"
+                              "otherwise indicated."))
+
 
     parser.add_argument("step", nargs='?', default=None,
                         help=("Pipeline step run --- only one step may be run.\n"
@@ -234,28 +258,27 @@ if __name__ == "__main__":
     parser.add_argument("-m", "--mode", required=False, default=None,
                         help=("Specify how the action should be performed. should be done\n"
                               "For example:\n"
-                              "tap --configure=config.json --parallelize=parallel.json \\"
-                              "    --mode=prod run\n"
+                              "tap --configure=config.json --parallelize=parallel.json --mode=prod run\n"
                               "to run in production mode."))
 
     parser.add_argument("-b", "--batch", required=False,
                         help=("Path to a `.csv` or `.h5` that contains the subtargets to compute.\n"
                               "The dataframe should contain the input to run the pipeline stage computation\n"
-                              "For example, analyses can be run on a selection of subtarget adjacency matrices"
+                              "For example, analyses can be run on a selection of subtarget adjacency matrices\n"
                               "that can be saved in this datasaved, for a later run.\n"
-                              "This option will be useful to programmatically produce shell scripts to launch"
+                              "This option will be useful to programmatically produce shell scripts to launch\n"
                               "multiple single-node computation.\n"
-                              "This will allow use to configure a multi-node parallel computation"
-                              " for analyse that require more than a single compute node."))
+                              "This will allow use to configure a multi-node parallel computation for analyses\n"
+                              "that require more than a single compute node."))
 
     parser.add_argument("-x", "--controls", required=False, default=None,
                         help=("Apply a random control to a subvolume, and compute an analysis.\n"
-                              "The random control itself should be configured in the config loaded from the "
+                              "The random control itself should be configured in the config loaded from the \n"
                               "reference provided as the argument, for example  `--configure=<config.json>`.\n"
                               "The random controls should be specified in the config for each analyses,\n"
-                              "and a future version will be able to produce an execution script / config "
+                              "and a future version will be able to produce an execution script / config\n"
                               "from this information. For now it makes goods practice for the purpose of\n"
-                              " documentaiton."))
+                              "documentaiton."))
 
     parser.add_argument("--output",
                         help="Path to the directory to output in.", default=None)
@@ -264,8 +287,8 @@ if __name__ == "__main__":
                         help="A float to sample subtargets with", default=None)
 
     parser.add_argument("--dry-run", dest="test",  action="store_true",
-                        help=("Use this to test the pipeline's plumbing "
-                              "before running any juices through it."))
+                        help=("Use this to test the pipeline's plumbing before running any juices through it."))
+
     parser.set_defaults(test=False)
 
     args = parser.parse_args()

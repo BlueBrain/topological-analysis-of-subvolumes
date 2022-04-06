@@ -21,14 +21,19 @@ LOG = logging.get_logger(STEP)
 class LazyRandomMatrix:
     """Randomize an adjacenciy matrix, but lazily.
     """
-    def __init__(self, matrix, using_shuffling, node_properties=None, log_info=None, **kwargs):
+    def __init__(self, matrix, using_shuffling, node_properties=None, name=None, tapping=None,
+                 log_info=None, **kwargs):
         """Lazily randomize a matrix using a specified shuffling algorithm,
         which may use further keyword arguments such as graph node properties
         that can be passed among `kwargs`.
+
+        index :: to name the matrix
         """
         self._original = matrix
         self._shuffle = using_shuffling
         self._node_properties = node_properties
+        self._name = name
+        self._tap = tapping
         self._log_info = log_info
         self._params = kwargs
 
@@ -47,7 +52,8 @@ class LazyRandomMatrix:
         """
         LOG.info("Wake up lazy random matrix of shape %s", self.original.shape[0])
         LOG.info("\t [REFERENCE]%s", self._log_info)
-        return self._shuffle.apply(self.original, self._node_properties, **self._params)
+        return self._shuffle.apply(self.original, self._node_properties, subtarget=self._name,
+                                   tap=self._tap, **self._params)
 
     @staticmethod
     def dump_toc(of_subtargets, to_dir):
@@ -174,7 +180,7 @@ def read_randomization(configured, argument=None):
     assert not argument or isinstance(argument, str)
 
     parameters = configured["parameters"]
-    randomize = parameters["control-connectivity"]
+    randomize = parameters["connectivity-controls"]
     algorithms = randomize["algorithms"]
     return algorithms[argument] if argument else algorithms
 

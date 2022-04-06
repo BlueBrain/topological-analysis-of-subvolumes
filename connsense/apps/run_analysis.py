@@ -6,7 +6,7 @@ This is will be use to generate multi-node launchscripts.
 This is a work in progress. (Vishal Sood 20220220)
 """
 
-from argparse import ArgumentParser
+from argparse import ArgumentParser, RawTextHelpFormatter
 from pathlib import Path
 from pprint import pformat
 import json
@@ -27,7 +27,6 @@ from connsense.pipeline.store import HDFStore as TAPStore
 from connsense.randomize_connectivity.algorithm import SingleMethodAlgorithmFromSource
 from connsense import analyze_connectivity as anzconn
 from connsense.analyze_connectivity import analyze
-from connsense.analyze_connectivity.randomize import lazy_random
 
 STEP = "analyze-connectivity"
 LOG = logging.get_logger("Toplogical analysis of flatmapped subtargets.")
@@ -61,12 +60,17 @@ def update_algorithm(in_toc, to_value):
     return pd.concat([in_toc.droplevel("algorithm")], keys=[to_value], names=["algorithm"])
 
 
-def apply_control(in_file, to_toc, using_batches):
-    """..."""
+def apply_control_series(in_file, to_toc, using_batches):
+    """...Controls applied `to_toc` which is a series...
+    Replaced by the newer version that applies controls to rows of a dataframe
+    so that information about the subvolume represented by a TOC entry can be passed to the control
+
+    TODO: REMOVE
+    """
     control = read_control(in_file)
     if not control:
         LOG.info("No controls to apply")
-        return to_toc
+        return (to_toc, using_batches)
 
     LOG.info("Apply control %s to a %s entry TOC: \n%s", control.name,  len(to_toc), pformat(to_toc))
     of_controlled_values = to_toc.apply(lazy_random(control))
@@ -74,6 +78,35 @@ def apply_control(in_file, to_toc, using_batches):
     LOG.info("DONE applying controls: \n%s", pformat(controlled_toc))
     controlled_batches = update_algorithm(using_batches, to_value=control.name)
     return (controlled_toc, controlled_batches)
+
+
+def lazy_random(control, pipeline_store=None):
+    """Prepare a method to apply to a row containing a batch of matrix from a TOC.
+    """
+    from connsense.analyze_connectivity.randomize import LazyRandomMatrix
+
+    def apply_to_batch(in_row):
+        return LazyRandomMatrix(in_row.matrix, using_shuffling=control, name=in_row.name,
+                                tapping=pipeline_store)
+
+    return apply_to_batch
+
+
+def apply_control(in_file, to_toc, using_batches, using_cache):
+    """..."""
+    to_batched = pd.concat([to_toc, using_batches], axis=1)
+
+    control = read_control(in_file)
+    if not control:
+        LOG.info("No controls to apply")
+        return to_batched
+
+    LOG.info("Apply control %s to %s entry TOC: \n%s", control.name, len(to_toc), pformat(to_toc))
+    of_controlled_values = to_batched.apply(lazy_random(control, using_cache), axis=1).rename("matrix")
+    controlled_toc = update_algorithm(in_toc=of_controlled_values, to_value=control.name)
+    LOG.info("DONE applying controls: \n%s", pformat(controlled_toc))
+    controlled_batches = update_algorithm(using_batches, to_value=control.name)
+    return pd.concat([controlled_toc, controlled_batches], axis=1)
 
 
 def main(argued):
@@ -91,8 +124,11 @@ def main(argued):
     neurons = anzconn.load_neurons(input_paths)
 
     original, assigned = anzconn.load_adjacencies(input_paths, from_batch=in_basedir)
-    toc_adjs, batches = apply_control(in_basedir/"control.json", to_toc=original, using_batches=assigned)
-    batched = pd.concat([toc_adjs, batches], axis=1)
+    #toc_adjs, batches = apply_control(in_basedir/"control.json", to_toc=original, using_batches=assigned)
+    #batched = pd.concat([toc_adjs, batches], axis=1)
+    pipeline_store = TAPStore(config)
+    batched = apply_control(in_basedir/"control.json", to_toc=original, using_batches=assigned,
+                            using_cache=pipeline_store)
 
     analysis = resolve_analysis(argued, against_config=c)
     LOG.info("Run analysis %s for a %s batched adjacencies: \n%s", analysis, len(batched),
@@ -101,13 +137,12 @@ def main(argued):
     _, hdf_group = output_paths["steps"].get(STEP, default_hdf(STEP))
 
     LOG.info("Compute analysis %s on %s subtargets, saving results to (%s, %s)",
-             analysis.name, len(toc_adjs), in_basedir, hdf_group)
+             analysis.name, len(batched), in_basedir, hdf_group)
 
-    pipeline_store = TAPStore(config)
     result = analyze.dispatch_single_node(analysis, batched, neurons,
                                           to_tap=pipeline_store, to_save=(in_basedir, hdf_group))
     LOG.warning("DONE running analysis %s for batch %s of %s subtargets saving (%s, %s).",
-                analysis.name, argued.batches, len(toc_adjs), in_basedir, hdf_group)
+                analysis.name, argued.batches, len(batched), in_basedir, hdf_group)
     return result
 
 
@@ -115,7 +150,8 @@ if __name__ == "__main__":
 
     LOG.warning("Analyze circuit subtarget topology.")
 
-    parser = ArgumentParser(description="Topological analysis of flatmapped subtargets.")
+    parser = ArgumentParser(description="Topological analysis of flatmapped subtargets.",
+                            formatter_class=RawTextHelpFormatter)
 
     parser.add_argument("action",
                         help=("A pipeline (step) action to do."

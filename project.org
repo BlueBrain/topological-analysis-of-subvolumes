@@ -1,0 +1,148 @@
+#+TITLE: Topological Analysis Pipeline for an Array of Circuit Subvolumes
+
+This topic is under-discussion at [[https://bbpteam.epfl.ch/project/issues/browse/SSCXDIS-530][JIRA]].
+
+The ~Topological Analysis Pipeline (TAP)~' offers / aims to offer to a scientist:
+
+** A Reproducible Analysis Package to accompagny a publication
+Focusing on reproducibility ~TAP~ implements a computational pipeline that uses a
+JSON configuration file stating what the pipeline's run with that configuration should do,
+/i.e./ it specifies what outputs the pipeline should producing using the specified inputs.
+This configuration can be used as a *reproducibility document*.
+To produce any downstream analyses and summaries, and figures, this document should be enough
+for the scientist to load the data.
+All the computed data is saved in a ~HDF data-store~, and an interface defined within ~TAP~ can be used
+to interact with the ~data-store~.
+
+** A Large Scale Circuit Analysis Environment
+~TAP~ automates the parallel launch on a grid of subvolumes.
+The parallelization config allows the scientist to provide estimates of their analysis'
+computational requirements. But a configuration is not the final word. ~TAP~ can run in a test
+workspace that can be used to estimate the computational requirements.
+
+Like any scientific work, a characterization of a circuit is an iterative procedure.
+~TAP~ aims to provide extensive book-keeping tools to track the progress of such studies.
+
+
+* Pipeline Stages
+
+There are six stages in the pipeline:
+
+- define-subtargets :: generate the subvolumes.
+  The subvolumes are saved as a ~pandas.Series~ of lists containing cell ~gids~,
+  that define ~subtargets~ in the /circuit/ to be analyzed.
+
+  Configuration allows for the definition of the circuit-subvolumes to analyze.
+
+  Currently hexagonal flatmap columnar circuit sub-volumes have been defined.
+
+  Plan to allow the scientists to provide a definition as a plugin.
+
+- extract-neurons :: extract the neuron properties for each of the ~subtargets~
+  Neuron properties are saved as ~pandas.DataFrame~, one for eac ~subtarget~.
+
+  Configuration allows for properties to extract.
+
+  Plan to empower the scientist to provide their own extraction method.
+
+- evaluate-subtargets :: evaluate the ~subtargets~ defined so far.
+
+  Configuration allows for listing names of pre-defined metrics that are available in ~TAP~.
+
+  Plan to remove the pre-definition to the accompagnying ~connectome-analysis~ library.
+  The idea is to rid ~TAP~ of any unnecssary domain-specific knowledge where it is used.
+  It shouild apply to any domain with nodes and edges, /i.e./ graphs.
+  The resulting configuration will use a mapping of metric names to methods.
+
+- extract-connectivity :: extract the connectivity matrix for each of the ~subtarget~.
+  Adjacency matrices are saved in ~scipy.sparse.csr~ format and saved inside the HDF store.
+  A table of contents is also saved that lists the HDF locations of each `subtargets` using
+  the ~TAP-index~.
+
+  Configuration allows for listing the names of connectomes to extract from the circuit,
+  using the code provided within ~TAP~.
+
+  Plan to use  this functionality from within ~TAP~ as default and empower the scientist to provide
+  their method
+
+- randomize-connectivity :: randomize the original conectivity of each ~subtarget~.
+  Randomized adjacency matrices are saved akin to the original one.
+
+  Configuration allows for describing the shuffling method as a location of it's source code...
+
+  *NOTE This stage is optional* and not currently run.
+
+- analyze-connectivity :: run analyses for each of the subtargets
+  Each original will be analyzed and its data saved to the ~HDF-strore~ as configured.
+  In addition analyses of configured random-controls of each original adjacency can also be run.
+
+  Configuration allows for listing the analyses descriptions, including the random-controls to run.
+
+
+* Configuring the pipeline.
+
+Their are two input configuration files to run the pipeline.
+Easier to just open them and look at the comments in there, than repeat that information here.
+
+
+* TAP Environment Command Line Interface
+
+We have developed the `SSCX-Dissemination Subvolume TAP` iteratively, and during this process I have
+implemented a prototype environment that aims to provide extensive book keeping.
+
+While the initial steps are simpler (and not used / tested for a while) we will focus on running
+analyses. These will work because we have a ~TAP-store~ that we can use as input.
+
+The first step is to create an environment to work in.
+
+#+begin_src shell
+
+python tap --configure=config.json --parallelize=parallel.json init
+
+#+end_src
+
+
+This will create a ~run~ folder with configurations in it.
+When fully implemented, it will also copy the required apps in the ~run~ folder.
+Currently we use soft links that make manually.
+
+Next, we can decide to work in a test location within run.
+#+being_src shell
+
+python tap --configure=config.json --parallelize=parallel.json --mode=test init
+
+#+end_src
+
+Working with a ~TAP-store~ that already contains the connectivity matrices,
+next we go ahead and ask ~TAP~ to setup a launch of connection probability using the config
+in which we find,
+
+#+begin_src js
+"conn_prob_dd2": {
+    "source": "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/modelling.py",
+    "method": "conn_prob_2nd_order_model",
+    "output": "pandas.DataFrame",
+    "kwargs": {
+        "bin_size_um": 50,
+        "max_range_um": 1000,
+        "sample_size": null
+    }
+}
+
+#+end_src
+
+
+ On the CLI:
+
+ #+begin_src shell
+
+ python tap --configure=config.json --parallelize=parallel.json --mode=test init analyze-connectivity conn_prob_dd2
+
+ #+end_src
+
+ to set up the workspace, and
+ #+begin_src shell
+
+ python tap --configure=config.json --parallelize=parallel.json --mode=test run analyze-connectivity conn_prob_dd2
+
+ #+end_src

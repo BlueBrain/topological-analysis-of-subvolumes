@@ -1,10 +1,14 @@
 """Load a `randomization.Algorihtm from source code.`"""
 from copy import deepcopy
+from pprint import pformat
 
 import pandas as pd
 
 from randomization import Algorithm
 from ..plugins import import_module
+from ..io.logging import get_logger
+
+LOG = get_logger("Topology Pipeline Analysis", "INFO")
 
 
 class AlgorithmFromSource(Algorithm):
@@ -128,7 +132,7 @@ class SingleMethodAlgorithmFromSource(Algorithm):
         """..."""
         return description.get("kwargs", {})
 
-    def __init__(self, name, description):
+    def __init__(self, name, description, cannot_be_analyses=None):
         """..."""
         self._name = name
         self._description = description
@@ -138,6 +142,8 @@ class SingleMethodAlgorithmFromSource(Algorithm):
         self._kwargs = self.read_kwargs(description)
         self._method = self.read_method(description)
         self._shuffle = self.load(description)
+        self._cannot_be_analyses = cannot_be_analyses or (
+            "adjacency", "adj", "nodes", "node_properties", "controls", "args", "kwargs")
 
     @property
     def name(self):
@@ -170,22 +176,92 @@ class SingleMethodAlgorithmFromSource(Algorithm):
         self._module = module
         return method
 
-    def apply(self, adjacency, node_properties=None):
+    def _input_analyses(self, tap, subtarget):
+        """Get other analyses from the TAP that are needed for this one.
+
+        To do so, lookup the index entry subtarget in each analysis stored in the TAP instance tap.
+
+        TODO: Provide better documnetation, and log messages to help the user
+        TODO: This is a copy from SingleMethodAnalysisFromSource --- find a common place...
+        """
+        import inspect
+        signat = inspect.signature(self._shuffle)
+
+        index_entry = tuple(subtarget)
+
+        def check_toc(of_analysis):
+            for a, toc in tap.analyses.items():
+                if a.replace('-', '_') == of_analysis:
+                    return toc
+
+            LOG.error("No such analysis %s in store at %s", of_analysis, tap._root)
+            return None
+
+            try:
+                toc = tap.analyses[of_analysis]
+            except KeyError:
+                LOG.error("No such analysis %s in store at %s", of_analysis, tap._root)
+                return None
+            return toc
+
+        def lookup_analysis(a, in_toc):
+            try:
+                return in_toc.loc[index_entry]
+            except KeyError:
+                LOG.error("No analyses %a value in store for %s ", a, index_entry)
+                return None
+
+            LOG.error("Could not find a stored tap value for analysis %s of subtarget %s",
+                      a, index_entry)
+            return None
+
+        may_be_analysis_name = lambda n: n not in self._cannot_be_analyses
+        possibly_analysis = (p for p in signat.parameters if may_be_analysis_name(p))
+        tocs = (check_toc(of_analysis=a) for a in possibly_analysis)
+        available = [(analysis, toc) for analysis, toc in zip(possibly_analysis, tocs) if toc]
+
+        requested = {a: lookup_analysis(a, in_toc=t) for a, t in available}
+        LOG.info("Available inputs for analysis %s available: \n%s", self.name, pformat(requested))
+
+        return requested
+
+    def apply(self, adjacency, node_properties=None, tap=None, subtarget=None,
+              log_info=None, **kwargs):
         """..."""
         try:
             matrix = adjacency.matrix
         except AttributeError:
             matrix = adjacency
 
+        if log_info:
+            LOG.info("Apply analysis %s %s\t\t of shape %s",
+                     self.name, log_info, matrix.shape)
+
         if node_properties is not None:
             assert node_properties.shape[0] == matrix.shape[0]
+
+        input_analyses = self._input_analyses(tap, subtarget) if tap else {}
+        LOG.info("input analysis to subtarget %s: \n%s", subtarget, pformat(input_analyses))
 
         args = deepcopy(self._args)
         kwargs = deepcopy(self._kwargs)
         if self._seed is not None:
             kwargs["seed"] = self._seed
 
-        return self._shuffle(matrix, node_properties, *args, **kwargs)
+        try:
+            result = self._shuffle(matrix, node_properties, *args, **input_analyses, **kwargs)
+        except RuntimeError as runt:
+            called_by = log_info if log_info else "unknown"
+
+            LOG.error("FAILURE in analysis %s of adj mat %s called by %s: "
+                      "RuntimeError caught %s.", self.name, matrix.shape, called_by, runt)
+            result = None
+
+        if log_info:
+            LOG.info("Done analysis %s of adjacency matrix of shape %s from %s",
+                     self.name, matrix.shape, log_info)
+
+        return result
 
     def __call__(self, adjacency, node_properties=None):
         """..."""

@@ -70,8 +70,8 @@ def measure_quantity(a, of_subtarget, index_entry=None, using_neuron_properties=
     s = of_subtarget
     i = s.idx + 1
     l = index_entry["subtarget"]
-    LOG.info("Apply analysis %s to subtarget %s (%s / %s): \n%s\n%s",
-             analysis.name, l, i, batch_size or "", pformat(index_entry),
+    LOG.info("Apply analysis %s to subtarget %s (%s / %s): \n%s \n%s \n%s",
+             analysis.name, l, i, batch_size or "", pformat(index_entry), s,
              log_info or "")
 
     result = analysis.apply(s.matrix, neurons, tapping, index_entry, log_info)
@@ -181,9 +181,10 @@ def configure_launch_multi(number, quantity, using_subtargets, control, at_works
         _remove_link(config)
         config.symlink_to(basedir/"config.json")
 
-        control_config = rundir/"control.json"
-        _remove_link(control_config)
-        control_config.symlink_to(control)
+        if control:
+            control_config = rundir/"control.json"
+            _remove_link(control_config)
+            control_config.symlink_to(control)
 
         h5, hdf_group = BATCHED_SUBTARGETS
         path_h5 = rundir / h5
@@ -306,8 +307,6 @@ def parallely_analyze(quantity, subtargets, neuron_properties, action=None, in_m
         compute_nodes, njobs = read_njobs(to_parallelize, for_quantity=q)
         n = njobs
 
-#       #atoc = pd.concat([toc.droplevel("algorithm")], keys=[algorithm.name], names=["algorithm"])
-        #batched = append_batch(atoc, for_control=algorithm, using_basedir=to_run, njobs=n)
         batched = append_batch(toc, for_control=algorithm, using_basedir=to_run, njobs=n)
 
         multirun = configure_launch_multi(compute_nodes, quantity,
@@ -467,6 +466,8 @@ def check_basedir(to_save, quantity, to_parallelize=None, mode=None, controls=No
 
 def configure_algorithm(for_control, using_basedir):
     """..."""
+    if not for_control: return
+
     from connsense.io.read_config import write
     control_json = Path(using_basedir.parent) / "control.json"
     description = deepcopy(for_control.description)

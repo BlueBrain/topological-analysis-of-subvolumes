@@ -67,8 +67,13 @@ class SingleMethodAnalysisFromSource:
             return None
         return policy
 
-    def __init__(self, name, description):
-        """..."""
+    def __init__(self, name, description, cannot_be_analyses=None):
+        """...
+        cannot_be_analyses :: a list of names that cannot be analyses used in the input config.
+        ~                        this list will free the scientist to use the listed words as
+        ~                        argument names in their input libraries.
+        ~                     A default is provided.
+        """
         self._name = name
         self._description = description
         self._source = self.read_source(description)
@@ -78,6 +83,8 @@ class SingleMethodAnalysisFromSource:
         self._analysis = self.load(description)
         self._output_type = self.read_output_type(description)
         self._collection_policy = self.read_collection(description)
+        self._cannot_be_analyses = cannot_be_analyses or (
+            "adjacency", "adj", "nodes", "node_properties", "controls", "args", "kwargs")
 
     @property
     def name(self):
@@ -132,6 +139,13 @@ class SingleMethodAnalysisFromSource:
         index_entry = tuple(subtarget)
 
         def check_toc(of_analysis):
+            for a, toc in tap.analyses.items():
+                if a.replace('-', '_') == of_analysis:
+                    return toc
+
+            LOG.error("No such analysis %s in store at %s", of_analysis, tap._root)
+            return None
+
             try:
                 toc = tap.analyses[of_analysis]
             except KeyError:
@@ -141,7 +155,7 @@ class SingleMethodAnalysisFromSource:
 
         def lookup_analysis(a, in_toc):
             try:
-                return toc.loc[index_entry]
+                return in_toc.loc[index_entry]
             except KeyError:
                 LOG.error("No analyses %a value in store for %s ", a, index_entry)
                 return None
@@ -150,18 +164,19 @@ class SingleMethodAnalysisFromSource:
                       a, index_entry)
             return None
 
-        not_analyses = ("adjacency", "adj", "nodes", "node_properties", "controls"
-                        "args", "kwargs")
-        possibly_analysis = (p for p in signat.parameters if p not in not_analyses)
+        may_be_analysis_name = lambda n: n not in self._cannot_be_analyses
+        possibly_analysis = (p for p in signat.parameters if may_be_analysis_name(p))
         tocs = (check_toc(of_analysis=a) for a in possibly_analysis)
         available = [(analysis, toc) for analysis, toc in zip(possibly_analysis, tocs) if toc]
-        return {a: lookup_analysis(a, in_toc=t) for a, t in available}
 
+        requested = {a: lookup_analysis(a, in_toc=t) for a, t in available}
+        LOG.info("Available inputs for analysis %s available: \n%s", self.name, pformat(requested))
+
+        return requested
 
     def apply(self, adjacency, node_properties=None, tap=None, subtarget=None,
               log_info=None, **kwargs):
-        """Use keyword arguments to test interactively,
-        instead of reloading a config.
+        """Use keyword arguments to test interactively, instead of reloading a config.
         """
         try:
             matrix = adjacency.matrix
@@ -175,10 +190,16 @@ class SingleMethodAnalysisFromSource:
         if node_properties is not None:
             assert node_properties.shape[0] == matrix.shape[0]
 
-        input_analyses = self._input_analyses(tap, subtarget)
+        input_analyses = self._input_analyses(tap, subtarget) if tap else {}
         LOG.info("input analysis to subtarget %s: \n%s", subtarget, pformat(input_analyses))
-        result = self._analysis(matrix, node_properties, *self._args,
-                                **input_analyses, **self._kwargs, **kwargs)
+        try:
+            result = self._analysis(matrix, node_properties, *self._args,
+                                    **input_analyses, **self._kwargs, **kwargs)
+        except RuntimeError as runt:
+            called_by = log_info if log_info else "unknown"
+            LOG.error("FAILURE in analysis %s of adj mat %s called by %s: "
+                      "RuntimeError caught %s.", self.name, matrix.shape, called_by, runt)
+            return None
 
         if log_info:
             LOG.info("Done analysis %s of adjacency matrix of shape %s from %s",
