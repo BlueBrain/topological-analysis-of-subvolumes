@@ -1,0 +1,240 @@
+{
+  "VERSION": "1.0.0",
+  "DATE": "20220517",
+  "COMMENTS": [
+    "As we have worked on the Topological Analysis Pipeline (TAP)",
+    "we have learnt several lessons, and have updated the configuration.",
+    "This file represents the current requirements to configure a pipeline run."
+  ],
+  "paths": {
+    "COMMENTS": [
+      "TAP needs paths to the input data to load from, output paths to store data in.",
+      "The circuit is an input for the steps for definiing subvolumes and extracting connectivity and nodes",
+      "The output data is stored in a single HDF archive, and the paths should mention its root and groups.",
+      "To run TAP incrementally, for example to run a specific analysis from the CLI",
+      "it will be assumed that the output of the previous steps (upto and including exctraction of connectivity)",
+      "is available in the input-store.",
+      "We use a `format` of `relative` which allows to configure the paths relative to the path to a `root` dir."
+    ],
+    "format": "relative",
+    "circuit": {
+        "root": "/gpfs/bbp.cscs.ch/project/proj83/circuits",
+        "files": {
+            "Bio_M": "Bio_M/20200805/CircuitConfig_TC_WM"
+        }
+    },
+    "pipeline": {
+      "COMMENTS": [
+        "Provide the HDF stores for input (which can be the output of TAP steps that have already been computed),",
+        "and an ouput pipeline data",
+        "The paths should be entered with a directory as root and the name of the HDF5 file as store.",
+        "One store each must be configured for both the input and output (see below where these values go.)",
+        "For a production run, we should use the same input and output stores.",
+        "As we compute more analyses and randomizations, these will be added to the data-store.",
+        "For testing, we can set the output store to a test data-store such that the input store is not polluted."
+      ],
+      "root": "/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/from-scratch",
+      "steps": {
+        "COMMENTS": [
+          "These are the pipeline steps that can be configured in the `parameters` section below.",
+          "The names appearing as values will be used to name the relevant analysis groups in HDF-store."
+        ],
+        "define-subtargets": "subtargets",
+        "extract-neurons": "neurons",
+        "evaluate-subtargets": "subtarget_quality",
+        "extract-connectivity": "con_mats/original",
+        "randomize-connectivity": "con_mats/randomized",
+        "analyze-connectivity": "analysis"
+      },
+      "input": {
+        "COMMENTS": [
+          "Provide the name of the input store."
+        ],
+        "store": "topological_sampling.h5"
+      },
+      "output": {
+        "COMMENTS": [
+          "Provide the name of the output store."
+        ],
+        "store": "topological_sampling.h5"
+      }
+    }
+  },
+  "parameters": {
+    "define-subtargets": {
+      "common": {
+        "COMMENT": [
+          "Subtargets are grouped by their defnition provided in the next section.",
+          "Any common parameters may be provided here."
+        ]
+      },
+      "grids": {
+        "hexgrid": {
+          "COMMEMT": [
+            "A grid of hexagons is provided by `connsense`.",
+            "Here we can provide the radius of the hexagon, and the base target in the circuit",
+            "for which we want to generate the grid. Default radius below applies to SSCx circuits",
+            "The base target of `Mosaic` means that the grid will cover the entire circuit."
+          ],
+          "radius": 230.0,
+          "base_target": "Mosaic"
+        }
+      }
+    },
+    "extract-neurons": {
+      "common": {
+        "COMMENT": [
+          "It is assumed that the pipeline will need a set of cell properties with names that ",
+          "can be used to query the circuit for their values in a population of cells",
+          "A dict mapping cell-property to a neuron extraction criterion will be used to filter the neurons",
+          "If there  are any common parameters to use for extraction, they can be provided here"
+        ],
+        "filter": {}
+      },
+      "properties": [
+        "x",
+        "y",
+        "z",
+        "depth",
+        "synapse_class",
+        "region",
+        "layer",
+        "mtype"
+      ]
+    },
+    "evaluate-subtargets": {
+      "common": {
+        "COMMENT": [
+          "We have defined metrics to evaluate the quality of subtargets, and name among `metrics`"
+        ],
+        "TODO": [
+          "Eventually this section will be a dict similar to `connectivity-controls` and `analyze-connectivity`",
+          "which will allow a scientist user to provide their own evaluation metrics."
+        ]
+      },
+      "metrics": [
+        "orthogonality",
+        "neuron_counts",
+        "target_composition"
+      ]
+    },
+    "extract-connectivity": {
+      "common" : {
+        "COMMENT": [
+          "Extraction of circuit's connectivity is handled by `connsense`.",
+          "Specify the connectome to extract. The choices are `local`, `mid-range`, and `projections.",
+          "We have tested only `local` so far."
+        ]
+      },
+      "connectomes": [
+        [
+          "local"
+        ]
+      ]
+    },
+    "connectivity-controls": {
+      "common": {
+        "COMMENT": [
+          "A connectivity control will be used to generate control connectivity to compare analyses.",
+          "A connectivity control is configured here as named `dict` among algorithms.",
+          "To apply to an analysis, we must mention the control algorithm's name in the analysis's",
+          "configuration. "
+				]
+      },
+      "algorithms": {
+       "COMMENT": [
+					"For each algorithm provide keyword argument `method` for how to sample",
+         "coded in the file at the path provided as `source`. Since connectivity controls will be",
+         "randomizations of the original connectivity, value of `seeds` will be used to seed individual",
+         "randomizations"
+				],
+        "erdos-renyi": {
+          "source": "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/randomization.py",
+          "method": "ER_shuffle",
+          "seeds": [0, 1, 2, 3, 4]
+        },
+        "dd2-model": {
+          "COMMENT": [
+            "The kwarg coord_names should match the coord_names in anal§ysis model_params_dd2",
+            "among analyze-connectivity entries"],
+          "source": "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/randomization.py",
+          "method": "run_DD2_model",
+          "kwargs": {
+            "coord_names": ["x", "y", "z"]
+          },
+          "seeds": [0, 1, 2, 3, 4]
+        }
+      }
+    },
+    "analyze-connectivity": {
+      "common": {
+        "COMMENT": [
+          "We configure `analyses` as a `dict` that maps analyses name to information about ",
+          "the source code, the method to use and keyword arguments to pass to the method.",
+          "To compare to a randomized connectivity, we can provide `controls-to-apply` as a list.",
+          "This list should name a subset of connectivity controls configured above. "
+				]
+      },
+      "analyses": {
+        "degree": {
+         "COMMENT": ["Count the number of incoming connections of a node."],
+          "source": "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py",
+          "method": "node_degree",
+          "kwargs": {
+            "direction": ["IN", "OUT"]
+          },
+          "controls-to-apply": ["dd2-model"],
+          "output": "pandas.DataFrame"
+        },
+        "simplex-counts": {
+	        "source": "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py",
+          "method": "simplex_counts",
+	        "controls-to-apply": ["erdos-renyi"],
+          "output": "pandas.Series"
+        },
+        "simplices": {
+	        "source": "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py",
+          "method": "list_simplices_by_dimension",
+          "output": "SeriesOfMatrices"
+        },
+        "node-participation": {
+	        "source": "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py",
+          "method": "node_participation",
+          "kwargs": {},
+          "output": "pandas.DataFrame"
+        },
+			  "betti-counts": {
+	        "source": "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py",
+          "method": "betti_counts",
+          "kwargs": {
+	          "approximation": [-1, -1, 10000, 10000, 100000, 100000, -1, -1]
+          },
+          "output": "pandas.Series"
+        },
+				"bedge-counts": {
+					"source": "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py",
+					"method": "bedge_counts",
+					"output": "SeriesOfMatrices"
+				},
+				"model_params_dd2": {
+					"COMMENTS": [
+						"Compute parameters for the distance dependent connection-probabilty order-two control  model",
+						"Note the `coord_names` `kwarg` configured in the following must agree with the configuration",
+            "of the control model called `dd2-model` in the `connectivity-controls` parameters.",
+						"We must keep the two entries in agreement"
+					],
+					"source": "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/modelling.py",
+					"method": "conn_prob_2nd_order_model",
+					"output": "pandas.DataFrame",
+					"kwargs": {
+						"bin_size_um": 50,
+						"max_range_um": 1000,
+						"sample_size": null,
+						"coord_names": ["x", "y", "z"]
+					}
+				}
+    	}
+  	}
+	}
+}
+

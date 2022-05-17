@@ -21,7 +21,7 @@ LOG = logging.get_logger(STEP)
 class LazyRandomMatrix:
     """Randomize an adjacenciy matrix, but lazily.
     """
-    def __init__(self, matrix, using_shuffling, node_properties=None, name=None, tapping=None,
+    def __init__(self, matrix, node_properties, using_shuffling, name=None, tapping=None,
                  log_info=None, **kwargs):
         """Lazily randomize a matrix using a specified shuffling algorithm,
         which may use further keyword arguments such as graph node properties

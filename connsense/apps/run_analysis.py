@@ -80,19 +80,23 @@ def apply_control_series(in_file, to_toc, using_batches):
     return (controlled_toc, controlled_batches)
 
 
-def lazy_random(control, pipeline_store=None):
+def lazy_random(control, among_neurons, pipeline_store=None):
     """Prepare a method to apply to a row containing a batch of matrix from a TOC.
     """
     from connsense.analyze_connectivity.randomize import LazyRandomMatrix
 
     def apply_to_batch(in_row):
-        return LazyRandomMatrix(in_row.matrix, using_shuffling=control, name=in_row.name,
-                                tapping=pipeline_store)
+        """This method will need the queried row to contain circuit and subtarget in its entires.
+        This can be achieved by reseting the index on the Series that provides
+        the values for `matrix, batch, compute_node`.
+        """
+        return LazyRandomMatrix(in_row.matrix, among_neurons.loc[in_row.circuit, in_row.subtarget],
+                                using_shuffling=control, name=in_row.name, tapping=pipeline_store)
 
     return apply_to_batch
 
 
-def apply_control(in_file, to_toc, using_batches, using_cache):
+def apply_control(in_file, to_toc, among_neurons, using_batches, using_cache):
     """..."""
     to_batched = pd.concat([to_toc, using_batches], axis=1)
 
@@ -102,10 +106,13 @@ def apply_control(in_file, to_toc, using_batches, using_cache):
         return to_batched
 
     LOG.info("Apply control %s to %s entry TOC: \n%s", control.name, len(to_toc), pformat(to_toc))
-    of_controlled_values = to_batched.apply(lazy_random(control, using_cache), axis=1).rename("matrix")
+    of_controlled_values = (to_batched.reset_index().set_index(to_batched.index)
+                            .apply(lazy_random(control, among_neurons, using_cache), axis=1)
+                            .rename("matrix"))
     controlled_toc = update_algorithm(in_toc=of_controlled_values, to_value=control.name)
-    LOG.info("DONE applying controls: \n%s", pformat(controlled_toc))
     controlled_batches = update_algorithm(using_batches, to_value=control.name)
+
+    LOG.info("DONE applying controls: \n%s", pformat(controlled_toc))
     return pd.concat([controlled_toc, controlled_batches], axis=1)
 
 
@@ -170,8 +177,8 @@ def main(argued=None):
     #toc_adjs, batches = apply_control(in_basedir/"control.json", to_toc=original, using_batches=assigned)
     #batched = pd.concat([toc_adjs, batches], axis=1)
     pipeline_store = TAPStore(config)
-    batched = apply_control(in_basedir/"control.json", to_toc=original, using_batches=assigned,
-                            using_cache=pipeline_store)
+    batched = apply_control(in_basedir/"control.json", to_toc=original, among_neurons=neurons,
+                            using_batches=assigned, using_cache=pipeline_store)
 
     analysis = resolve_analysis(argued, against_config=c)
     LOG.info("Run analysis %s for a %s batched adjacencies: \n%s", analysis, len(batched),

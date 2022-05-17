@@ -125,7 +125,7 @@ def check_step(as_argued, against_config):
         return (s, None)
 
     assert ss in parameters, ("f{substep} is not a substep of {step}."
-                              f" Provide one of {pformat(parameters)}")
+                              f" Provide one of {pformat(list(parameters.keys()))}")
 
     return (s, ss)
 
@@ -191,11 +191,13 @@ def main(argued=None):
 
 
 def get_parser():
+    """Get a parser for the CLI arguments.
+    """
     parser = ArgumentParser(description=read_description(),
                             formatter_class=RawTextHelpFormatter)
 
     parser.add_argument("action",
-                        help=("A pipeline (step) action to do." " Following is a list of actions.\n"
+                        help=("A pipeline action to run. Following TAP actions have been defined.\n"
                               "\t(1) init: to setup and intiialize.\n"
                               "\t(2) run: to run..., initializing if not already done\n"
                               "\t(3) resume: resume from the current state\n"
@@ -205,7 +207,8 @@ def get_parser():
 
 
     parser.add_argument("step", nargs='?', default=None,
-                        help=("Pipeline step run --- only one step may be run.\n"
+                        help=("Pipeline step to act on. "
+                              "Only one step may be run at a time, which is parameterized by `step`.\n"
                               "Skip this argument when initializing a pipeline run:\n"
                               "python tap --configure=config.json --parallelize=parallel.json init\n"
                               "which will setup a workspace to run the entire pipeline."))
@@ -240,12 +243,12 @@ def get_parser():
                               "to run in production mode."))
 
     parser.add_argument("-b", "--batch", required=False,
-                        help=("Path to a `.csv` or `.h5` that contains the subtargets to compute.\n"
+                        help=("Path to a dir that contains a `batches.h5` file that maps subtargets to int\n"
                               "The dataframe should contain the input to run the pipeline stage computation\n"
                               "For example, analyses can be run on a selection of subtarget adjacency matrices\n"
-                              "that can be saved in this datasaved, for a later run.\n"
+                              "that can be saved in this data for a later run.\n"
                               "This option will be useful to programmatically produce shell scripts to launch\n"
-                              "multiple single-node computation.\n"
+                              "multiple single-node computations.\n"
                               "This will allow use to configure a multi-node parallel computation for analyses\n"
                               "that require more than a single compute node."))
 

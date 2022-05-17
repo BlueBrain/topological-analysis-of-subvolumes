@@ -155,7 +155,7 @@ class SingleMethodAnalysisFromSource:
 
         def lookup_analysis(a, in_toc):
             try:
-                return in_toc.loc[index_entry]
+                return in_toc.loc[index_entry].get_value()
             except KeyError:
                 LOG.error("No analyses %a value in store for %s ", a, index_entry)
                 return None
@@ -178,9 +178,11 @@ class SingleMethodAnalysisFromSource:
               log_info=None, **kwargs):
         """Use keyword arguments to test interactively, instead of reloading a config.
         """
+        matrix = adjacency.matrix
         try:
             matrix = adjacency.matrix
-        except AttributeError:
+        except AttributeError as err:
+            LOG.error("Could not get adjacency matrix: %s", err)
             matrix = adjacency
 
         if log_info:

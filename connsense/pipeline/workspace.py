@@ -77,13 +77,14 @@ def get_rundir(config, step=None, substep=None, controls=None, mode=None, with_b
     return result
 
 
-def check_configs(c, and_to_parallelize, at_location, must_exist=False, create=False, strict=False):
+def check_configs(c, and_to_parallelize, at_location, mode=None, must_exist=False, create=False, strict=False):
     """Check if a config file exists at a location, and create it if it does not.
     Either a config must exist at a location, or it must not.
     """
     p = and_to_parallelize
-    pc = at_location / "config.json"
-    pp = at_location / "parallel.json" if and_to_parallelize else None
+    check_location = at_location if not mode else at_location / mode
+    pc = check_location / "config.json"
+    pp = check_location / "parallel.json" if and_to_parallelize else None
 
     if strict and must_exist:
         if not pc.exists():
@@ -106,8 +107,8 @@ def check_configs(c, and_to_parallelize, at_location, must_exist=False, create=F
         raise FileExistsError(f"Location {l} seems to already have run configs")
 
     check_config = True if pc.exists() or not create else read_config.write(c, to_json=pc)
-    check_parall = True if pp.exists() or not create else read_config.write(p, to_json=pp)
-
+    check_parall = ((True if pp.exists() or not create else read_config.write(p, to_json=pp))
+                    if pp else None)
     return (check_config, check_parall)
 
 
@@ -123,7 +124,7 @@ def timestamp(dir):
     return at_time
 
 
-def initialize(config, step=None, substep=None, controls=None, mode=None, parallelize=None):
+def initialize(config, step=None, substep=None, controls=None, mode=None, parallelize=None, strict=False):
     """Set up a run of the pipeline.
     """
     c = config; s = step; ss = substep; m = mode; p = parallelize
@@ -143,7 +144,9 @@ def initialize(config, step=None, substep=None, controls=None, mode=None, parall
                       must_exist=x, create=and_to_create)
 
     if_just_base = not mode and not step
-    check_configs(c, p, at_location=to_run, must_exist=not if_just_base, create=if_just_base)
+    #check_configs(c, p, at_location=to_run, must_exist=not if_just_base, create=if_just_base)
+    check_configs(c, p, at_location=to_run, must_exist=not if_just_base, create=True)
+    check_configs(c, p, at_location=to_run, mode=mode, must_exist=not if_just_base, create=True)
 
     if mode or step:
         check_configs(c, p, at_location=stage, must_exist=False, create=True)

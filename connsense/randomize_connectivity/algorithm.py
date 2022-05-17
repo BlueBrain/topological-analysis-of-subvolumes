@@ -206,7 +206,7 @@ class SingleMethodAlgorithmFromSource(Algorithm):
 
         def lookup_analysis(a, in_toc):
             try:
-                return in_toc.loc[index_entry]
+                return in_toc.loc[index_entry].get_value()
             except KeyError:
                 LOG.error("No analyses %a value in store for %s ", a, index_entry)
                 return None
@@ -216,12 +216,14 @@ class SingleMethodAlgorithmFromSource(Algorithm):
             return None
 
         may_be_analysis_name = lambda n: n not in self._cannot_be_analyses
-        possibly_analysis = (p for p in signat.parameters if may_be_analysis_name(p))
-        tocs = (check_toc(of_analysis=a) for a in possibly_analysis)
-        available = [(analysis, toc) for analysis, toc in zip(possibly_analysis, tocs) if toc]
+        possibly_analysis = [p for p in signat.parameters if may_be_analysis_name(p)]
+        LOG.info("Check if any results are available in the TAP as analysis results: \n%s",
+                 possibly_analysis)
+        tocs = [check_toc(of_analysis=a) for a in possibly_analysis]
+        available = [(analysis, toc) for analysis, toc in zip(possibly_analysis, tocs) if toc is not None]
 
         requested = {a: lookup_analysis(a, in_toc=t) for a, t in available}
-        LOG.info("Available inputs for analysis %s available: \n%s", self.name, pformat(requested))
+        LOG.info("Available inputs for control algorithm %s available: \n%s", self.name, pformat(requested))
 
         return requested
 
@@ -230,7 +232,8 @@ class SingleMethodAlgorithmFromSource(Algorithm):
         """..."""
         try:
             matrix = adjacency.matrix
-        except AttributeError:
+        except AttributeError as err:
+            LOG.info("Adjacency was not lazy (%s)? :\n%s", type(adjacency), adjacency)
             matrix = adjacency
 
         if log_info:

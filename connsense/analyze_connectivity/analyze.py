@@ -71,9 +71,11 @@ def measure_quantity(a, of_subtarget, index_entry=None, using_neuron_properties=
     s = of_subtarget
     i = s.idx + 1
     l = index_entry["subtarget"]
-    LOG.info("Apply analysis %s to subtarget %s (%s / %s): \n%s \n%s \n%s",
-             analysis.name, l, i, batch_size or "", pformat(index_entry), s,
+    LOG.info("Measure quantity %s (%s) in subtarget %s (%s / %s): \n%s \n%s \n%s",
+             analysis.name, analysis,  l, i, batch_size or "", pformat(index_entry), s,
              log_info or "")
+
+    LOG.info("Measure quantity: what's inside the subtarget of type (type %s)", type(s.matrix))
 
     result = analysis.apply(s.matrix, neurons, tapping, index_entry, log_info)
 
@@ -86,8 +88,8 @@ def apply_analysis(a, to_batch, among_neurons, using_store=None, tapping=None,
     label, batch = to_batch
     subset = subset_subtarget(among_neurons)
 
-    LOG.info("Run analysis %s to %s subtargets in batch %s",
-             a.name, batch.shape[0], batch_index)
+    LOG.info("Apply analysis %s to %s subtargets in batch %s: \n%s",
+             a.name, batch.shape[0], batch_index, to_batch)
 
     mem_tot = 0
 
@@ -102,9 +104,9 @@ def apply_analysis(a, to_batch, among_neurons, using_store=None, tapping=None,
                                  log_info=f"Batch: {batch_index}")
         mem_row = getsizeof_measurement(value)
         mem_tot += mem_row
-        LOG.info("MEMORY USAGE by subtarget %s (%s / %s): %sGB / total %sGB",
+        LOG.info("MEMORY USAGE by subtarget %s (%s / %s: %sGB / total %sGB; resulting value : \n%s",
                  index_entry["subtarget"], row.idx + 1, batch.shape[0] or "batches",
-                 mem_row, mem_tot)
+                 mem_row, mem_tot, value)
 
         return using_store.write(value) if using_store else value
 
@@ -282,12 +284,12 @@ def parallely_analyze(quantity, subtargets, neuron_properties, action=None, in_m
 
 
     if controls is None:
-        rundir, hdf_group = check_basedir(to_save, quantity, to_parallelize, action,
+        rundir, hdf_group = check_basedir(to_save, quantity, to_parallelize, mode=action,
                                           controls=None, return_hdf_group=True)
         base = rundir.parent.parent.parent.parent
         LOG.info("Checked rundir %s without controls \n\t with base at %s", rundir, base)
 
-        assert rundir.exists, f"check basedir did not create {b}"
+        assert rundir.exists(), f"check basedir did not create {b}"
 
         q = quantity.name
         compute_nodes, njobs = read_njobs(to_parallelize, for_quantity=q)
@@ -309,7 +311,7 @@ def parallely_analyze(quantity, subtargets, neuron_properties, action=None, in_m
         return dispatch_single_node(quantity, batched, neuron_properties, to_tap,
                                     to_save=(rundir, hdf_group), log_info=log_info)
 
-    rundirs, hdf_group = check_basedir(to_save, quantity, to_parallelize, action,
+    rundirs, hdf_group = check_basedir(to_save, quantity, to_parallelize, mode=action,
                                        controls=controls.algorithms.index, return_hdf_group=True)
 
     def analyze_controlled(an, algorithm):
@@ -324,6 +326,9 @@ def parallely_analyze(quantity, subtargets, neuron_properties, action=None, in_m
         q = quantity.name
         compute_nodes, njobs = read_njobs(to_parallelize, for_quantity=q)
         n = njobs
+
+        LOG.info("Analyze %s using controled algorithm %s in %s", q, an, to_run)
+        assert to_run.exists()
 
         batched = append_batch(toc, for_control=algorithm, using_basedir=to_run, njobs=n)
 
@@ -348,12 +353,6 @@ def dispatch_single_node(to_compute, batched_subtargets, neuron_properties, to_t
                 to_compute.name, len(batched_subtargets))
     analysis = to_compute; properties = neuron_properties
 
-    manager = Manager()
-    bowl = manager.dict()
-    processes = []
-
-    rundir, group = to_save
-
     def measure_batch(subtargets, *, index, bowl=None):
         """..."""
         p = rundir / f"{index}.h5"; g = f"{group}/{to_compute.name}"
@@ -369,6 +368,12 @@ def dispatch_single_node(to_compute, batched_subtargets, neuron_properties, to_t
             bowl[index] = result
 
         return result
+
+    manager = Manager()
+    bowl = manager.dict()
+    processes = []
+
+    rundir, group = to_save
 
     n_batches = batched_subtargets.batch.max() + 1
     for batch, of_subtargets in batched_subtargets.groupby("batch"):
@@ -390,10 +395,10 @@ def dispatch_single_node(to_compute, batched_subtargets, neuron_properties, to_t
     return batch_stores
 
 
-BASEDIR_MODE = {"run": 'w', "resume": 'a', "inspect": 'r'}
+BASEDIR_MODE = {"run": 'w', "resume": 'a', "inspect": 'r', None: 'r'}
 
 
-def check_basedir(to_save, quantity, to_parallelize=None, mode=None, controls=None,
+def check_basedir(to_save, quantity, to_parallelize=None, controls=None, mode=None,
                   return_hdf_group=False, strict=False):
 
     """The locaiton `to_save` in could have been used in a previous run.
@@ -408,14 +413,13 @@ def check_basedir(to_save, quantity, to_parallelize=None, mode=None, controls=No
     LOG.info("Check basedir to save %s quantity %s in mode %s to paralellize %s",
              to_save, quantity.name, mode, to_parallelize)
     assert not mode or mode in ('w', 'r', 'a'), f"Illegal mode {mode}"
-    mode = mode or 'r'
 
     try:
         p, hdf_group = to_save
     except TypeError:
         if return_hdf_group:
             raise TypeError(f"Expecting Tuple(basedir, hdf_group) to_save, not {to_save}")
-        path = Path(to_save)
+        path = Path(to_save); hdf_group = None
     else:
         path = Path(p)
 
@@ -424,7 +428,7 @@ def check_basedir(to_save, quantity, to_parallelize=None, mode=None, controls=No
     if to_parallelize:
         LOG.info("To parallelize, check analysis basedir: \n %s", pformat(to_parallelize))
         config_already = path/"parallelize.json"
-        if mode == 'w':
+        if mode == 'w' or mode == 'a':
             if strict and config_already.exists():
                 raise ValueError(f"Location {to_save} has already been used to run.\n"
                                  "Please use a different location for the TAP workspace,\n"
@@ -433,49 +437,49 @@ def check_basedir(to_save, quantity, to_parallelize=None, mode=None, controls=No
             write_config(to_parallelize, to_json=config_already)
 
     if not quantity:
-        return path
+        return path if not return_hdf_group else (path, hdf_group)
 
     sq = path / quantity.name
-    if mode == 'w':
+    if mode == 'w' or mode == 'a':
         sq.mkdir(parents=False, exist_ok=True)
 
     if to_parallelize and quantity in to_parallelize["analyses"]:
         cpath = sq / "parallelize.json"
-        if mode == 'w' and not cpath.exists():
+        if (mode == 'w' or mode == 'a') and not cpath.exists():
             write_config(to_parallelize[quantity], to_json=cpath)
 
     def get_jobs(at_path):
         q = quantity.name
         _, j = read_njobs(to_parallelize, for_quantity=q)
         njobs = at_path / f"njobs-{j}"
-        if mode == 'w':
+        if mode == 'w' or mode == 'a':
             njobs.mkdir(parents=False, exist_ok=True)
         else:
             LOG.warning("A rundir at %s not created because mode was not to write.", njobs)
         return njobs
-        return (njobs, hdf_group) if return_hdf_group else njobs
+        #return (njobs, hdf_group) if return_hdf_group else njobs
 
     if controls is None:
         njobs = get_jobs(at_path=sq)
         return (njobs, hdf_group) if return_hdf_group else njobs
 
     path_controls = sq / "controls"
-    if mode == 'w':
+    if mode == 'w' or mode == 'a':
         path_controls.mkdir(parents=False, exist_ok=True)
 
         if to_parallelize and quantity in to_parallelize["analyses"]:
             cpath = path_controls / "parallelize.json"
-            if mode == 'w' and not cpath.exists():
+            if (mode == 'w' or mode == 'a') and not cpath.exists():
                 write_config(to_parallelize[quantity], to_json=cpath)
 
     def get_control(c):
         p = path_controls / c
-        if mode == "w":
+        if mode == "w" or mode == 'a':
             p.mkdir(parents=False, exist_ok=True)
 
             if to_parallelize and quantity in to_parallelize["analyses"]:
                 cpath = p / "parallelize.json"
-                if mode == 'w' and not cpath.exists():
+                if (mode == 'w'  or mode == 'a') and not cpath.exists():
                     write_config(to_parallelize[quantity], to_json=cpath)
 
         return get_jobs(at_path=p)
@@ -652,8 +656,16 @@ def load_batched_subtargets(basedir, compute_nodes=None, as_paths=False,
         return Path(basedir) if c is None else Path(basedir) / COMPUTE_NODE.format(c)
 
     def get_compute_node(c):
+        """NOTE a  compute node may not exist because there were no subtargets assigned to it.
+        This can happen when configured resource allocation is larger than the number of subtargets
+        to process.
+        """
         path_compute_node = locate_compute_node(c)
+        if not path_compute_node.exists():
+            return None
+
         path_h5 =  path_compute_node / batched_subtargets_h5
+
         if not path_h5.exists():
             raise RuntimeError(f"Not a valid TAP workspace: {basedir}."
                                " No batch of subtargets found at compute node "
@@ -675,43 +687,61 @@ def load_batched_subtargets(basedir, compute_nodes=None, as_paths=False,
 
     col_compute_node = ({"keys": compute_nodes, "names": ["compute_node"]}
                         if append_compute_node else {})
-    return pd.concat([get_compute_node(c) for c in compute_nodes], axis=0, **col_compute_node)
+
+    compute_node_batches = (get_compute_node(c) for c in compute_nodes)
+    return pd.concat([c for c in compute_node_batches if c is not None], axis=0, **col_compute_node)
 
 
-def load_parallel_run_analysis(a, parallelized, analyses_rundir):
+def load_parallel_run_analysis(a, controlling, parallelizing, in_rundir):
     """Load data stores produced by a single-node parallel computation,
-    each of which should have a produced a HDF store in a sub-directory
+    each of which should have produced a HDF store in a sub-directory
     where the analyses for a TAP pipeline are being run.
     """
     analysis = a
     a = analysis.name
-    n_compute_nodes, njobs = read_njobs(parallelized, for_quantity=a)
+    n_compute_nodes, njobs = read_njobs(parallelizing, for_quantity=a)
     compute_nodes = range(n_compute_nodes) if n_compute_nodes > 1 else None
     n = njobs
 
-    base, hdf_group = check_basedir(analyses_rundir, analysis, parallelized, mode='r',
-                                    return_hdf_group=True)
-    subtarget_batches = load_batched_subtargets(Path(base), compute_nodes, as_paths=True)
+    base, hdf_group = check_basedir(in_rundir, analysis, parallelizing,
+                                    (controlling.algorithms.index if controlling else None),
+                                    mode='r', return_hdf_group=True)
 
-    LOG.info("Assemble stores for subtargets located at \n %s", pformat(subtarget_batches.values))
+    LOG.info("Load parallel run analysis %s results controling for parallelization %s,  from (%s, %s)",
+             a, (n_compute_nodes, njobs), base, hdf_group)
 
-    n_batches = subtarget_batches.value_counts()
-    LOG.info("Loading parallel run analysis %s, batch sizes: \n %s", a, pformat(n_batches))
+    def get_subtargets(path_control):
+        LOG.info("Assemble stores for subtargets located at %s", path_control)
 
-    def load_stores(batches):
-        for path in batches.values:
-            if not path.exists():
-                raise RuntimeError(f"Missing batch of parallel analysis job at {path}"
-                                " To be a valid TAP workspace a previous run should have"
-                                f" created data stores for each of the {len(n_batches)} batches")
+        batches = load_batched_subtargets(path_control, compute_nodes, as_paths=True)
+        n_batches = batches.value_counts()
+        LOG.info("Loading parallel run analysis %s, batch sizes: \n %s", a, pformat(n_batches))
 
-        g = f"{hdf_group}/{a}"
-        m = analysis.output_type
-        LOG.info("Load data stores computed in a %s-parallel run for analysis %s",
-                len(batches), g)
-        stores = {b: matrices.get_store(to_hdf_at_path=p, under_group=g, for_matrix_type=m)
-                  for b, p in batches.items()}
-        return stores
+        def load_stores(batches):
+            for path in batches.values:
+                if not path.exists():
+                    raise RuntimeError(f"Missing batch of parallel analysis job at {path}"
+                                    " To be a valid TAP workspace a previous run should have"
+                                    f" created data stores for each of the {len(n_batches)} batches")
 
-    return load_stores(subtarget_batches.drop_duplicates())
-    return load_stores({b: Path(b) for b in subtarget_batches.drop_duplicates().values})
+            g = f"{hdf_group}/{a}"
+            m = analysis.output_type
+            LOG.info("Load data stores computed in a %s-parallel run for analysis %s",
+                    len(batches), g)
+            stores = {b: matrices.get_store(to_hdf_at_path=p, under_group=g, for_matrix_type=m)
+                      for b, p in batches.items()}
+            return stores
+
+        return load_stores(batches.drop_duplicates())
+
+    if isinstance(base, Path):
+        assert not controlling, f"Expected a dict when analyzing with controls for {controlling}"
+        return get_subtargets(path_control=base)
+
+    assert isinstance(base, dict), type(base)
+
+    LOG.info("Concat the results from %scontrols: \n%s", len(base), pformat(base))
+
+    return {f"{controlled}-{batched}": store
+            for controlled, subtargets in base.items()
+            for batched, store in get_subtargets(path_control=subtargets).items()}

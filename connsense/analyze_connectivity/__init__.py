@@ -195,16 +195,6 @@ def subset_subtargets(toc, sample, dry_run):
 
     return sample_subtarget(all_matrices, by_description=sample)
 
-    S = np.float(sample)
-    if S > 1:
-        subset = all_matrices.sample(n=int(S))
-    elif S > 0:
-        subset = all_matrices.sample(frac=S)
-    else:
-        raise ValueError(f"Illegal sample={sample}")
-
-    return subset
-
 
 def get_analyses(config, as_dict=False):
     """..."""
@@ -285,8 +275,8 @@ def load_neurons(paths, dry_run=False):
         return None
 
     neurons = (read_results((hdf, group), STEP)
-               .droplevel(["flat_x", "flat_y"])
-               .reset_index().set_index(["circuit", "subtarget"]))
+               #.droplevel(["flat_x", "flat_y"])
+               .reset_index().set_index(["circuit", "subtarget", "flat_x", "flat_y"]))
 
     LOG.info("Done loading extracted neuron properties: %s", neurons.shape)
     return neurons
@@ -336,24 +326,24 @@ def load_connectivity_randomized(paths, dry_run):
     return toc_rand
 
 
-def load_adjacencies(paths, from_batch=None, dry_run=False):
+def load_adjacencies(paths, from_batch=None, return_batches=True):
     """Adjacencies can be loaded from the HDF-store specified in the paths,
     or from path to a batch that contains a store and a JSON file to control
     the adjacency before an analysis.
 
     Return
     ---------
-    The original TOC of adjacencies, or a subset if from batch.
+    If not from batch, the original table of contents (TOC)
+
+    If from batch, the original TOC's slice for that batch,
+    along with the `batch` that assign a compute batch to each subtarget if so argued
     """
     LOG.info("Load all adjacencies")
 
-    toc_orig = load_connectivity_original(paths, dry_run).rename("matrix")
+    toc_orig = load_connectivity_original(paths).rename("matrix")
+
     if from_batch is None:
-
-        if dry_run:
-            LOG.info("Test plumbing: analyze: load connectivity")
-            return None
-
+        assert not return_batches, "Cannot return batches if not argued as `from_batch`!"
         LOG.info("Done loading connectivity.")
         return toc_orig
 
@@ -371,13 +361,14 @@ def load_adjacencies(paths, from_batch=None, dry_run=False):
         path_h5 = path
 
     batches =  pd.read_hdf(path_h5, and_hdf_group)
-
     LOG.info("Done loading batched connectivity with %s entries: \n%s.", len(batches), pformat(batches))
-    return (toc_orig.reindex(batches.index), batches)
+
+    toc = toc_orig.reindex(batches.index)
+    return (toc, batches) if return_batches else toc
 
 
 def dispatch(adjacencies, neurons, analyses, action=None, in_mode=None, controls=None,
-              parallelize=None, output=None, tap=None, dry_run=False):
+             parallelize=None, output=None, tap=None, dry_run=False):
     """Dispatch a table of contents of adjacencies, ...
 
     Computation for an analysis will be run in parallel over the subtargets,
@@ -480,13 +471,13 @@ def read_parallelization(config):
     return step
 
 
-def run(config, action, in_mode=None, parallelize=None, substep=None, controls=None,
+def run(config, action, substep=None, controls=None, in_mode=None, parallelize=None,
         output=None, batch=None, sample=None, tap=None, dry_run=None, **kwargs):
     """..."""
     from connsense.pipeline import workspace
 
-    assert substep, \
-        "Missing argument `substep`: Can run only an argued analysis, not all at once!"
+    assert substep,\
+        "Missing argument `substep`: TAP can run only one argued analysis, not all at once!"
 
     config = read(config)
     paths = _check_paths(config["paths"])
@@ -499,12 +490,9 @@ def run(config, action, in_mode=None, parallelize=None, substep=None, controls=N
 
     neurons = load_neurons(input_paths, dry_run)
 
-    toc_adjs = load_adjacencies(input_paths, batch, dry_run)
+    toc_adjs = load_adjacencies(input_paths, batch, return_batches=False)
 
     toc_dispatch = subset_subtargets(toc_adjs, sample, dry_run)
-#    toc_subset = subset_subtargets(toc_adjs, sample, dry_run)
-
-#    toc_dispatch = apply_controls(config, toc_subset, controls=controls, **kwargs)
 
     if toc_dispatch is None:
         if not dry_run:
@@ -532,13 +520,13 @@ def run(config, action, in_mode=None, parallelize=None, substep=None, controls=N
     return analyzed_results
 
 
-def load_batched_results(analyses, parallelization, output):
+def load_batched_results(analyses, controls, parallelization, output):
     """..."""
     from .analyze import load_parallel_run_analysis
-    return {a: load_parallel_run_analysis(a, parallelization, output) for a in analyses}
+    return {a: load_parallel_run_analysis(a, controls, parallelization, output) for a in analyses}
 
 
-def collect(config, in_mode, parallelize, substep=None, output=None, **kwargs):
+def collect(config, in_mode, parallelize, substep=None, controls=None, output=None, **kwargs):
     """Collect batched results into a single store.
 
     substep :: Name of the analysis to store that is provided at the CLI as analyze-connectivity substep.
@@ -550,6 +538,11 @@ def collect(config, in_mode, parallelize, substep=None, output=None, **kwargs):
     LOG.info("Collect batched results of analyses of subtargets in config: \n %s",
              pformat(config))
 
+    controls = read_controls(config, controls)
+    if controls:
+        LOG.info("Collect batched results of analyses of subtargets for controls: \n %s",
+                 pformat(controls))
+
     paths = _check_paths(config["paths"])
     output_paths = paths["output"]
     to_parallelize = parallelize.get(STEP, {}) if parallelize else None
@@ -557,11 +550,13 @@ def collect(config, in_mode, parallelize, substep=None, output=None, **kwargs):
     _, hdf_group = output_paths["steps"].get(STEP, default_hdf(STEP))
     configured = get_analyses(config, as_dict=True)
     analyses = filter_analyses(configured, substep)
-    LOG.info("Collect analyses %s", pformat(analyses))
+    LOG.info("Collect analyses %s", pformat([a.name for a in analyses]))
 
     rundir = workspace.get_rundir(config, mode=in_mode, **kwargs)
     basedir = workspace.locate_base(rundir, STEP)
-    batched_results = load_batched_results(analyses, to_parallelize, (basedir, hdf_group))
+    batched_results = load_batched_results(analyses, controls, to_parallelize, (basedir, hdf_group))
+
+    LOG.info("Loaded results : \n%s ", pformat(batched_results))
 
     output = output_specified_in(paths, and_argued_to_be=output)
     saved = save_output(batched_results, to_path=output)
