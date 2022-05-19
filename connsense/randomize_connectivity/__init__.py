@@ -91,7 +91,7 @@ def read_parallelization(config):
 
 
 def run(config, action, substep=None, in_mode=None, parallelize=None,
-        output=None, tap=None):
+        output=None, tap=None, **kwargs):
     """Run an action such as `init, run, continue, merge or collect` on
     TAP step `randomization-connetivity`.
     All the relevant information must be provided in the TAP config.
