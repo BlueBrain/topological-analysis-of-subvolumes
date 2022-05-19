@@ -308,7 +308,7 @@ def parallely_analyze(quantity, subtargets, neuron_properties, action=None, in_m
 
         batched = append_batch(toc, using_basedir=rundir, njobs=n)
 
-        to_sbatch = to_parallelize["analyses"].get(quantity.name, {}).get("sbatch", None)
+        to_sbatch = to_parallelize.get(quantity.name, {}).get("sbatch", None)
 
         if compute_nodes > 1:
             multirun = configure_launch_multi(compute_nodes, quantity,
@@ -344,7 +344,7 @@ def parallely_analyze(quantity, subtargets, neuron_properties, action=None, in_m
 
         batched = append_batch(toc, for_control=algorithm, using_basedir=to_run, njobs=n)
 
-        to_sbatch = to_parallelize["analyses"].get(quantity.name, {}).get("sbatch", None)
+        to_sbatch = to_parallelize.get(quantity.name, {}).get("sbatch", None)
 
         multirun = configure_launch_multi(compute_nodes, quantity,
                                           using_subtargets=batched, control=to_run/"control.json",
@@ -455,7 +455,7 @@ def check_basedir(to_save, quantity_or_algorithm, to_parallelize=None, controls=
     if mode == 'w' or mode == 'a':
         sq.mkdir(parents=False, exist_ok=True)
 
-    if to_parallelize and quantity_or_algorithm in to_parallelize["analyses"]:
+    if to_parallelize and quantity_or_algorithm in to_parallelize:
         cpath = sq / "parallelize.json"
         if (mode == 'w' or mode == 'a') and not cpath.exists():
             write_config(to_parallelize[quantity_or_algorithm], to_json=cpath)
@@ -479,7 +479,7 @@ def check_basedir(to_save, quantity_or_algorithm, to_parallelize=None, controls=
     if mode == 'w' or mode == 'a':
         path_controls.mkdir(parents=False, exist_ok=True)
 
-        if to_parallelize and quantity_or_algorithm in to_parallelize["analyses"]:
+        if to_parallelize and quantity_or_algorithm in to_parallelize:
             cpath = path_controls / "parallelize.json"
             if (mode == 'w' or mode == 'a') and not cpath.exists():
                 write_config(to_parallelize[quantity_or_algorithm], to_json=cpath)
@@ -489,7 +489,7 @@ def check_basedir(to_save, quantity_or_algorithm, to_parallelize=None, controls=
         if mode == "w" or mode == 'a':
             p.mkdir(parents=False, exist_ok=True)
 
-            if to_parallelize and quantity_or_algorithm in to_parallelize["analyses"]:
+            if to_parallelize and quantity_or_algorithm in to_parallelize:
                 cpath = p / "parallelize.json"
                 if (mode == 'w'  or mode == 'a') and not cpath.exists():
                     write_config(to_parallelize[quantity_or_algorithm], to_json=cpath)
@@ -607,10 +607,10 @@ def read_njobs(to_parallelize, for_quantity):
     except AttributeError:
         q = for_quantity
 
-    if q not in to_parallelize["analyses"]:
+    if q not in to_parallelize:
         return (1, 1)
 
-    p = to_parallelize["analyses"][q]
+    p = to_parallelize[q]
     n = p["number-compute-nodes"]; t = p["number-tasks-per-node"]
     return (n, n * t)
 

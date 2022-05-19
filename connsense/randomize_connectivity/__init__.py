@@ -34,12 +34,13 @@ LOG = logging.get_logger(STEP)
 def read_randomization(config, substep):
     """..."""
     step = config[STEP]
+    controls = config[STEP]["controls"]
     try:
-        return step[substep]
+        return controls[substep]
     except KeyError:
         pass
 
-    return step["default"]
+    return controls["default"]
 
 
 def cmd_sbatch_randomization(slurm_params, at_path):
@@ -63,11 +64,11 @@ def parallely_randomize(controls, subtargets, neurons, action,
 
     compute_nodes, n = read_njobs(to_parallelize, for_quantity=controls)
     batched = append_batch(subtargets, using_basedir=rundir, njobs=n)
-    to_sbatch = to_parallelize["randomize"].get(controls.name, {}).get("sbatch", None)
+    to_sbatch = to_parallelize.get(controls.name, {}).get("sbatch", None)
 
     multirun = configure_launch_multi(compute_nodes, quantity=controls,
                                       using_subtargets=batched, control=None,
-                                      at_workspace=(base, rundir),
+                                      at_workspace=(base, rundir), cmd_sbatch=cmd_sbatch_randomization,
                                       action=action, in_mode=in_mode, slurm_config=to_sbatch)
     LOG.info("Multinode randomization run: \n%s", pformat(multirun))
     return multirun
@@ -87,6 +88,7 @@ def dispatch(adjacencies, neurons, controls, action, in_mode, parallelize, outpu
 def read_parallelization(config):
     """..."""
     step = config.get(STEP, {})
+    LOG.info("Read parallelization: \n%s", step)
     return step
 
 
@@ -111,8 +113,9 @@ def run(config, action, substep=None, in_mode=None, parallelize=None,
 
     neurons = load_neurons(input_paths)
 
+    randomization = read_randomization(config["parameters"], substep)
     toc_sample = load_adjacencies(input_paths, from_batch=None, return_batches=False,
-                                  sample=read_randomization(config["parameters"], substep))
+                                  sample=randomization["subtargets"])
 
     if toc_sample is None or len(toc_sample) == 0:
         LOG.warning("DONE randomization of connectivity: No matrices were sampled!")
@@ -126,9 +129,9 @@ def run(config, action, substep=None, in_mode=None, parallelize=None,
     basedir = workspace.locate_base(rundir, STEP, create=True)
     m = in_mode; p = read_parallelization(parallelize) if parallelize else None
     randomizations = dispatch(toc_sample, neurons, controls, action, in_mode=m,
-                              parallelize=p, output=(basedir, hdf_group), tap=tap)
+                              parallelize=p["controls"], output=(basedir, hdf_group), tap=tap)
 
-    LOG.warning("DONE %s controls for TAPconfig at %s:\n%s", len(controls), rundir,
-                pformat({r.name: len(s) for r, s in randomizations.items()}))
+    LOG.warning("DONE %s controls for TAPconfig at %s:\n%s", len(controls), rundir, pformat(randomizations))
+
     LOG.warning("Don't forget to run the collection step to gather the parallel computation's results.")
     return randomizations

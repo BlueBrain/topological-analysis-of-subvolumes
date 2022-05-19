@@ -56,11 +56,11 @@ class Step(Runnable):
         """A pipeline step."""
         self._runner = prepare_runner(obj)
 
-    def run(self, config, *args, **kwargs):
+    def run(self, config, **kwargs):
         """..."""
-        return self._runner.run(config, *args, **kwargs)
+        return self._runner.run(config, **kwargs)
 
-    def collect(self, config, parallel, *args, **kwargs):
+    def collect(self, config, parallel, **kwargs):
         """Allow collection of results produced by parallel runs.
         To collect results both the scientific config, and the parallelization config
         will be required.
@@ -68,7 +68,7 @@ class Step(Runnable):
         Expect attribute errors if this instance's runner  does not implement
         a collect method.
         """
-        return self._runner.collect(config, parallel, *args, **kwargs)
+        return self._runner.collect(config, parallel, **kwargs)
 
     def check_state(self, pipeline):
         """TODO: Check where a pipeline is along the sequence of steps that define it."""

@@ -213,7 +213,7 @@ def subset_subtargets(toc_plus, sample, dry_run=False):
     else:
         toc = toc_plus; batches = None
 
-    LOG.info("Subset %s subtargets sampling %s", 0 if toc is None else len(toc), sample)
+    LOG.info("Subset %s subtargets sampling %s descriptions", 0 if toc is None else len(toc), sample)
     if dry_run:
         LOG.info("Test plumbing: analyze_connectivity: subset_subtargets")
         return None
@@ -438,7 +438,7 @@ def dispatch(adjacencies, neurons, analyses, action=None, in_mode=None, controls
         LOG.info("Test plumbing: analyze: dispatch toc")
         return None
 
-    args = (adjacencies, neurons, action, in_mode, controls, parallelize, tap, output)
+    args = (adjacencies, neurons, action, in_mode, controls, parallelize["analyses"], tap, output)
     results = {quantity: parallely_analyze(quantity, *args) for quantity in analyses}
 
     LOG.info("Done, analyzing %s matrices", len(adjacencies))
@@ -536,7 +536,7 @@ def run(config, action, substep=None, controls=None, in_mode=None, parallelize=N
     _, hdf_group = output_paths["steps"].get(STEP, default_hdf(STEP))
 
     configured = get_analyses(config, as_dict=True)
-    LOG.info("Analyses in the configuration %s", [a.name for a in configured])
+    LOG.info("Analyses in the configuration %s", pformat(configured.keys()))
     analyses = filter_analyses(configured, substep)
     LOG.info("Analyses to run %s", pformat(analyses))
 

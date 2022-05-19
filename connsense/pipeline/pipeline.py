@@ -121,19 +121,21 @@ class TopologicalAnalysis:
         """..."""
         return self._data
 
-    def dispatch(self, step, substep, action, controls, in_mode, *args, **kwargs):
+    def dispatch(self, step, substep, action, controls, in_mode, **kwargs):
         """..."""
         LOG.info("Pipeline dispatch %s %s %s", step, substep, action)
         result = (self.__steps__[step]
-                  .run(self._config, action, substep, controls, in_mode, self._parallelize,
-                       *args, tap=self.data, **kwargs))
+                  .run(self._config, action=action, substep=substep, in_mode=in_mode,
+                       parallelize=self._parallelize, tap=self.data, controls=controls,
+                       **kwargs))
+
         return result
 
     def get_h5group(self, step):
         """..."""
         return self._data_groups.get(step)
 
-    def collect(self, step, substep, in_mode, controls, *args, **kwargs):
+    def collect(self, step, substep, in_mode, controls, **kwargs):
         """Collect the batched results generated in a single step.
         """
         runner = self.__steps__[step]
@@ -185,7 +187,7 @@ class TopologicalAnalysis:
 
     #     return self.state
 
-    def run(self, step, substep=None, action=None, in_mode=None, controls=None, *args, **kwargs):
+    def run(self, step, substep=None, action=None, in_mode=None, controls=None, **kwargs):
         """Run the pipeline, one step and if defined one substep at a time.
         We can chain all the steps together later.
         """
@@ -202,9 +204,9 @@ class TopologicalAnalysis:
                                    " so use action=None or action='inspect'")
 
         if action.lower() in ("collect", "merge"):
-            return self.collect(step, substep, in_mode, controls, *args, **kwargs)
+            return self.collect(step, substep, in_mode, controls, **kwargs)
 
-        result = self.dispatch(step, substep, action, controls, in_mode, *args, **kwargs)
+        result = self.dispatch(step, substep, action, controls, in_mode, **kwargs)
 
         LOG.warning("DONE run action %s for pipeline step %s %s", action, step, substep)
         LOG.info("RESULT %s %s: %s", step, substep, result)
