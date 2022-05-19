@@ -166,6 +166,21 @@
         }
       }
     },
+    "randomize-connectivity": {
+      "COMMENT": [
+        "Configure the subtargets to save their randomized connectivity in the TAP store.",
+        "The default entry will be used unless overriden by an entry for a specific randomization",
+        "configured as a connectivity-controls algorithm."
+      ],
+      "selection": {
+        "default": [
+          {"nmin": 1000, "nmax": 5000, "subtargets": 1},
+          {"nmin": 10000, "nmax": 15000, "subtargets": 2},
+          {"nmin": 20000, "nmax": 25000, "subtargets": 1},
+          {"nmin": 30000, "nmax": 50000, "subtargets": 1}
+        ]
+      }
+    },
     "analyze-connectivity": {
       "common": {
         "COMMENT": [

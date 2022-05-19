@@ -37,11 +37,14 @@ GIGABYTE = 2 ** 30
 BATCHED_SUBTARGETS = ("batches.h5", "subtargets")
 
 
-def subset_subtarget(among_neurons):
-    """..."""
+def subset_subtarget(among_data):
+    """Subset a data frame / series to subtargets in a matrix.
+    This method returns a method that can be applied to a matrix of subtargets
+    to get the subtarget data.
+    """
     def _(circuit, subtarget):
         """..."""
-        return among_neurons.loc[circuit, subtarget].reset_index(drop=True)
+        return among_data.loc[circuit, subtarget].reset_index(drop=True)
     return _
 
 
@@ -138,7 +141,7 @@ def _remove_link(path):
 
 
 
-def cmd_sbatch(slurm_params, at_path):
+def cmd_sbatch_analysis(slurm_params, at_path):
     LOG.info("Prepare a Slurm command using sbatch params: \n%s", slurm_params)
     slurm_params["executable"] = "tap-analysis"
     slurm_config = SlurmConfig(slurm_params)
@@ -146,6 +149,7 @@ def cmd_sbatch(slurm_params, at_path):
 
 
 def configure_launch_multi(number, quantity, using_subtargets, control, at_workspace,
+                           cmd_sbatch=cmd_sbatch_analysis,
                            action=None, in_mode=None, slurm_config=None):
     """
     Arguments
@@ -180,14 +184,6 @@ def configure_launch_multi(number, quantity, using_subtargets, control, at_works
         """
         rundir = to_run_in / f"compute-node-{c}"
         rundir.mkdir(parents=False, exist_ok=True)
-
-        # sbatch = rundir/"tap-analysis.sbatch"
-        # _remove_link(sbatch)
-        # sbatch.symlink_to(basedir/"tap-analysis.sbatch")
-
-        # run_analysis = rundir.joinpath("tap-analysis")
-        # _remove_link(run_analysis)
-        # run_analysis.symlink_to(basedir/"tap-analysis")
 
         config = rundir.joinpath("config.json")
         _remove_link(config)
@@ -244,6 +240,20 @@ def get_algorithms(subtargets):
     return get_index(subtargets).algorithm.unique()
 
 
+def find_base(rundir, max_expected_depth=5):
+    """...
+    Computations are staged hierarchically under a root dir.
+    This method will find where the root is from a directory under it.
+    """
+    if rundir.name == "run":
+        return rundir
+
+    if max_expected_depth == 0:
+        return None
+
+    return find_base(rundir.parent, max_expected_depth-1)
+
+
 def parallely_analyze(quantity, subtargets, neuron_properties, action=None, in_mode=None,
                       controls=None, to_parallelize=None, to_tap=None, to_save=None,
                       log_info=None):
@@ -286,10 +296,11 @@ def parallely_analyze(quantity, subtargets, neuron_properties, action=None, in_m
     if controls is None:
         rundir, hdf_group = check_basedir(to_save, quantity, to_parallelize, mode=action,
                                           controls=None, return_hdf_group=True)
-        base = rundir.parent.parent.parent.parent
+        #base = rundir.parent.parent.parent.parent
+        base = find_base(rundir)
         LOG.info("Checked rundir %s without controls \n\t with base at %s", rundir, base)
 
-        assert rundir.exists(), f"check basedir did not create {b}"
+        assert rundir.exists(), f"check basedir did not create {base}"
 
         q = quantity.name
         compute_nodes, njobs = read_njobs(to_parallelize, for_quantity=q)
@@ -319,7 +330,8 @@ def parallely_analyze(quantity, subtargets, neuron_properties, action=None, in_m
         to_run = rundirs[an]
         assert to_run.exists, f"check basedir for not created rundir {to_run}"
 
-        base = to_run.parent.parent.parent.parent.parent
+        #base = to_run.parent.parent.parent.parent.parent
+        base = find_base(to_run)
         LOG.info("Checked rundir %s for control algorithm %s \n\t with base %s",
                  rundirs, algorithm, base)
 
@@ -398,7 +410,7 @@ def dispatch_single_node(to_compute, batched_subtargets, neuron_properties, to_t
 BASEDIR_MODE = {"run": 'w', "resume": 'a', "inspect": 'r', None: 'r'}
 
 
-def check_basedir(to_save, quantity, to_parallelize=None, controls=None, mode=None,
+def check_basedir(to_save, quantity_or_algorithm, to_parallelize=None, controls=None, mode=None,
                   return_hdf_group=False, strict=False):
 
     """The locaiton `to_save` in could have been used in a previous run.
@@ -410,8 +422,8 @@ def check_basedir(to_save, quantity, to_parallelize=None, controls=None, mode=No
     """
     mode = BASEDIR_MODE.get(mode, mode)
 
-    LOG.info("Check basedir to save %s quantity %s in mode %s to paralellize %s",
-             to_save, quantity.name, mode, to_parallelize)
+    LOG.info("Check basedir to save %s quantity / algorithm %s in mode %s to paralellize %s",
+             to_save, quantity_or_algorithm.name, mode, to_parallelize)
     assert not mode or mode in ('w', 'r', 'a'), f"Illegal mode {mode}"
 
     try:
@@ -436,20 +448,20 @@ def check_basedir(to_save, quantity, to_parallelize=None, controls=None, mode=No
                                  f" to resume the run from the current state in {to_save}")
             write_config(to_parallelize, to_json=config_already)
 
-    if not quantity:
+    if not quantity_or_algorithm:
         return path if not return_hdf_group else (path, hdf_group)
 
-    sq = path / quantity.name
+    sq = path / quantity_or_algorithm.name
     if mode == 'w' or mode == 'a':
         sq.mkdir(parents=False, exist_ok=True)
 
-    if to_parallelize and quantity in to_parallelize["analyses"]:
+    if to_parallelize and quantity_or_algorithm in to_parallelize["analyses"]:
         cpath = sq / "parallelize.json"
         if (mode == 'w' or mode == 'a') and not cpath.exists():
-            write_config(to_parallelize[quantity], to_json=cpath)
+            write_config(to_parallelize[quantity_or_algorithm], to_json=cpath)
 
     def get_jobs(at_path):
-        q = quantity.name
+        q = quantity_or_algorithm.name
         _, j = read_njobs(to_parallelize, for_quantity=q)
         njobs = at_path / f"njobs-{j}"
         if mode == 'w' or mode == 'a':
@@ -467,20 +479,20 @@ def check_basedir(to_save, quantity, to_parallelize=None, controls=None, mode=No
     if mode == 'w' or mode == 'a':
         path_controls.mkdir(parents=False, exist_ok=True)
 
-        if to_parallelize and quantity in to_parallelize["analyses"]:
+        if to_parallelize and quantity_or_algorithm in to_parallelize["analyses"]:
             cpath = path_controls / "parallelize.json"
             if (mode == 'w' or mode == 'a') and not cpath.exists():
-                write_config(to_parallelize[quantity], to_json=cpath)
+                write_config(to_parallelize[quantity_or_algorithm], to_json=cpath)
 
     def get_control(c):
         p = path_controls / c
         if mode == "w" or mode == 'a':
             p.mkdir(parents=False, exist_ok=True)
 
-            if to_parallelize and quantity in to_parallelize["analyses"]:
+            if to_parallelize and quantity_or_algorithm in to_parallelize["analyses"]:
                 cpath = p / "parallelize.json"
                 if (mode == 'w'  or mode == 'a') and not cpath.exists():
-                    write_config(to_parallelize[quantity], to_json=cpath)
+                    write_config(to_parallelize[quantity_or_algorithm], to_json=cpath)
 
         return get_jobs(at_path=p)
 

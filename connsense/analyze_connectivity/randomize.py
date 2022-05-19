@@ -117,6 +117,11 @@ class RandomControls:
 
         self._index_algo = None
 
+    @lazy
+    def name(self):
+        """..."""
+        return self._name
+
     def name_sample(self, s):
         """...name a sample...
         """
@@ -144,7 +149,7 @@ class RandomControls:
         return self.algorithms[key]
 
     def __iter__(self):
-        """Iter throught the random control algorithms.
+        """Iter through the random control algorithms.
         """
         return self.algorithms.index.values
 

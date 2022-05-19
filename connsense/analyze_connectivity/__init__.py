@@ -23,7 +23,6 @@ from ..io.write_results import (read as read_results,
 from ..io import read_config
 from ..io import logging
 
-from ..randomize_connectivity.randomize import load_neuron_properties
 from .analysis import SingleMethodAnalysisFromSource
 from .analyze import BATCHED_SUBTARGETS, parallely_analyze
 from .import matrices
@@ -143,10 +142,39 @@ def _read_sample_description(d):
     return (by_size, amount)
 
 
-def sample_subtarget(adjacency_matrices, by_description):
-    """..."""
-    adjmats = adjacency_matrices
+def sample_by_size(nmin, nmax, subtargets):
+    """Sample number of subtargets with size in [nmin, nmax)
+    """
+    def _(subtarget_sizes):
+        """..."""
+        in_range = subtarget_sizes[np.logical_and(nmin <= subtarget_sizes, subtarget_sizes < nmax)]
+        if len(in_range) <= subtargets:
+            return in_range
 
+        return in_range.sample(n=subtargets)
+
+    return _
+
+
+def sample_subtargets(adjacency_matrices, by_description):
+    """...
+    sample may be described as:
+    1. A list of dicts, with each entry describing subtargets to be selected.
+    ~  Results will be concatenated.
+    2. A string description such as 'largest-1'...
+    3. A float less than 1 providing the fraction to sample, or a n int giving the number to sample
+
+    TODO: Generalize the description provided as a list.
+    """
+    if isinstance(by_description, list):
+        LOG.info("Sample subtargets among %s by description: \n%s",
+                 len(adjacency_matrices), pformat(by_description))
+        samples = [sample_by_size(**s) for s in by_description]
+        subtarget_sizes = adjacency_matrices.apply(lambda m: m.get_value().shape[0])
+        by_size = pd.concat([sample(subtarget_sizes) for sample in samples])
+        return adjacency_matrices.reindex(by_size.index)
+
+    adjmats = adjacency_matrices
     d = by_description
     by_size, amount = _read_sample_description(d)
 
@@ -163,7 +191,7 @@ def sample_subtarget(adjacency_matrices, by_description):
 
     def count_nodes(matrix):
         """..."""
-        return matrix.value.shape[0]
+        return matrix.get_value().shape[0]
 
     if by_size == "largest":
         N = np.int(amount or 1)
@@ -178,8 +206,13 @@ def sample_subtarget(adjacency_matrices, by_description):
     raise ValueError(f"Unhandled arguments by_size={by_size}, amount={amount}")
 
 
-def subset_subtargets(toc, sample, dry_run):
+def subset_subtargets(toc_plus, sample, dry_run=False):
     """..."""
+    if isinstance(toc_plus, tuple):
+        toc, batches = toc_plus
+    else:
+        toc = toc_plus; batches = None
+
     LOG.info("Subset %s subtargets sampling %s", 0 if toc is None else len(toc), sample)
     if dry_run:
         LOG.info("Test plumbing: analyze_connectivity: subset_subtargets")
@@ -193,10 +226,11 @@ def subset_subtargets(toc, sample, dry_run):
     if not sample:
         return all_matrices
 
-    return sample_subtarget(all_matrices, by_description=sample)
+    toc_sample = sample_subtargets(all_matrices, by_description=sample)
+    return (toc_sample, batches.reindex(toc_sample.index)) if batches else toc_sample
 
 
-def get_analyses(config, as_dict=False):
+def get_analyses(config, names=False, as_dict=False):
     """..."""
     all_parameters = config["parameters"]
 
@@ -206,11 +240,14 @@ def get_analyses(config, as_dict=False):
 
     LOG.warning("configured analyses %s", configured)
 
+    if names:
+        return list(configured.keys())
+
     if not as_dict:
         return [SingleMethodAnalysisFromSource(name, description)
                 for name, description in configured.items()]
     return {name: SingleMethodAnalysisFromSource(name, description)
-            for name, description in configured.items()}
+            for name, description in configured.items() if name != "COMMEMT"}
 
 
 def filter_analyses(ns, substep):
@@ -242,8 +279,10 @@ def get_value_store(analysis, at_path, from_cache=None, in_mode='a'):
     return store
 
 
-def _check_paths(p):
+def _check_paths(in_config):
     """..."""
+    p = in_config["paths"]
+
     if "circuit" not in p:
         raise RuntimeError("No circuits defined in config!")
 
@@ -262,7 +301,7 @@ def _check_paths(p):
     if STEP not in p["output"]["steps"]:
         raise RuntimeError(f"No {STEP} in config output!")
 
-    return p
+    return (p["input"], p["output"])
 
 
 def load_neurons(paths, dry_run=False):
@@ -275,7 +314,6 @@ def load_neurons(paths, dry_run=False):
         return None
 
     neurons = (read_results((hdf, group), STEP)
-               #.droplevel(["flat_x", "flat_y"])
                .reset_index().set_index(["circuit", "subtarget", "flat_x", "flat_y"]))
 
     LOG.info("Done loading extracted neuron properties: %s", neurons.shape)
@@ -326,7 +364,7 @@ def load_connectivity_randomized(paths, dry_run):
     return toc_rand
 
 
-def load_adjacencies(paths, from_batch=None, return_batches=True):
+def load_adjacencies(paths, from_batch=None, return_batches=True, sample=None):
     """Adjacencies can be loaded from the HDF-store specified in the paths,
     or from path to a batch that contains a store and a JSON file to control
     the adjacency before an analysis.
@@ -345,7 +383,7 @@ def load_adjacencies(paths, from_batch=None, return_batches=True):
     if from_batch is None:
         assert not return_batches, "Cannot return batches if not argued as `from_batch`!"
         LOG.info("Done loading connectivity.")
-        return toc_orig
+        return subset_subtargets(toc_orig, sample)
 
     try:
         path = Path(from_batch)
@@ -364,7 +402,7 @@ def load_adjacencies(paths, from_batch=None, return_batches=True):
     LOG.info("Done loading batched connectivity with %s entries: \n%s.", len(batches), pformat(batches))
 
     toc = toc_orig.reindex(batches.index)
-    return (toc, batches) if return_batches else toc
+    return subset_subtargets((toc, batches) if return_batches else toc, sample)
 
 
 def dispatch(adjacencies, neurons, analyses, action=None, in_mode=None, controls=None,
@@ -480,19 +518,15 @@ def run(config, action, substep=None, controls=None, in_mode=None, parallelize=N
         "Missing argument `substep`: TAP can run only one argued analysis, not all at once!"
 
     config = read(config)
-    paths = _check_paths(config["paths"])
-    input_paths = paths["input"]
-    output_paths = paths["output"]
+    input_paths, output_paths = _check_paths(config)
 
-    LOG.warning("Run analyses in config : %s", pformat(config))
+    LOG.warning("%s analyze connectivity %s using config:\n%s", action.capitalize(), substep, config)
 
     rundir = workspace.get_rundir(config, mode=in_mode, **kwargs)
 
     neurons = load_neurons(input_paths, dry_run)
 
-    toc_adjs = load_adjacencies(input_paths, batch, return_batches=False)
-
-    toc_dispatch = subset_subtargets(toc_adjs, sample, dry_run)
+    toc_dispatch = load_adjacencies(input_paths, batch, return_batches=False, sample=sample)
 
     if toc_dispatch is None:
         if not dry_run:
@@ -502,12 +536,12 @@ def run(config, action, substep=None, controls=None, in_mode=None, parallelize=N
     _, hdf_group = output_paths["steps"].get(STEP, default_hdf(STEP))
 
     configured = get_analyses(config, as_dict=True)
+    LOG.info("Analyses in the configuration %s", [a.name for a in configured])
     analyses = filter_analyses(configured, substep)
-    LOG.info("Analyses in the configuration %s", [a.name for a in analyses])
     LOG.info("Analyses to run %s", pformat(analyses))
 
     basedir = workspace.locate_base(rundir, STEP)
-    m = in_mode; p = read_parallelization(parallelize) if parallelize else None
+    m =in_mode; p = read_parallelization(parallelize) if parallelize else None
     analyzed_results = dispatch(toc_dispatch, neurons, analyses, action, in_mode,
                                 controls=read_controls(config, controls),
                                 parallelize=p,
@@ -543,8 +577,7 @@ def collect(config, in_mode, parallelize, substep=None, controls=None, output=No
         LOG.info("Collect batched results of analyses of subtargets for controls: \n %s",
                  pformat(controls))
 
-    paths = _check_paths(config["paths"])
-    output_paths = paths["output"]
+    _, output_paths = _check_paths(config)
     to_parallelize = parallelize.get(STEP, {}) if parallelize else None
 
     _, hdf_group = output_paths["steps"].get(STEP, default_hdf(STEP))

@@ -83,19 +83,34 @@ SUBSTEPS = OrderedDict([("define-subtargets", "grids"),
                         ("extract-neurons", None),
                         ("evaluate-subtargets", "metrics"),
                         ("extract-connectivity", "connectomes"),
-                        ("randomize-connectivity", "algorithms"),
+                        ("randomize-connectivity", "controls"),
                         ("analyze-connectivity", "analyses")])
 
 
 def parameterize_substeps(s, in_config):
     """..."""
     parameters = in_config["parameters"]
-    LOG.info("parameterize substeps for step %s in config \n %s", s, pformat("parameters"))
+    sections = list(parameters.keys())
+    LOG.info("Parameterize %s among steps %s in config ", s, pformat(sections))
+
+    param = SUBSTEPS[s]
+    if not param:
+        return None
+    step = parameters[s]
+    return step[param]
+
+
+def _parameterize_substeps_0(s, in_config):
+    """..."""
+    LOG.info("parameterize substeps for step %s in config \n %s", s,
+             pformat(in_config["parameters"][s]))
+
     param = SUBSTEPS[s]
     if not param:
         return None
 
-    return parameters[s][param]
+    return in_config["parameters"][s][param]
+
 
 
 def check_step(as_argued, against_config):
@@ -124,7 +139,7 @@ def check_step(as_argued, against_config):
     if not ss:
         return (s, None)
 
-    assert ss in parameters, ("f{substep} is not a substep of {step}."
+    assert ss in parameters, (f"substep {ss} is not a substep of step {s}."
                               f" Provide one of {pformat(list(parameters.keys()))}")
 
     return (s, ss)

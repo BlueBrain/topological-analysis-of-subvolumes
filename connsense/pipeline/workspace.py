@@ -170,9 +170,13 @@ def current(config, step, substep, controls, mode, to_parallelize):
     return stage
 
 
-def locate_base(in_rundir, for_step):
+def locate_base(in_rundir, for_step, create=False):
     """..."""
     base = Path(in_rundir) / for_step
+
+    if create:
+        base.mkdir(parents=False, exist_ok=True)
+
     if not base.exists():
         raise FileNotFoundError(f"A workspace folder {base} must be created\n"
                                 "Use `tap --config=<location> init <step> <substep>` to initialize"
