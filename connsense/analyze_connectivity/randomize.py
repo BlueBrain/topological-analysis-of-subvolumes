@@ -186,7 +186,7 @@ def read_randomization(configured, argument=None):
 
     parameters = configured["parameters"]
     randomize = parameters["connectivity-controls"]
-    algorithms = randomize["algorithms"]
+    algorithms = {k: v for k, v in randomize["algorithms"].items() if k != "COMMENT"}
     return algorithms[argument] if argument else algorithms
 
 

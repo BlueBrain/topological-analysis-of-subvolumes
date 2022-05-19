@@ -143,8 +143,11 @@ class TopologicalAnalysis:
             gather = runner.collect
         except AttributeError as aerror:
             raise NotImplementedError(f"A method to collect in {step}") from aerror
+        else:
+            LOG.info("Use to gather results: %s", gather)
 
-        return gather(self._config, in_mode, self._parallelize, substep, controls, **kwargs)
+        return gather(self._config, in_mode=in_mode, parallelize=self._parallelize, substep=substep,
+                      controls=controls, **kwargs)
 
     # def run_queue(self, steps=None, substeps=None, action=None, in_mode=None,
     #               *args, **kwargs):

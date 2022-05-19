@@ -83,7 +83,7 @@ def read(fn, raw=False):
 
     parameters = cfg["parameters"]
 
-    return {"paths": paths, "parameters": parameters}
+    return {"steps": pipeline["steps"], "paths": paths, "parameters": parameters}
 
 
 def serialize_json(paths):

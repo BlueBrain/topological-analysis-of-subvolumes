@@ -148,8 +148,8 @@ def cmd_sbatch_analysis(slurm_params, at_path):
     return slurm_config.save(to_filepath=at_path/"tap-analysis.sbatch")
 
 
-def configure_launch_multi(number, quantity, using_subtargets, control, at_workspace,
-                           cmd_sbatch=cmd_sbatch_analysis,
+def configure_launch_multi(number, computation, using_subtargets, control, at_workspace,
+                           cmd_sbatch=cmd_sbatch_analysis, computable="quantity",
                            action=None, in_mode=None, slurm_config=None):
     """
     Arguments
@@ -161,7 +161,7 @@ def configure_launch_multi(number, quantity, using_subtargets, control, at_works
     at_workspace :: directory to use for input and output
     """
     LOG.info("Configure a %s multinode launch to analyze %s of %s subtargets working  %s",
-             number, quantity.name, len(using_subtargets), at_workspace)
+             number, computation.name, len(using_subtargets), at_workspace)
 
     basedir, to_run_in = at_workspace
 
@@ -212,12 +212,13 @@ def configure_launch_multi(number, quantity, using_subtargets, control, at_works
             def write(aline):
                 to_launch.write(aline + '\n')
 
-            write(f"##################### LAUNCH analysis {quantity.name} for chunk {c}"
+            write(f"##################### LAUNCH analysis {computation.name} for chunk {c}"
                   f" of {len(subtargets)} subtargets. ######################")
 
             write(f"pushd {rundir}")
 
-            write(f"sbatch {script} --configure=config.json --mode={in_mode} --quantity={quantity.name} {action}")
+            write(f"sbatch {script} --configure=config.json --mode={in_mode}"
+                  f" --{computable}={computation.name} {action}")
 
             write("popd")
 

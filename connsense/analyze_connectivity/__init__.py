@@ -223,11 +223,9 @@ def subset_subtargets(toc_plus, sample, dry_run=False):
 
     all_matrices = toc.rename("matrix")
 
-    if not sample:
-        return all_matrices
-
-    toc_sample = sample_subtargets(all_matrices, by_description=sample)
-    return (toc_sample, batches.reindex(toc_sample.index)) if batches else toc_sample
+    toc_sample = (all_matrices if sample is None
+                  else sample_subtargets(all_matrices, by_description=sample))
+    return (toc_sample, batches.reindex(toc_sample.index)) if batches is not None else toc_sample
 
 
 def get_analyses(config, names=False, as_dict=False):

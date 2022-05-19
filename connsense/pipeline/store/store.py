@@ -2,10 +2,12 @@
 from collections import OrderedDict
 from lazy import lazy
 from pathlib import Path
+import h5py
 
 import pandas as pd
 
 from connsense import analyze_connectivity as anzconn
+from connsense import randomize_connectivity as ranconn
 from connsense.io.write_results import (read_subtargets,
                                         read_node_properties,
                                         read_toc_plus_payload)
@@ -35,6 +37,7 @@ class HDFStore:
         self._root = locate_store(config)
         self._groups = group_steps(config)
         self._analyses = anzconn.get_analyses(config, as_dict=True)
+        self._controls = ranconn.get_controls(config)
 
     def get_path(self, step):
         """..."""
@@ -56,9 +59,12 @@ class HDFStore:
         except (KeyError, FileNotFoundError):
             return None
 
-    def _read_matrix_toc(self, step):
+    def _read_matrix_toc(self, step, dset=None):
         """Only for the steps that store connectivity matrices."""
-        return read_toc_plus_payload(self.get_path(step), step)
+        root, group = self.get_path(step)
+        if dset:
+            group += f"/{dset}"
+        return read_toc_plus_payload((root, group), step)
 
     @lazy
     def adjacency(self):
@@ -71,10 +77,19 @@ class HDFStore:
     @lazy
     def randomizations(self):
         """Read randomizations."""
-        try:
-            return self._read_matrix_toc("randomize-connectivity")
-        except (KeyError, FileNotFoundError):
+        with h5py.File(self._root, 'r') as hdf:
+            if not (self._groups[ranconn.STEP] in hdf):
+                return None
+
+        def get(control):
+            try:
+                return self._read_matrix_toc(ranconn.STEP, control)
+            except KeyError as err:
+                LOG.warning("Could not find data for randomization %s", control)
+                pass
             return None
+
+        return {control:  get(control) for control in self._controls.keys()}
 
     @lazy
     def analyses(self):

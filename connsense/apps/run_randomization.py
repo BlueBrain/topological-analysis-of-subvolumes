@@ -28,7 +28,7 @@ from connsense.randomize_connectivity.algorithm import SingleMethodAlgorithmFrom
 from connsense import analyze_connectivity as anzconn
 from connsense.analyze_connectivity import analyze
 
-STEP = "analyze-connectivity"
+STEP = "randomize-connectivity"
 LOG = logging.get_logger("Toplogical analysis of flatmapped subtargets.")
 
 
@@ -112,7 +112,7 @@ def apply_control(in_file, to_toc, among_neurons, using_batches, using_cache):
     controlled_toc = update_algorithm(in_toc=of_controlled_values, to_value=control.name)
     controlled_batches = update_algorithm(using_batches, to_value=control.name)
 
-    LOG.info("Done applying control %s", control.name)
+    LOG.info("DONE applying controls: \n%s", pformat(controlled_toc))
     return pd.concat([controlled_toc, controlled_batches], axis=1)
 
 
@@ -135,8 +135,8 @@ def get_parser():
                               "The config should specify the input and output paths,"
                               "  and parameters  for each of the pipeline steps."))
 
-    parser.add_argument("-q", "--quantity", required=True,
-                        help=("Name of the analysis to run, that should appear in the config."))
+    parser.add_argument("-x", "--control", required=True,
+                        help=("Name of the control to randomize with, that should appear in the config."))
 
     parser.add_argument("-m", "--mode", required=False, default=None,
                         help=("Specify how the action should be performed. should be done\n"
@@ -153,6 +153,22 @@ def get_parser():
     parser.set_defaults(test=False)
 
     return parser
+
+
+def apply_control(algorithm, to_toc, among_neurons, using_batches, using_cache):
+    """Adapted from run_analysis"""
+    to_batched = pd.concat([to_toc, using_batches], axis=1)
+
+    LOG.info("Apply control %s to %s entry TOC: \n%s", algorithm.name, len(to_toc), pformat(to_toc))
+
+    of_controlled_values = (to_batched.reset_index().set_index(to_batched.index)
+                            .apply(lazy_random(algorithm, among_neurons, using_cache), axis=1)
+                            .rename("matrix"))
+    controlled_toc = update_algorithm(in_toc=of_controlled_values, to_value=algorithm.name)
+    controlled_batches = update_algorithm(in_toc=using_batches, to_value=algorithm.name)
+
+    LOG.info("Done applying control %s", algorithm.name)
+    return pd.concat([controlled_toc, controlled_batches], axis=1)
 
 
 def main(argued=None):
@@ -172,24 +188,27 @@ def main(argued=None):
     neurons = anzconn.load_neurons(input_paths)
 
     original, assigned = anzconn.load_adjacencies(input_paths, from_batch=in_basedir)
-    pipeline_store = TAPStore(config)
-    batched = apply_control(in_basedir/"control.json", to_toc=original, among_neurons=neurons,
-                            using_batches=assigned, using_cache=pipeline_store)
+    LOG.info("Randomize connectivity using %s, of %s subtargets", argued.control, len(original))
 
-    analysis = resolve_analysis(argued, against_config=c)
-    LOG.info("Run analysis %s for a %s batched adjacencies: \n%s", analysis, len(batched),
-             pformat(batched))
+    pipeline_store = TAPStore(config)
+
+    configured = config["parameters"]["connectivity-controls"]["algorithms"]
+    randomizations = anzconn.read_controls(config, argued.control)
 
     _, hdf_group = output_paths["steps"].get(STEP, default_hdf(STEP))
+    LOG.info("Randomize controls %s on %s subtargets, saving results to (%s, %s)",
+             randomizations.name, len(original), in_basedir, hdf_group)
 
-    LOG.info("Compute analysis %s on %s subtargets, saving results to (%s, %s)",
-             analysis.name, len(batched), in_basedir, hdf_group)
+    def algorithm(a):
+        return apply_control(a, original, neurons, using_batches=assigned, using_cache=pipeline_store)
 
-    result = analyze.dispatch_single_node(analysis, batched, neurons,
-                                          to_tap=pipeline_store, to_save=(in_basedir, hdf_group))
-    LOG.warning("DONE running analysis %s for batch %s of %s subtargets saving (%s, %s).",
-                analysis.name, argued.batches, len(batched), in_basedir, hdf_group)
-    return result
+    lazy_result = pd.concat(randomizations.algorithms.apply(algorithm).values)
+
+    randomized = lazy_result.matrix.apply(lambda m: m.matrix)
+
+    output = write_toc_plus_payload(randomized, to_path=("out.h5", config["steps"][STEP]), format="table")
+    LOG.info("DONE running randomization at %s, result in  %s", at_path, output)
+    return output
 
 
 if __name__ == "__main__":

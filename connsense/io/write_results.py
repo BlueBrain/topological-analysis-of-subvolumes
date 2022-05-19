@@ -38,6 +38,12 @@ def write(extracted, to_path, format=None, metadata=None):
 
 def write_sparse_matrix_payload(hdf_group, dset_pattern="matrix_{0}"):
     def write_dset(mat):
+        """..."""
+        try:
+            mat = mat.get_value()
+        except AttributeError:
+            pass
+
         dset_name = dset_pattern.format(len(hdf_group.keys()))
         from scipy import sparse
         bio = io.BytesIO()
@@ -68,7 +74,7 @@ def write_toc_plus_payload(extracted, to_path, payload_type=None, format=None):
     toc = extracted.apply(write_sparse_matrix_payload(h5_grp_mat))
     h5_file.close()
 
-    write(toc, (path_hdf_store, group_identifier_toc), format=format)
+    return write(toc, (path_hdf_store, group_identifier_toc), format=format)
 
 
 class LazyMatrix:

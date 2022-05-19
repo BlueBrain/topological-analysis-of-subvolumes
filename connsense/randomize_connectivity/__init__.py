@@ -20,10 +20,10 @@ from ..io.slurm import SlurmConfig
 from ..io import read_config, logging
 from ..analyze_connectivity import (default_hdf, read, _check_paths,
                                     load_neurons, load_adjacencies)
-from ..analyze_connectivity.randomize import read_random_controls
+from ..analyze_connectivity.randomize import read_random_controls, RandomControls
 from ..analyze_connectivity.analyze import (check_basedir, find_base,
                                             configure_launch_multi, read_njobs,
-                                            append_batch)
+                                            append_batch, load_batched_subtargets)
 
 from .randomize import get_neuron_properties, randomize_table_of_contents
 
@@ -66,7 +66,7 @@ def parallely_randomize(controls, subtargets, neurons, action,
     batched = append_batch(subtargets, using_basedir=rundir, njobs=n)
     to_sbatch = to_parallelize.get(controls.name, {}).get("sbatch", None)
 
-    multirun = configure_launch_multi(compute_nodes, quantity=controls,
+    multirun = configure_launch_multi(compute_nodes, computation=controls, computable="control",
                                       using_subtargets=batched, control=None,
                                       at_workspace=(base, rundir), cmd_sbatch=cmd_sbatch_randomization,
                                       action=action, in_mode=in_mode, slurm_config=to_sbatch)
@@ -135,3 +135,52 @@ def run(config, action, substep=None, in_mode=None, parallelize=None,
 
     LOG.warning("Don't forget to run the collection step to gather the parallel computation's results.")
     return randomizations
+
+
+def load_parallel_run_randomization(control, parallelizing, in_rundir):
+    """..."""
+    n_compute_nodes, njobs = read_njobs(parallelizing[control.name], control)
+    base, hdf_group = check_basedir(in_rundir, control, parallelizing, None, mode='r',
+                                    return_hdf_group=True)
+
+    LOG.info("Load the results of parallel randomizations from %s", base)
+    compute_nodes = [p for p in base.glob("compute-node-*") if p.joinpath("out.h5").exists()]
+    LOG.info("Found results of parallel randomizations in compute nodes:\n%s", pformat(compute_nodes))
+
+    lazy_results = pd.concat([read_toc_plus_payload((c/"out.h5", hdf_group), for_step=STEP)
+                              for c in compute_nodes])
+    LOG.info("Number of lazy randomized matrices: %s", len(lazy_results))
+    return lazy_results
+
+
+def collect(config, in_mode, parallelize, substep, **kwargs):
+    """Collect all the randomized matrices in the output store.
+    """
+    from connsense.pipeline import workspace
+
+    LOG.info("Collect batched results of randomization %s of subtargets using at %s", substep, config)
+    config = read(config)
+    control = read_random_controls(argued=substep, in_config=config)
+    parallelization = read_parallelization(parallelize)
+
+    _, output_paths = _check_paths(config)
+
+    rundir = workspace.get_rundir(config, mode=in_mode)
+    basedir = workspace.locate_base(rundir, STEP, create=True)
+    lazy_results = load_parallel_run_randomization(control, parallelizing=parallelization["controls"],
+                                                   in_rundir=(basedir, config["steps"][STEP]))
+
+    LOG.info("Write results for randomization of %s to output %s", substep, output_paths)
+    store, hdf_group = output_paths["steps"][STEP]
+    result = write_toc_plus_payload(lazy_results, to_path=(store, hdf_group+f"/{substep}"), format="table")
+
+    LOG.info("DONE randomizing %s", substep)
+    return result
+
+def get_controls(in_config):
+    """..."""
+    from connsense.analyze_connectivity.randomize import read_randomization
+    controls_described = read_randomization(in_config)
+
+    return {r: RandomControls(name=r, description=algorithm, be_lazy=True)
+            for r, algorithm in controls_described.items()}
