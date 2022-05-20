@@ -296,6 +296,42 @@ in which we find,
  of subtargets as specified in the configuration. For each control this selection is used to save
  the randomizations using control algorithms seeded according to the configuration.
 
+ The selection is specified as a mapping.
+
+ #+begin_src js
+    "randomize-connectivity": {
+      "COMMENT": [
+        "Configure the subtargets to save their randomized connectivity in the TAP store.",
+        "The default entry will be used unless overriden by an entry for a specific randomization",
+        "configured as a connectivity-controls algorithm."
+      ],
+      "controls": {
+        "dd2-model": {
+          "subtargets": [
+			  {"nmin": 1000, "nmax": 5000, "subtargets": 1},
+            {"nmin": 10000, "nmax": 15000, "subtargets": 2},
+            {"nmin": 20000, "nmax": 25000, "subtargets": 1},
+            {"nmin": 30000, "nmax": 50000, "subtargets": 1}
+			]
+        },
+        "erdos-renyi": {
+			"subtargets": [
+			  {"nmin": 1000, "nmax": 5000, "subtargets": 1},
+            {"nmin": 10000, "nmax": 15000, "subtargets": 2},
+            {"nmin": 20000, "nmax": 25000, "subtargets": 1},
+            {"nmin": 30000, "nmax": 50000, "subtargets": 1}
+			]
+		  }
+      }
+    }
+ #+end_src
+
+ A random selection of a number subtargets will be made, with the number depending on the
+ size windows in the configuration. For example, the selection of subtargets above will generate
+ a total of 5 subtargets to be randomized. Notice that in the current implementation (20220520)
+ different subtargets may be selected for each control.
+
+
  To initialize a randomization,
 
  #+begin_src shell

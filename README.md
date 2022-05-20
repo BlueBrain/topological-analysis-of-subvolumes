@@ -1,21 +1,21 @@
 
 # Table of Contents
 
-    1.  [A Reproducible Analysis Package to accompagny a publication](#org5a97505)
-        1.  [Introduce the configuration](#org8ce0cc4)
-    2.  [A Large Scale Circuit Analysis Environment](#orge049745)
-        1.  [Introduce the configuration](#org40580f5)
-1.  [Pipeline Stages](#orgd755622)
-2.  [Configuring the pipeline.](#org0f5f844)
-3.  [TAP Environment Command Line Interface](#org936bd12)
-4.  [TODO: Checking the pipeline results](#orgbf93290)
+    1.  [A Reproducible Analysis Package to accompagny a publication](#org3247678)
+        1.  [Introduce the configuration](#org7b03e8b)
+    2.  [A Large Scale Circuit Analysis Environment](#org69fffe9)
+        1.  [Introduce the configuration](#orgacd082e)
+1.  [Pipeline Stages](#org3457594)
+2.  [Configuring the pipeline.](#org264677d)
+3.  [TAP Environment Command Line Interface](#org3481d62)
+4.  [TODO: Checking the pipeline results](#org041d7ba)
 
 This topic is under-discussion at [JIRA](https://bbpteam.epfl.ch/project/issues/browse/SSCXDIS-530).
 
 The `Topological Analysis Pipeline (TAP)`&rsquo; aims to offer to the scientists:
 
 
-<a id="org5a97505"></a>
+<a id="org3247678"></a>
 
 ## A Reproducible Analysis Package to accompagny a publication
 
@@ -30,7 +30,7 @@ All the computed data is saved in a `HDF data-store`, and an interface defined w
 to interact with the `data-store`.
 
 
-<a id="org8ce0cc4"></a>
+<a id="org7b03e8b"></a>
 
 ### TODO Introduce the configuration
 
@@ -38,7 +38,7 @@ Meanwhile we can just read the latest configuration at <provide-link>, which con
 in each section.
 
 
-<a id="orge049745"></a>
+<a id="org69fffe9"></a>
 
 ## A Large Scale Circuit Analysis Environment
 
@@ -51,7 +51,7 @@ Like any scientific work, a characterization of a circuit is an iterative proced
 `TAP` aims to provide extensive book-keeping tools to track the progress of such studies.
 
 
-<a id="org40580f5"></a>
+<a id="orgacd082e"></a>
 
 ### TODO Introduce the configuration
 
@@ -59,7 +59,7 @@ Meanwhile we can just read the latest configuration at <provide-link>, which con
 in each section.
 
 
-<a id="orgd755622"></a>
+<a id="org3457594"></a>
 
 # Pipeline Stages
 
@@ -116,7 +116,7 @@ There are six stages in the pipeline:
     Configuration allows for listing the analyses descriptions, including the random-controls to run.
 
 
-<a id="org0f5f844"></a>
+<a id="org264677d"></a>
 
 # Configuring the pipeline.
 
@@ -124,7 +124,7 @@ Their are two input configuration files to run the pipeline.
 Easier to just open them and look at the comments in there, than repeat that information here.
 
 
-<a id="org936bd12"></a>
+<a id="org3481d62"></a>
 
 # TAP Environment Command Line Interface
 
@@ -279,6 +279,39 @@ In the pipeline step `randomize-connectivity` we can generate randomized adjacen
 of subtargets as specified in the configuration. For each control this selection is used to save
 the randomizations using control algorithms seeded according to the configuration.
 
+The selection is specified as a mapping.
+
+    "randomize-connectivity": {
+      "COMMENT": [
+        "Configure the subtargets to save their randomized connectivity in the TAP store.",
+        "The default entry will be used unless overriden by an entry for a specific randomization",
+        "configured as a connectivity-controls algorithm."
+      ],
+      "controls": {
+        "dd2-model": {
+          "subtargets": [
+    		  {"nmin": 1000, "nmax": 5000, "subtargets": 1},
+            {"nmin": 10000, "nmax": 15000, "subtargets": 2},
+            {"nmin": 20000, "nmax": 25000, "subtargets": 1},
+            {"nmin": 30000, "nmax": 50000, "subtargets": 1}
+    		]
+        },
+        "erdos-renyi": {
+    		"subtargets": [
+    		  {"nmin": 1000, "nmax": 5000, "subtargets": 1},
+            {"nmin": 10000, "nmax": 15000, "subtargets": 2},
+            {"nmin": 20000, "nmax": 25000, "subtargets": 1},
+            {"nmin": 30000, "nmax": 50000, "subtargets": 1}
+    		]
+    	  }
+      }
+    }
+
+A random selection of a number subtargets will be made, with the number depending on the
+size windows in the configuration. For example, the selection of subtargets above will generate
+a total of 5 subtargets to be randomized. Notice that in the current implementation (20220520)
+different subtargets may be selected for each control.
+
 To initialize a randomization,
 
     
@@ -298,7 +331,7 @@ To collect the results.
 This will deposite the results in TAP-HDFstore.
 
 
-<a id="orgbf93290"></a>
+<a id="org041d7ba"></a>
 
 # TODO: Checking the pipeline results
 
