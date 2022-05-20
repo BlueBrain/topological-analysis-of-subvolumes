@@ -219,4 +219,107 @@ in which we find,
 
  #+end_src
 
+ Now we have simplex counts in the TAP-HDFstore.
+
+ What about controls?
+ We use random controls defined in the configuration section ~parameters/connectivity-controls~.
+ These controls are used to generate randomizations of the original adjacencies, and the
+ specified analysis applied to them to generate statistical controls for an analysis.
+
+ In the Slurm config CLI,
+
+ #+begin_src shell
+
+ tap --configure=config.json --parallelize=parallel.json --control=erdos-renyi init analyze-connectivity simplex-counts
+
+ #+end_src
+
+
+ This will generate a directory to run controls,
+
+ #+begin_src shell
+
+ <path-to-workspace> / run / analyze-connectivity / simplex-counts / controls
+
+ #+end_src
+
+ To set up the computations in this directory,
+
+ #+begin_src shell
+
+ tap --configure=config.json --parallelize=parallel.json --control=erdos-renyi run analyze-connectivity simplex-counts
+
+ #+end_src
+
+
+ While the setup for the original adjacency analysis set up a single base directory at
+
+ #+begin_src shell
+
+ <path-to-workspace> / run / analyze-connectivity / simplex-counts / njobs-<count>
+
+ #+end_src
+
+
+ For the controls we will have one such directory per control algorithm. Notice that a single
+ control will fan out into a number of a control-algorithms one per seed specified in the config.
+
+ A base directory generated at
+
+ #+begin_src shell
+
+ <path-to-workspace> / run / analyze-connectivity / simplex-counts / controls / erdos-renyi-variant-<index>
+
+ #+end_src
+
+ will contain a generated configuration file ~control.json~ that describes the control algorithm,
+ and a file "batches.h5" that assigns batches to subtargets.
+ Under this ~erdos-renyo~ control base directory we will find individual compute nodes just like
+ discussed under analyses for the original adjancencies above.
+ To proceed we will have to run the launch script, not just in one but each of the control algorithm variants.
+ This is a little manual, and will be refactored into a single launch script that will launch all the
+ compute nodes in each of the control algorithm variants.
+
+ Once the computations are done, and results found to be satisfactory,
+
+ #+begin_src shell
+
+ tap --configure=config.json --parallelize=parallel.json --control=erdos-renyi collect analyze-connectivity simplex-counts
+
+ #+end_src
+
+ which will collect all the control analysis results into the TAP-HDFstore.
+
+
+ Finally we also want to store some of the randomizations.
+ In the pipeline step ~randomize-connectivity~ we can generate randomized adjacencies for a selection
+ of subtargets as specified in the configuration. For each control this selection is used to save
+ the randomizations using control algorithms seeded according to the configuration.
+
+ To initialize a randomization,
+
+ #+begin_src shell
+
+ tap --configure=config.json --parallelize-parallel.json init randomize-connectivity erdos-renyi
+
+ #+end_src
+
+ and to setup,
+
+ #+begin_src shell
+
+ tap --configure=config.json --parallelize-parallel.json run randomize-connectivity erdos-renyi
+
+ #+end_src
+
+ Once again, this will set up the computations, which we will have to launch...
+ To collect the results.
+
+ #+begin_src shell
+
+ tap --configure=config.json --parallelize-parallel.json collect randomize-connectivity erdos-renyi
+
+ #+end_src
+
+ This will deposite the results in TAP-HDFstore.
 * TODO: Checking the pipeline results
