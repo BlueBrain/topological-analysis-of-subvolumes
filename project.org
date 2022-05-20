@@ -110,6 +110,35 @@ complete upto at least adjacencies), we will also need the TAP-HDFstore over to 
 For this we get an allocation from Slurm to work in. The interactive Slurm allocation will allow us
 to run the lighter task of setting up the actual computation of data.
 
+We assume that the current working directory in the shell is the workspace directory where we will
+stage the pipeline.
+
+We can copy the two configs from
+
+#+begin_src shell
+
+cp /gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/configs/config.json <path-to-workspace>/config.json
+
+cp /gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/configs/parallel.json <path-to-workspace>/parallel.json
+
+#+end_src
+
+After copying, we should remember to update the ~config.json~'s ~paths/pipeline/root~ to the
+workspace directory where we will stage the pipeline.
+
+For the TAP-HDFstore we can use the one we already have that contains everything
+up to the extracted adjacency matrices per subtarget.
+
+#+begin_src shell
+
+cp /gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/store/pre_analysis_2021.h5 <path-to-workspace>/topological_sampling.h5
+
+chmod 666 topological_sampling.h5
+
+#+end_src
+
+To initialize a base run directory inside the workspace,
+
 #+begin_src shell
 
 tap --configure=config.json --parallelize=parallel.json init
@@ -120,7 +149,8 @@ tap --configure=config.json --parallelize=parallel.json init
 This will create a ~run~ folder with configurations in it.
 
 While we are exploring the pipeline, and getting our toes wet, we can work in a test mode
-#+being_src shell
+
+#+begin_src shell
 
 tap --configure=config.json --parallelize=parallel.json --mode=test init
 
@@ -204,7 +234,7 @@ in which we find,
 
  #+begin_src shell
 
- tail -f computate-node-<index> / simplex-counts.err
+ tail -f compute-node-<index> / simplex-counts.err
 
  #+end_src
 
