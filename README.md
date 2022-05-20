@@ -1,21 +1,21 @@
 
 # Table of Contents
 
-    1.  [A Reproducible Analysis Package to accompagny a publication](#org3247678)
-        1.  [Introduce the configuration](#org7b03e8b)
-    2.  [A Large Scale Circuit Analysis Environment](#org69fffe9)
-        1.  [Introduce the configuration](#orgacd082e)
-1.  [Pipeline Stages](#org3457594)
-2.  [Configuring the pipeline.](#org264677d)
-3.  [TAP Environment Command Line Interface](#org3481d62)
-4.  [TODO: Checking the pipeline results](#org041d7ba)
+    1.  [A Reproducible Analysis Package to accompagny a publication](#orgea97cf0)
+        1.  [Introduce the configuration](#org56462fa)
+    2.  [A Large Scale Circuit Analysis Environment](#org1feb14a)
+        1.  [Introduce the configuration](#orga108c5c)
+1.  [Pipeline Stages](#orgd3d3674)
+2.  [Configuring the pipeline.](#org40882a7)
+3.  [TAP Environment Command Line Interface](#org4a7b581)
+4.  [TODO: Checking the pipeline results](#org7b851b8)
 
 This topic is under-discussion at [JIRA](https://bbpteam.epfl.ch/project/issues/browse/SSCXDIS-530).
 
 The `Topological Analysis Pipeline (TAP)`&rsquo; aims to offer to the scientists:
 
 
-<a id="org3247678"></a>
+<a id="orgea97cf0"></a>
 
 ## A Reproducible Analysis Package to accompagny a publication
 
@@ -30,7 +30,7 @@ All the computed data is saved in a `HDF data-store`, and an interface defined w
 to interact with the `data-store`.
 
 
-<a id="org7b03e8b"></a>
+<a id="org56462fa"></a>
 
 ### TODO Introduce the configuration
 
@@ -38,7 +38,7 @@ Meanwhile we can just read the latest configuration at <provide-link>, which con
 in each section.
 
 
-<a id="org69fffe9"></a>
+<a id="org1feb14a"></a>
 
 ## A Large Scale Circuit Analysis Environment
 
@@ -51,7 +51,7 @@ Like any scientific work, a characterization of a circuit is an iterative proced
 `TAP` aims to provide extensive book-keeping tools to track the progress of such studies.
 
 
-<a id="orgacd082e"></a>
+<a id="orga108c5c"></a>
 
 ### TODO Introduce the configuration
 
@@ -59,7 +59,7 @@ Meanwhile we can just read the latest configuration at <provide-link>, which con
 in each section.
 
 
-<a id="org3457594"></a>
+<a id="orgd3d3674"></a>
 
 # Pipeline Stages
 
@@ -116,7 +116,7 @@ There are six stages in the pipeline:
     Configuration allows for listing the analyses descriptions, including the random-controls to run.
 
 
-<a id="org264677d"></a>
+<a id="org40882a7"></a>
 
 # Configuring the pipeline.
 
@@ -124,7 +124,7 @@ Their are two input configuration files to run the pipeline.
 Easier to just open them and look at the comments in there, than repeat that information here.
 
 
-<a id="org3481d62"></a>
+<a id="org4a7b581"></a>
 
 # TAP Environment Command Line Interface
 
@@ -142,17 +142,38 @@ complete upto at least adjacencies), we will also need the TAP-HDFstore over to 
 For this we get an allocation from Slurm to work in. The interactive Slurm allocation will allow us
 to run the lighter task of setting up the actual computation of data.
 
+We assume that the current working directory in the shell is the workspace directory where we will
+stage the pipeline.
+
+We can copy the two configs from
+
+    
+    cp /gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/configs/config.json <path-to-workspace>/config.json
+    
+    cp /gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/configs/parallel.json <path-to-workspace>/parallel.json
+
+After copying, we should remember to update the `config.json`&rsquo;s `paths/pipeline/root` to the
+workspace directory where we will stage the pipeline.
+
+For the TAP-HDFstore we can use the one we already have that contains everything
+up to the extracted adjacency matrices per subtarget.
+
+    
+    cp /gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/store/pre_analysis_2021.h5 <path-to-workspace>/topological_sampling.h5
+    
+    chmod 666 topological_sampling.h5
+
+To initialize a base run directory inside the workspace,
+
     
     tap --configure=config.json --parallelize=parallel.json init
 
 This will create a `run` folder with configurations in it.
 
 While we are exploring the pipeline, and getting our toes wet, we can work in a test mode
-\#+being<sub>src</sub> shell
 
-tap &#x2013;configure=config.json &#x2013;parallelize=parallel.json &#x2013;mode=test init
-
-\#+end<sub>src</sub>
+    
+    tap --configure=config.json --parallelize=parallel.json --mode=test init
 
 Working with a `TAP-store` that already contains the connectivity matrices,
 next we go ahead and ask `TAP` to setup a launch of simplex-counts using the config
@@ -214,7 +235,7 @@ We should run launch the computations in a different terminal than the one alloc
 We can track the progress of the computations,
 
     
-    tail -f computate-node-<index> / simplex-counts.err
+    tail -f compute-node-<index> / simplex-counts.err
 
 Once all the runs have finished, we need to test if things went OK.
 If the pipeline results are satisfactory, we need to collect the results of each compute node into a
@@ -331,7 +352,7 @@ To collect the results.
 This will deposite the results in TAP-HDFstore.
 
 
-<a id="org041d7ba"></a>
+<a id="org7b851b8"></a>
 
 # TODO: Checking the pipeline results
 
