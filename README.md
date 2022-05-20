@@ -1,21 +1,21 @@
 
 # Table of Contents
 
-    1.  [A Reproducible Analysis Package to accompagny a publication](#org75665f7)
-        1.  [Introduce the configuration](#orgf0d5a1a)
-    2.  [A Large Scale Circuit Analysis Environment](#org30362b8)
-        1.  [Introduce the configuration](#orgcf75036)
-1.  [Pipeline Stages](#orgd7b4f93)
-2.  [Configuring the pipeline.](#org8650d4c)
-3.  [TAP Environment Command Line Interface](#org19a4725)
-4.  [TODO: Checking the pipeline results](#org5af3a3e)
+    1.  [A Reproducible Analysis Package to accompagny a publication](#org5a97505)
+        1.  [Introduce the configuration](#org8ce0cc4)
+    2.  [A Large Scale Circuit Analysis Environment](#orge049745)
+        1.  [Introduce the configuration](#org40580f5)
+1.  [Pipeline Stages](#orgd755622)
+2.  [Configuring the pipeline.](#org0f5f844)
+3.  [TAP Environment Command Line Interface](#org936bd12)
+4.  [TODO: Checking the pipeline results](#orgbf93290)
 
 This topic is under-discussion at [JIRA](https://bbpteam.epfl.ch/project/issues/browse/SSCXDIS-530).
 
 The `Topological Analysis Pipeline (TAP)`&rsquo; aims to offer to the scientists:
 
 
-<a id="org75665f7"></a>
+<a id="org5a97505"></a>
 
 ## A Reproducible Analysis Package to accompagny a publication
 
@@ -30,7 +30,7 @@ All the computed data is saved in a `HDF data-store`, and an interface defined w
 to interact with the `data-store`.
 
 
-<a id="orgf0d5a1a"></a>
+<a id="org8ce0cc4"></a>
 
 ### TODO Introduce the configuration
 
@@ -38,7 +38,7 @@ Meanwhile we can just read the latest configuration at <provide-link>, which con
 in each section.
 
 
-<a id="org30362b8"></a>
+<a id="orge049745"></a>
 
 ## A Large Scale Circuit Analysis Environment
 
@@ -51,7 +51,7 @@ Like any scientific work, a characterization of a circuit is an iterative proced
 `TAP` aims to provide extensive book-keeping tools to track the progress of such studies.
 
 
-<a id="orgcf75036"></a>
+<a id="org40580f5"></a>
 
 ### TODO Introduce the configuration
 
@@ -59,7 +59,7 @@ Meanwhile we can just read the latest configuration at <provide-link>, which con
 in each section.
 
 
-<a id="orgd7b4f93"></a>
+<a id="orgd755622"></a>
 
 # Pipeline Stages
 
@@ -116,7 +116,7 @@ There are six stages in the pipeline:
     Configuration allows for listing the analyses descriptions, including the random-controls to run.
 
 
-<a id="org8650d4c"></a>
+<a id="org0f5f844"></a>
 
 # Configuring the pipeline.
 
@@ -124,7 +124,7 @@ Their are two input configuration files to run the pipeline.
 Easier to just open them and look at the comments in there, than repeat that information here.
 
 
-<a id="org19a4725"></a>
+<a id="org936bd12"></a>
 
 # TAP Environment Command Line Interface
 
@@ -224,8 +224,81 @@ results in a Slurm allocation, and in the workspace directory.
     
     tap --configure=config.json --parallelize=parallel.json collect analyze-connectivity simplex-counts
 
+Now we have simplex counts in the TAP-HDFstore.
 
-<a id="org5af3a3e"></a>
+What about controls?
+We use random controls defined in the configuration section `parameters/connectivity-controls`.
+These controls are used to generate randomizations of the original adjacencies, and the
+specified analysis applied to them to generate statistical controls for an analysis.
+
+In the Slurm config CLI,
+
+    
+    tap --configure=config.json --parallelize=parallel.json --control=erdos-renyi init analyze-connectivity simplex-counts
+
+This will generate a directory to run controls,
+
+    
+    <path-to-workspace> / run / analyze-connectivity / simplex-counts / controls
+
+To set up the computations in this directory,
+
+    
+    tap --configure=config.json --parallelize=parallel.json --control=erdos-renyi run analyze-connectivity simplex-counts
+
+While the setup for the original adjacency analysis set up a single base directory at
+
+    
+    <path-to-workspace> / run / analyze-connectivity / simplex-counts / njobs-<count>
+
+For the controls we will have one such directory per control algorithm. Notice that a single
+control will fan out into a number of a control-algorithms one per seed specified in the config.
+
+A base directory generated at
+
+    
+    <path-to-workspace> / run / analyze-connectivity / simplex-counts / controls / erdos-renyi-variant-<index>
+
+will contain a generated configuration file `control.json` that describes the control algorithm,
+and a file &ldquo;batches.h5&rdquo; that assigns batches to subtargets.
+Under this `erdos-renyo` control base directory we will find individual compute nodes just like
+discussed under analyses for the original adjancencies above.
+To proceed we will have to run the launch script, not just in one but each of the control algorithm variants.
+This is a little manual, and will be refactored into a single launch script that will launch all the
+compute nodes in each of the control algorithm variants.
+
+Once the computations are done, and results found to be satisfactory,
+
+    
+    tap --configure=config.json --parallelize=parallel.json --control=erdos-renyi collect analyze-connectivity simplex-counts
+
+which will collect all the control analysis results into the TAP-HDFstore.
+
+Finally we also want to store some of the randomizations.
+In the pipeline step `randomize-connectivity` we can generate randomized adjacencies for a selection
+of subtargets as specified in the configuration. For each control this selection is used to save
+the randomizations using control algorithms seeded according to the configuration.
+
+To initialize a randomization,
+
+    
+    tap --configure=config.json --parallelize-parallel.json init randomize-connectivity erdos-renyi
+
+and to setup,
+
+    
+    tap --configure=config.json --parallelize-parallel.json run randomize-connectivity erdos-renyi
+
+Once again, this will set up the computations, which we will have to launch&#x2026;
+To collect the results.
+
+    
+    tap --configure=config.json --parallelize-parallel.json collect randomize-connectivity erdos-renyi
+
+This will deposite the results in TAP-HDFstore.
+
+
+<a id="orgbf93290"></a>
 
 # TODO: Checking the pipeline results
 
