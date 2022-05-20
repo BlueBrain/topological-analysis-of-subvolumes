@@ -2,17 +2,22 @@
 
 This topic is under-discussion at [[https://bbpteam.epfl.ch/project/issues/browse/SSCXDIS-530][JIRA]].
 
-The ~Topological Analysis Pipeline (TAP)~' offers / aims to offer to a scientist:
+The ~Topological Analysis Pipeline (TAP)~' aims to offer to the scientists:
 
 ** A Reproducible Analysis Package to accompagny a publication
-Focusing on reproducibility ~TAP~ implements a computational pipeline that uses a
-JSON configuration file stating what the pipeline's run with that configuration should do,
-/i.e./ it specifies what outputs the pipeline should producing using the specified inputs.
-This configuration can be used as a *reproducibility document*.
-To produce any downstream analyses and summaries, and figures, this document should be enough
-for the scientist to load the data.
+~TAP~ implements a computational pipeline that uses a JSON configuration file that
+states what the pipeline's run, once finished, should produce. The pipeline does not
+run automatically ton completion, but depends on interaction with the scientists.
+This configuration can evolve with time, and be used as a *reproducibility document* for the final
+computed results.
+This document can be used to load the computed data as well, and used for statistical analyses
+and figures.
 All the computed data is saved in a ~HDF data-store~, and an interface defined within ~TAP~ can be used
 to interact with the ~data-store~.
+
+*** TODO Introduce the configuration
+Meanwhile we can just read the latest configuration at <provide-link>, which contains comments
+in each section.
 
 ** A Large Scale Circuit Analysis Environment
 ~TAP~ automates the parallel launch on a grid of subvolumes.
@@ -22,6 +27,10 @@ workspace that can be used to estimate the computational requirements.
 
 Like any scientific work, a characterization of a circuit is an iterative procedure.
 ~TAP~ aims to provide extensive book-keeping tools to track the progress of such studies.
+
+*** TODO Introduce the configuration
+Meanwhile we can just read the latest configuration at <provide-link>, which contains comments
+in each section.
 
 
 * Pipeline Stages
@@ -87,46 +96,46 @@ Easier to just open them and look at the comments in there, than repeat that inf
 
 * TAP Environment Command Line Interface
 
-We have developed the `SSCX-Dissemination Subvolume TAP` iteratively, and during this process I have
+We have developed the `SSCX-Dissemination Subvolume TAP` iteratively, and during this process
 implemented a prototype environment that aims to provide extensive book keeping.
+Installed in your virtual-env, the package will provide all the CLI commands we discuss below.
 
 While the initial steps are simpler (and not used / tested for a while) we will focus on running
-analyses. These will work because we have a ~TAP-store~ that we can use as input.
+analyses. These will work because we have a ~TAP-store~ that we can use as input providing
+neuron properties and original adjacency matrices.
 
-The first step is to create an environment to work in.
+The first step is to create a workspace directory, and copy over the configurations or write
+new ones. Since we are going to work with a paritially complete pipeline (with a TAP-HDFstore
+complete upto at least adjacencies), we will also need the TAP-HDFstore over to the workspace.
+For this we get an allocation from Slurm to work in. The interactive Slurm allocation will allow us
+to run the lighter task of setting up the actual computation of data.
 
 #+begin_src shell
 
-python tap --configure=config.json --parallelize=parallel.json init
+tap --configure=config.json --parallelize=parallel.json init
 
 #+end_src
 
 
 This will create a ~run~ folder with configurations in it.
-When fully implemented, it will also copy the required apps in the ~run~ folder.
-Currently we use soft links that make manually.
 
-Next, we can decide to work in a test location within run.
+While we are exploring the pipeline, and getting our toes wet, we can work in a test mode
 #+being_src shell
 
-python tap --configure=config.json --parallelize=parallel.json --mode=test init
+tap --configure=config.json --parallelize=parallel.json --mode=test init
 
 #+end_src
 
 Working with a ~TAP-store~ that already contains the connectivity matrices,
-next we go ahead and ask ~TAP~ to setup a launch of connection probability using the config
+next we go ahead and ask ~TAP~ to setup a launch of simplex-counts using the config
 in which we find,
 
 #+begin_src js
-"conn_prob_dd2": {
-    "source": "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/modelling.py",
-    "method": "conn_prob_2nd_order_model",
-    "output": "pandas.DataFrame",
-    "kwargs": {
-        "bin_size_um": 50,
-        "max_range_um": 1000,
-        "sample_size": null
-    }
+"simplex-counts": {
+    "source": "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py",
+    "method": "simplex_counts",
+    "controls-to-apply": ["erdos-renyi"],
+    "output": "pandas.Series"
 }
 
 #+end_src
@@ -136,13 +145,78 @@ in which we find,
 
  #+begin_src shell
 
- python tap --configure=config.json --parallelize=parallel.json --mode=test init analyze-connectivity conn_prob_dd2
+ tap --configure=config.json --parallelize=parallel.json init analyze-connectivity simplex-counts
 
  #+end_src
 
- to set up the workspace, and
+ Don't forget to use ~-mode=test~ if we have decided to explore the pipeline.
+
+ This command will initialize a folder where we can setup a directory structure to stage the
+ parallel computations.
+
+ To actually set up
+
  #+begin_src shell
 
- python tap --configure=config.json --parallelize=parallel.json --mode=test run analyze-connectivity conn_prob_dd2
+ tap --configure=config.json --parallelize=parallel.json run analyze-connectivity simplex-counts
 
  #+end_src
+
+
+ This will prepare the folder
+ #+begin_src shell
+
+ <path-to-workspace> / run / analyze-connectivity / simplex-counts / njobs-<count>
+
+ #+end_src
+
+ The count of number jobs in ~njobs-<count>~ will depend on the parallelization configured
+ for `simplex-counts`. Thisn directory will contain sub-directories, one each for a compute-node
+ where the actual computations will be run, in addition to the batches assigned in a HDF file,
+ and master ~launchscript.sh~.
+ #+begin_src shell
+
+ 1364211257 -rw-rw----+  1 sood bbp  18K May 20 11:04 batches.h5
+ 1364211259 drwxrwx---+  2 sood bbp 4.0K May 20 11:08 compute-node-0
+ 1364211261 drwxrwx---+  2 sood bbp 4.0K May 20 11:08 compute-node-1
+ 1364211262 drwxrwx---+  2 sood bbp 4.0K May 20 11:08 compute-node-2
+ 1364211263 drwxrwx---+  2 sood bbp 4.0K May 20 11:08 compute-node-3
+ 1364211264 drwxrwx---+  2 sood bbp 4.0K May 20 11:08 compute-node-4
+ 1364211268 drwxrwx---+  2 sood bbp 4.0K May 20 11:08 compute-node-5
+ 1364211272 drwxrwx---+  2 sood bbp 4.0K May 20 11:08 compute-node-6
+ 1364211276 drwxrwx---+  2 sood bbp 4.0K May 20 11:08 compute-node-7
+ 1364211280 drwxrwx---+  2 sood bbp 4.0K May 20 11:08 compute-node-8
+ 1364211284 drwxrwx---+  2 sood bbp 4.0K May 20 11:08 compute-node-9
+ 1364211260 -rwxrw----+  1 sood bbp 3.6K May 20 11:04 launchscript.sh
+
+ #+end_src
+
+ The next step will be to queue the computations in Slurm. For this we use the master launch script.
+ We should run launch the computations in a different terminal than the one allocated on Slurm.
+
+ #+begin_src shell
+ cd run/analyze_connectivity/simplex-counts/njobs-<count>
+ chmod u+x launchscript.sh
+ ./launchscript.sh
+ #+end_src
+
+ We can track the progress of the computations,
+
+ #+begin_src shell
+
+ tail -f computate-node-<index> / simplex-counts.err
+
+ #+end_src
+
+ Once all the runs have finished, we need to test if things went OK.
+ If the pipeline results are satisfactory, we need to collect the results of each compute node into a
+ single TAP-HDFstore --- the one that was specified in the config. We should do the collection of
+ results in a Slurm allocation, and in the workspace directory.
+
+ #+begin_src shell
+
+ tap --configure=config.json --parallelize=parallel.json collect analyze-connectivity simplex-counts
+
+ #+end_src
+
+* TODO: Checking the pipeline results
