@@ -155,12 +155,12 @@ def configure_launch_multi(number, computation, using_subtargets, control, at_wo
     Arguments
     -----------
     number :: of compute nodes to run on
-    quantity :: analysis to run
+    computation :: analysis to run
     using_subtargets :: TOC of subtargets to compute
     control :: A JSON config to use to load a control, Use None when ther eis not control.
     at_workspace :: directory to use for input and output
     """
-    LOG.info("Configure a %s multinode launch to analyze %s of %s subtargets working  %s",
+    LOG.info("Configure a %s multinode launch to analyze %s of %s subtargets working in %s",
              number, computation.name, len(using_subtargets), at_workspace)
 
     basedir, to_run_in = at_workspace
@@ -182,6 +182,9 @@ def configure_launch_multi(number, computation, using_subtargets, control, at_wo
         TODO: Abstract out how out the layout of the base-rundir.
         ~     Or provide a path of an executable to run single node analysis explicitly.
         """
+        LOG.info("Configure chunk %s for %s subtargets in a multi-launch for computation %s",
+                 c, len(subtargets), computation.name)
+
         rundir = to_run_in / f"compute-node-{c}"
         rundir.mkdir(parents=False, exist_ok=True)
 
@@ -241,7 +244,7 @@ def get_algorithms(subtargets):
     return get_index(subtargets).algorithm.unique()
 
 
-def find_base(rundir, max_expected_depth=5):
+def find_base(rundir, max_expected_depth=6):
     """...
     Computations are staged hierarchically under a root dir.
     This method will find where the root is from a directory under it.
@@ -328,13 +331,14 @@ def parallely_analyze(quantity, subtargets, neuron_properties, action=None, in_m
 
     def analyze_controlled(an, algorithm):
         """..."""
+        LOG.info("Setup analysis of control algorihm %s: %s", an, algorithm)
         to_run = rundirs[an]
-        assert to_run.exists, f"check basedir for not created rundir {to_run}"
+        assert to_run.exists(), f"check basedir for not created rundir {to_run}"
 
         #base = to_run.parent.parent.parent.parent.parent
         base = find_base(to_run)
         LOG.info("Checked rundir %s for control algorithm %s \n\t with base %s",
-                 rundirs, algorithm, base)
+                 to_run, algorithm, base)
 
         q = quantity.name
         compute_nodes, njobs = read_njobs(to_parallelize, for_quantity=q)
@@ -600,19 +604,23 @@ def load_balance_batches(toc, njobs, for_control=None,  by=None):
 
 def read_njobs(to_parallelize, for_quantity):
     """..."""
-    if not to_parallelize:
-        return (1, 1)
+    LOG.info("Compute njobs to parallelize for %s using config:\n%s", for_quantity, to_parallelize)
 
+    if not to_parallelize:
+        LOG.info("No configuration to parallelize, so njobs = (1,1)")
+        return (1, 1)
     try:
         q = for_quantity.name
     except AttributeError:
         q = for_quantity
 
     if q not in to_parallelize:
+        LOG.info("No %s not in parallelization config, so njobs = (1,1)", q)
         return (1, 1)
 
     p = to_parallelize[q]
     n = p["number-compute-nodes"]; t = p["number-tasks-per-node"]
+    LOG.info("For %s njobs = (%s, %s)", q, n, n*t)
     return (n, n * t)
 
 

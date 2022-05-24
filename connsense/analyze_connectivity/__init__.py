@@ -55,7 +55,7 @@ def write(analysis, data, to_path):
 
 def output_specified_in(configured_paths, and_argued_to_be):
     """..."""
-    steps = configured_paths["output"]["steps"]
+    steps = configured_paths["steps"]
     to_hdf_at_path, under_group = steps.get(STEP, default_hdf(STEP))
 
     if and_argued_to_be:
@@ -585,11 +585,12 @@ def collect(config, in_mode, parallelize, substep=None, controls=None, output=No
 
     rundir = workspace.get_rundir(config, mode=in_mode, **kwargs)
     basedir = workspace.locate_base(rundir, STEP)
-    batched_results = load_batched_results(analyses, controls, to_parallelize, (basedir, hdf_group))
+    to_save = (basedir, hdf_group)
+    batched_results = load_batched_results(analyses, controls, to_parallelize["analyses"], to_save)
 
     LOG.info("Loaded results : \n%s ", pformat(batched_results))
 
-    output = output_specified_in(paths, and_argued_to_be=output)
+    output = output_specified_in(output_paths, and_argued_to_be=output)
     saved = save_output(batched_results, to_path=output)
 
     collected = {a.name: len(s) for a, s in saved.items()}
