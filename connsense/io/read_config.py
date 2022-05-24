@@ -42,7 +42,12 @@ def adjust_root(in_a_dict_paths):
 def read(fn, raw=False):
     """Read JSON format config, converting a relative path specification to absolute.
     """
-    with open(fn, "r") as fid:
+    try:
+        path = Path(fn)
+    except TypeError as terror:
+        raise TypeError(f"Unexpected type of config file reference{type(fn)}.") from terror
+
+    with open(path, "r") as fid:
         cfg = json.load(fid)
 
     assert "paths" in cfg,\
@@ -111,3 +116,31 @@ def write(config, to_json):
     with open(to_json, 'w') as to_file:
         to_file.write(json.dumps(serialize_json(config)))
     return to_json
+
+
+def check_paths(in_config, step):
+    """
+    in_config :: A Mapping read from a JSON config file, by the `read` method above.
+    """
+    p = in_config["paths"]
+    input = p["input"]; output = p["output"]
+
+    if "circuit" not in p:
+        raise RuntimeError("No circuits defined in config!")
+
+    if "define-subtargets" not in input["steps"]:
+        raise RuntimeError("No defined columns in config!")
+
+    if "extract-neurons" not in input["steps"]:
+        raise RuntimeError("No neurons in config!")
+
+    if "extract-connectivity" not in input["steps"]:
+        raise RuntimeError("No connection matrices in config!")
+
+    if "randomize-connectivity" not in input["steps"]:
+        raise RuntimeError("No randomized matrices in config paths: {list(paths.keys()}!")
+
+    if step not in output["steps"]:
+        raise RuntimeError(f"No {step} in config output!")
+
+    return (input, output)

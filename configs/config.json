@@ -60,10 +60,58 @@
           "Any common parameters may be provided here."
         ]
       },
-      "grids": {
+      "definitions": {
+        "COMMENT": [
+          "We can provide definitions to generate groups of subtargets.",
+          "Currently, the subtargets are defined in a 2D grid of the circuit's flatspace.",
+          "But nothing stops us from defining the subtargets to be named targets in the cells",
+          "that were grouped together because they occupied a common location in the circuit.",
+          "Thus if we had listed circuit's (sub-)regions, we would get those as TAP subtargets.",
+          "Here we list the central-columns for the SSCx, uniformly sized circuilar columns",
+          "and centrally located in each of the SSCx's eight (sub-)regions."
+        ]
         "hexgrid": {
           "radius": 230.0,
           "base_target": "Mosaic"
+        },
+        "central_columns": {
+          "COMMENT": [
+            "Provide a list of subtargets, each a mapping."
+          ],
+          "subtargets": {
+            "S1DZO_Column": {
+              "cells": "S1DZO_Column",
+              "voxels": "central_columns/S1DZO_Column"
+            },
+            "S1DZ_Column": {
+              "cells": "S1DZ_Column",
+              "voxels": "central_columns/S1DZ_Column"
+            },
+            "S1FL_Column": {
+              "cells": "S1FL_Column",
+              "voxels": "central_columns/S1FL_Column"
+            },
+            "S1HL_Column": {
+              "cells": "S1HL_Column",
+              "voxels": "central_columns/S1HL_Column"
+            },
+            "S1J_Column": {
+              "cells": "S1J_Column",
+              "voxels": "central_columns/S1J_Column"
+            },
+            "S1Sh_Column": {
+              "cells": "S1Sh_Column",
+              "voxels": "central_columns/S1Sh_Column"
+            },
+            "S1Tr_Column": {
+              "cells": "S1Tr_Column",
+              "voxels": "central_columns/S1Tr_Column"
+            },
+            "S1ULp_Column": {
+              "cells": "S1ULp_Column",
+              "voxels": "central_columns/S1ULp_Column"
+            }
+          },
         }
       }
     },

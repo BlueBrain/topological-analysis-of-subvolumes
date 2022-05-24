@@ -121,13 +121,12 @@ class SubtargetsConfig:
         return {c: resolve_between(circuit, flatmap.get(c, None))
                 for c, circuit in self.input_circuit.items()}
 
-
     @lazy
     def parameters(self):
         """..."""
         return self._config.get("parameters", {}).get(self._label, {})
 
-    def define_subtarget(self, grid, using_spec):
+    def define_subtarget(self, group, using_spec):
         """Define a group of subtarget.
         Our main example is that of a grid of depth-wise columnar subtargets of
         a neocortical circuit , with the grid covering a 2D flatmap.
@@ -138,8 +137,11 @@ class SubtargetsConfig:
         A use-case separate from the cortical flapmap hexgrid, might be a set of
         columns defined for the Hippocampus CA1 circuit.
         """
-        if grid == "hexgrid":
+        if group == "hexgrid":
             return Hexgrid(self, using_spec)
+
+        if group == "central_columns":
+            return CentralColumns(self, using_spec)
 
         raise NotImplementedError(f"Definition {group} of subtargets.")
 
@@ -232,3 +234,26 @@ class Hexgrid:
                               "gids": group["gid"].to_list()})
 
         return subtargets[variables].groupby(index_vars).apply("enlist").gids
+
+
+class CentralColumns:
+    """Define central-columns as circuit subtargets to run TAP on.
+    """
+    def __init__(self, config, spec):
+        """..."""
+        self._config = spec
+        subtarget_items = spec["subtargets"].items()
+        self._descriptions = {subtarget: description for subtarget, description in  subtarget_items
+                              if subtarget != "COMMENT" and isinstance(description, Mapping)}
+
+    def describe_subtarget(self, s):
+        """..."""
+        return self._descriptions[s]
+
+    def describe_cells(self, subtarget):
+        """..."""
+        return self._descriptions[subtarget]["cells"]
+
+    def describe_voxels(self, subtarget):
+        """..."""
+        return self._descriptions[subtarget]["voxels"]

@@ -18,7 +18,7 @@ from ..io.write_results import (read as read_results,
 
 from ..io.slurm import SlurmConfig
 from ..io import read_config, logging
-from ..analyze_connectivity import (default_hdf, read, _check_paths,
+from ..analyze_connectivity import (default_hdf, read, check_paths,
                                     load_neurons, load_adjacencies)
 from ..analyze_connectivity.randomize import read_random_controls, RandomControls
 from ..analyze_connectivity.analyze import (check_basedir, find_base,
@@ -104,7 +104,7 @@ def run(config, action, substep=None, in_mode=None, parallelize=None,
         "Missing argument `substep`: TAP can run only one control's randomization at a time, not all"
 
     config = read(config)
-    input_paths, output_paths = _check_paths(config)
+    input_paths, output_paths = check_paths(config, STEP)
 
     LOG.warning("%s randomize connectivity using control %s using config:\n%s",
                 action, substep, config)
@@ -163,7 +163,7 @@ def collect(config, in_mode, parallelize, substep, **kwargs):
     control = read_random_controls(argued=substep, in_config=config)
     parallelization = read_parallelization(parallelize)
 
-    _, output_paths = _check_paths(config)
+    _, output_paths = check_paths(config, STEP)
 
     rundir = workspace.get_rundir(config, mode=in_mode)
     basedir = workspace.locate_base(rundir, STEP, create=True)

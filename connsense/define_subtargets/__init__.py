@@ -14,8 +14,10 @@ from flatmap_utility import subtargets as flatmap_subtargets
 from flatmap_utility.tessellate import TriTille
 
 from .config import SubtargetsConfig
+from ..pipeline import workspace
 from ..io.write_results import write
-from ..io import logging
+from ..io import read_config, logging
+from ..io.read_config import check_paths
 
 XYZ = [Cell.X, Cell.Y, Cell.Z]
 
@@ -149,12 +151,17 @@ def generate_hexgrid(radius, label, circuit, flatmap):
     return subtargets
 
 
-def generate_grid(g, label, circuit, flatmap, parameters):
-    """..."""
+def generate_central_columns(from_descriptions, circuit, atlas):
+    """Generate the ...."""
+
+def generate_group(g, label, circuit, flatmap, parameters):
+    """Generate a group of subtargets.
+    """
     if g != "hexgrid":
         raise NotImplementedError(f"Subtargets defined as {g}")
 
     return generate_hexgrid(parameters.target_radius, label, circuit, flatmap)
+
 
 
 def define(config, sample=None, fmt=None):
@@ -204,9 +211,54 @@ def define(config, sample=None, fmt=None):
     return subtargets_gids
 
 
-def run(config, in_mode=None, parallelize=None, *args,
+def read(config):
+    """..."""
+    try:
+        config = read_config.read(config)
+    except TypeError:
+        assert isinstance(config, Mapping)
+    return config
+
+
+def run(config, action, substep=None, in_mode=None, parallelize=None,
+        output=None, batch=None, sample=None, tap=None, **kwargs):
+    """Run the definition(s) of subtargets.
+    We will implement multiple definitions, just like analyze-connectivity...
+    The definition can be passed as the substep.
+
+    substep :: The definition to run, default behavior is to define the hexgrid,
+    ~          already available here.
+    parallelize :: The parallelization config (or path to JSON),
+    ~              that should list a specification for the required definition
+    batch :: A batch of sub-computations --- TODO how can a definition be subcomputed?
+    ~        For analye-connecivity we have parallelized subtargets.
+    ~        Here we are defining them?
+    ~        We could parallelize the hex-grid pixels.
+    ~        Maybe we are already doing that!
+    ~        Let us find out by refactoring.
+    sample :: Sample the hex-grid.
+    tap :: The TAP-HDFStore
+    kwargs :: keyword arguments that will be dropped --- but may make sense to another step
+    ~        These are passed by the pipeline run interface...
+    """
+    LOG.warning("Define a %s inside the circuit %s", definition, input_paths)
+
+    subtargets_config = SubtargetsConfig(config)
+
+    in_rundir = workspace.get_rundir(config, mode=in_mode, **kwargs)
+    to_define_subtargets_in = workspace.locate_base(in_rundir, for_step=STEP)
+
+
+    raise NotImplementedError
+
+def run_0(config, in_mode=None, parallelize=None, *args,
         output=None, sample=None, dry_run=None, **kwargs):
     """Run generation of subtargets based on a TAP config.
+    TODO Deprecate this
+    Post beta release with analyze connectivity downstream working,
+    we have come back to define subtargets (with an urgency).
+    The run method will be made to confirm with that implemented for
+    analyze-connectivity run
 
     TODO
     ----------

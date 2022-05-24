@@ -96,7 +96,7 @@ def lazy_random(control, among_neurons, pipeline_store=None):
     return apply_to_batch
 
 
-def apply_control(in_file, to_toc, among_neurons, using_batches, using_cache):
+def apply_control_0(in_file, to_toc, among_neurons, using_batches, using_cache):
     """..."""
     to_batched = pd.concat([to_toc, using_batches], axis=1)
 
@@ -153,7 +153,6 @@ def get_parser():
     parser.set_defaults(test=False)
 
     return parser
-
 
 def apply_control(algorithm, to_toc, among_neurons, using_batches, using_cache):
     """Adapted from run_analysis"""

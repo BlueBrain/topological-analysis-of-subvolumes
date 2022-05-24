@@ -20,9 +20,8 @@ from ..io.write_results import (read as read_results,
                                 write_toc_plus_payload,
                                 default_hdf)
 
-from ..io import read_config
-from ..io import logging
-
+from ..io import read_config, logging
+from ..io.read_config import check_paths
 from .analysis import SingleMethodAnalysisFromSource
 from .analyze import BATCHED_SUBTARGETS, parallely_analyze
 from .import matrices
@@ -277,31 +276,6 @@ def get_value_store(analysis, at_path, from_cache=None, in_mode='a'):
     return store
 
 
-def _check_paths(in_config):
-    """..."""
-    p = in_config["paths"]
-
-    if "circuit" not in p:
-        raise RuntimeError("No circuits defined in config!")
-
-    if "define-subtargets" not in p["input"]["steps"]:
-        raise RuntimeError("No defined columns in config!")
-
-    if "extract-neurons" not in p["input"]["steps"]:
-        raise RuntimeError("No neurons in config!")
-
-    if "extract-connectivity" not in p["input"]["steps"]:
-        raise RuntimeError("No connection matrices in config!")
-
-    if "randomize-connectivity" not in p["input"]["steps"]:
-        raise RuntimeError("No randomized matrices in config paths: {list(paths.keys()}!")
-
-    if STEP not in p["output"]["steps"]:
-        raise RuntimeError(f"No {STEP} in config output!")
-
-    return (p["input"], p["output"])
-
-
 def load_neurons(paths, dry_run=False):
     """..."""
     hdf, group = paths["steps"]["extract-neurons"]
@@ -507,6 +481,11 @@ def read_parallelization(config):
     return step
 
 
+def _check_paths(config):
+    """To be removed, here for some code that uses ...
+    """
+    return check_paths(config, STEP)
+
 def run(config, action, substep=None, controls=None, in_mode=None, parallelize=None,
         output=None, batch=None, sample=None, tap=None, dry_run=None, **kwargs):
     """..."""
@@ -516,7 +495,7 @@ def run(config, action, substep=None, controls=None, in_mode=None, parallelize=N
         "Missing argument `substep`: TAP can run only one argued analysis, not all at once!"
 
     config = read(config)
-    input_paths, output_paths = _check_paths(config)
+    input_paths, output_paths = check_paths(config, STEP)
 
     LOG.warning("%s analyze connectivity %s using config:\n%s", action.capitalize(), substep, config)
 
@@ -575,7 +554,7 @@ def collect(config, in_mode, parallelize, substep=None, controls=None, output=No
         LOG.info("Collect batched results of analyses of subtargets for controls: \n %s",
                  pformat(controls))
 
-    _, output_paths = _check_paths(config)
+    _, output_paths = check_paths(config, STEP)
     to_parallelize = parallelize.get(STEP, {}) if parallelize else None
 
     _, hdf_group = output_paths["steps"].get(STEP, default_hdf(STEP))
