@@ -115,14 +115,12 @@ def fmap_positions(in_data, over_flatmap_voxels=None, with_orientations=None,
 
     def flattening(circuit):
         """..."""
-        C = circuit
-        F = get_voxel_flatmap(in_data, over_flatmap_voxels)
-        O = get_voxel_orientations(in_data, with_orientations)
-        asxy = {"flat x": "x", "flat y": "y"}
-        return flatten(C, F, O).rename(columns=asxy)
+        return (flatten(circuit,
+                        get_voxel_flatmap(circuit, over_flatmap_voxels),
+                        get_voxel_orientations(circuit, with_orientations))
+                .rename(columns={"flat x": "x", "flat y": y}))
 
-    flat_xy = cache_evaluation_of(flattening,
-                                  on_circuit=in_data, as_attribute="fmap")
+    flat_xy = cache_evaluation_of(flattening, on_circuit=in_data, as_attribute="fmap")
     return flat_xy.dropna() if dropna else flat_xy
 
 

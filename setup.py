@@ -8,7 +8,7 @@ if sys.version_info < (3, 6):
 setup(name="Topological Characterization",
       version="0.0.1",
       author="BBP",
-      packages=["connsense"],#find_packages(),
+      packages=find_packages(),
       entry_points = {"console_scripts": ["tap-environemnt=connsense.apps.tap_environment:main",
                                           "tap=connsense.apps.topological_analysis:main",
                                           "tap-analysis=connsense.apps.run_analysis:main",
