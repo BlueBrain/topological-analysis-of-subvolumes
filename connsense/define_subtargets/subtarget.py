@@ -11,7 +11,7 @@ from bluepy import Circuit
 from bluepy.exceptions import BluePyError
 from voxcell.voxel_data import VoxelData
 
-from ..io import logging
+from ..io import logging, read_config
 LOG = logging.get_logger("define-subtargets")
 
 
@@ -19,23 +19,24 @@ class Subtargets:
     """Define and load subtargets in a circuit's flatmap."""
 
     @staticmethod
-    def read_json(path, reader):
+    def read_json(path):
         """..."""
         try:
             path = Path(path)
         except TypeError:
-            return path
-
-        config = reader.read(path)
+            assert isinstance(path, Mapping)
+            config = path
+        else:
+            config = read_config.read(path)
         return config
 
-    def __init__(self, config, label=None, reader=None):
+    def __init__(self, config, label=None):
         """
         config : Mapping or path to a JSON file that contains one.
         label  : Label for the subtargets (sub)-section in the config.
         """
 
-        config = self.read_json(config, reader)
+        config = self.read_json(config)
         assert isinstance(config, Mapping)
 
         self._config = config
@@ -105,10 +106,10 @@ class Subtargets:
             """..."""
             if flatmap_nrrd:
                 return VoxelData.load_nrrd(flatmap_nrrd)
-            circuit = self.input_circuit[label]
+            circuit = self.input_circuit[self._config_label]
             return circuit.atlas.load_data("flatmap")
 
-        return {c: self.resolve_between(circuit, flatmap.get(c, None))
+        return {c: resolve_between(circuit, flatmap.get(c, None))
                 for c, circuit in self.input_circuit.items()}
 
     @lazy
@@ -142,7 +143,14 @@ class Subtargets:
     @lazy
     def parameters(self):
         """..."""
-        return self._config.get("parameters", {}).get(self._label, {})
+        all_params = self._config["parameters"]
+        return all_params["define-subtargets"]
+
+    @lazy
+    def definitions(self):
+        """Parameters for the configured definitions.
+        """
+        return self.parameters["definitions"]
 
     @lazy
     def tolerance(self):

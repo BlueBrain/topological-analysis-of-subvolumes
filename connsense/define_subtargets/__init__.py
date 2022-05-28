@@ -138,7 +138,7 @@ def name_subtarget(hexbin):
     """
 
 
-def generate_hexgrid(radius, label, circuit, flatmap):
+def generate_hexgrid_0(radius, label, circuit, flatmap):
     """TODO: subset to the configured base target.
     """
     LOG.info("GENERATE subtargets for circuit %s", label)
@@ -164,7 +164,7 @@ def generate_group(g, label, circuit, flatmap, parameters):
 
 
 
-def define(config, sample=None, fmt=None):
+def define_0(config, sample=None, fmt=None):
     """Define configured subtargets.
     Arguments
     ----------
@@ -189,9 +189,9 @@ def define(config, sample=None, fmt=None):
         """
         args = (label, circuit, flatmap)
         defined = config.definitions.items()
-        subtargets = pd.concat([generate_grid(g, *args, using_parameters=p) for g, p in defined],
+        subtargets = pd.concat([generate_hexgrid_0(g, *args, using_parameters=p) for g, p in defined],
                                axis=0, keys=[grid for grid,_ in defined], names=["grid"])
-        subtargets = {g: generate_grid(g, *args, using_parameters=p) for g, p in defined}
+        subtargets = {g: generate_hexgrid_0(g, *args, using_parameters=p) for g, p in defined}
         return subtargets
 
     subtargets = pd.concat([generate(*args) for args in config.argue()])
@@ -220,6 +220,91 @@ def read(config):
     return config
 
 
+def parameterize_hexgrid(subtargets_config):
+    """..."""
+    return {key: value for key, value in subtargets_config.definitions["hexgrid"]
+            if key != "COMMENT"}
+
+
+def generate_hexgrid(subtargets_config, fmt):
+    """..."""
+    parameters = parameterize_hexgrid(subtargets_config)
+
+    def generate(label, circuit, flatmap):
+        """..."""
+        subtargets = (flatmap_subtargets.generate(circuit, flatmap, **parameters)
+                      .assign(circuit=label)
+                      .rename(columns={"grid_x": "flat_x", "grid_y": "flat_y"}))
+        LOG.info("Defined %s hexgrid-subtargets for circuit %s", len(subtargets), label)
+        return subtargets
+
+    configured = subtargets_config.argue()
+    subtargets = pd.concat([generate(label=l, circuit=c, flatmap=f) for l, c, f in configured])
+
+    if fmt == "long":
+        return subtargets
+
+    def enlist(group):
+        """..."""
+        gids = pd.Series([group["gid"].values], index=["gids"])
+        return group[["flat_x", "flat_y"]].mean(axis=0).append(gids)
+
+    columns = ["circuit", "gid", "flat_x", "flat_y"]
+    index_vars = ["circuit", "grid", "subtarget", "flat_x", "flat_y"]
+    subtargets_gids = subtargets[columns].groupby(index_vars).apply(enlist).gids
+    LOG.info("DONE %s subtargets for all circuits.", subtargets_gids.shape[0])
+    return subtargets_gids
+
+
+def parameterize_predefined(subtargets_config):
+    """..."""
+    return {key: value for key, value in subtargets_config.definitions["predefined"]
+            if key != "COMMENT"}
+
+def get_predefined_groups(subtargets_config):
+    """..."""
+    configured = subtargets_config.definitions["predefined"]["groups"]
+    return {key: value for key, value in configured.items() if key != "COMMENT"}
+
+def generate_predefined(subtargets_config, fmt):
+    """..."""
+    assert fmt == "wide"
+    circuits = subtargets_config.input_circuit.items()
+    subtargets_group = get_predefined_groups(subtargets_config)
+    LOG.info("Generate for %s circuits predefined subtarget groups: \n%s",
+             len(circuits), subtargets_group.keys())
+
+    def generate_group(g, subtargets):
+        """..."""
+        subtargets = pd.Index(subtargets, name="subtarget")
+
+        def in_circuit(c, labeled):
+            """..."""
+            cells = c.cells
+            return pd.Series([cells.ids(s) for s in subtargets], name="gids", index=subtargets)
+
+        return pd.concat([in_circuit(c, labeled=l) for l, c in circuits], axis=0,
+                         keys=[l for l, _ in circuits], names=["circuit"])
+
+    return pd.concat([generate_group(g, subtargets=ss) for g, ss in subtargets_group.items()])
+
+def define(subtarget_type, using_config, fmt=None):
+    """..."""
+    fmt = fmt or "wide"
+    assert fmt in ("wide", "long"), f"Unknown format {fmt}"
+
+    subtargets_config = SubtargetsConfig(using_config)
+    if subtarget_type == "hexgrid":
+        subtargets = generate_hexgrid(subtargets_config, fmt)
+    elif subtarget_type == "predefined":
+        subtargets = generate_predefined(subtargets_config, fmt)
+    else:
+        raise ValueError(f"Unknown subtarget type {subtarget_type}")
+
+    return subtargets
+    return format_wide(subtargets) if fmt=="wide" else subtargets
+
+
 def run(config, action, substep=None, in_mode=None, parallelize=None,
         output=None, batch=None, sample=None, tap=None, **kwargs):
     """Run the definition(s) of subtargets.
@@ -241,15 +326,21 @@ def run(config, action, substep=None, in_mode=None, parallelize=None,
     kwargs :: keyword arguments that will be dropped --- but may make sense to another step
     ~        These are passed by the pipeline run interface...
     """
-    LOG.warning("Define a %s inside the circuit %s", definition, input_paths)
+    LOG.warning("Define %s subtargets inside the circuit %s", definition, input_paths)
 
-    subtargets_config = SubtargetsConfig(config)
+    config = read_config.read(config)
 
     in_rundir = workspace.get_rundir(config, mode=in_mode, **kwargs)
     to_define_subtargets_in = workspace.locate_base(in_rundir, for_step=STEP)
 
+    _= define(config, sample=sample, fmt="wide")
 
-    raise NotImplementedError
+    subtargets = define(subtarget_type=substep, using_config=config, fmt="wide")
+
+    LOG.info("Defined %s %s-subtargets.", len(subtargets), substep)
+    output = write(subtargets, to_path=(config.paths["pipeline"]["root"], STEP))
+    LOG.warning("DONE: define_subtargets %s %s in mode %s", action, substep, in_mode)
+    return output
 
 def run_0(config, in_mode=None, parallelize=None, *args,
         output=None, sample=None, dry_run=None, **kwargs):

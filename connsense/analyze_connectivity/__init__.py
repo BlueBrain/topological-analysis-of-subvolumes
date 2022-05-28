@@ -486,6 +486,7 @@ def _check_paths(config):
     """
     return check_paths(config, STEP)
 
+
 def run(config, action, substep=None, controls=None, in_mode=None, parallelize=None,
         output=None, batch=None, sample=None, tap=None, dry_run=None, **kwargs):
     """..."""

@@ -506,10 +506,11 @@ class TriTille:
         hexmap = self.bin_hexagonally(xys, use_columns_row_indexing=False)
         grid = self.locate_grid(hexmap)
         annotation = self.annotate(grid, using_column_row=True)
-        annotated = (grid.assign(subtarget=annotation.loc[grid.index])
-                     .rename(columns={"x": "grid_x", "y": "grid_y"}))
-        return (hexmap.reset_index().set_index(["i", "j"])
-                .join(annotated).reset_index().set_index("subtarget"))
+
+        grid_xy = {"x": "grid_x", "y": "grid_y"}
+        annotated = grid.assign(subtarget=annotation.loc[grid.index]).rename(columns=grid_xy)
+        return (hexmap.reset_index().set_index(["i", "j"]).join(annotated)
+                .reset_index().set_index("subtarget"))
 
     def plot_hextiles(self, positions, bins=None, graphic=None,
                       annotate=True, with_grid=True,
