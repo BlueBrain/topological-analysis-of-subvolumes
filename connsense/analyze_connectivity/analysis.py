@@ -178,22 +178,26 @@ class SingleMethodAnalysisFromSource:
               log_info=None, **kwargs):
         """Use keyword arguments to test interactively, instead of reloading a config.
         """
-        matrix = adjacency.matrix
+        LOG.info("Apply analysis %s to (%s) %s-type matrix, and %s-type nodes with kwargs: \n%s",
+                 self.name, log_info or "", type(adjacency), type(node_properties), pformat(self._kwargs))
+
+        #matrix = adjacency.matrix
         try:
             matrix = adjacency.matrix
         except AttributeError as err:
             LOG.error("Could not get adjacency matrix: %s", err)
             matrix = adjacency
 
-        if log_info:
-            LOG.info("Apply analysis %s %s\t\t of shape %s",
-                     self.name, log_info, matrix.shape)
+        LOG.info("Apply analysis %s to (%s) %s-shaped matrix, and %s nodes with kwargs: \n%s",
+                 self.name, log_info or "", matrix.shape,
+                 len(node_properties) if node_properties is not None else 0,
+                 pformat(self._kwargs))
 
         if node_properties is not None:
             assert node_properties.shape[0] == matrix.shape[0]
 
         input_analyses = self._input_analyses(tap, subtarget) if tap else {}
-        LOG.info("input analysis to subtarget %s: \n%s", subtarget, pformat(input_analyses))
+        LOG.info("Input analyses to subtarget \n%s: \n%s", subtarget, pformat(input_analyses or "None"))
         try:
             result = self._analysis(matrix, node_properties, *self._args,
                                     **input_analyses, **self._kwargs, **kwargs)
@@ -203,9 +207,7 @@ class SingleMethodAnalysisFromSource:
                       "RuntimeError caught %s.", self.name, matrix.shape, called_by, runt)
             return None
 
-        if log_info:
-            LOG.info("Done analysis %s of adjacency matrix of shape %s from %s",
-                     self.name, matrix.shape, log_info)
+        LOG.info("Done analysis %s of %s adjacency (%s)", self.name, matrix.shape, log_info or "...")
 
         return result
 
