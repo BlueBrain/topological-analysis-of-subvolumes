@@ -73,7 +73,6 @@ def cache_evaluation_of(method, on_circuit, as_attribute=None):
     except AttributeError:
         value = method(on_circuit)
         setattr(on_circuit, name, value)
-
     return value
 
 
@@ -118,7 +117,7 @@ def fmap_positions(in_data, over_flatmap_voxels=None, with_orientations=None,
         return (flatten(circuit,
                         get_voxel_flatmap(circuit, over_flatmap_voxels),
                         get_voxel_orientations(circuit, with_orientations))
-                .rename(columns={"flat x": "x", "flat y": y}))
+                .rename(columns={"flat x": "x", "flat y": "y"}))
 
     flat_xy = cache_evaluation_of(flattening, on_circuit=in_data, as_attribute="fmap")
     return flat_xy.dropna() if dropna else flat_xy
@@ -128,13 +127,10 @@ def generate(circuit, flatmap_voxels, side, origin=None, angle=None):
     """Generate flatmap subtargets using a grid of hexagons of given side
     for given circuit, and flatmap voxel-data.
     """
-    flatmap = (circuit.atlas.load_data("flatmap") if flatmap_voxels is None
-               else flatmap_voxels)
+    flatmap = circuit.atlas.load_data("flatmap") if flatmap_voxels is None else flatmap_voxels
     orientations = circuit.atlas.load_data("orientation")
-
-    tritille = TriTille(side, origin, angle)
-
     flat_positions = fmap_positions(circuit, flatmap, orientations)
-    return (tritille.distribute(flat_positions).reset_index()
-            .merge(flat_positions.reset_index(), on="gid")
-            .set_index("subtarget"))
+
+    return (TriTille(side, origin, angle)
+            .distribute(flat_positions).reset_index()
+            .merge(flat_positions.reset_index(), on="gid").set_index("subtarget"))

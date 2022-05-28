@@ -8,6 +8,8 @@ import pandas
 from collections import OrderedDict
 from scipy.spatial.transform import Rotation
 
+from bluepy import Circuit, Cell
+
 
 def _flatmap_extent(fm, subsample=None):
     mx = fm.raw.max(axis=(0, 1, 2))
@@ -98,6 +100,29 @@ def flat_coordinate_frame(coordinates3d, fm, grouped=False):
     if grouped:
         return coord_frame.groupby(["f_x", "f_y"]).apply(lambda x: x.values)
     return coord_frame
+
+
+
+def index_flat_coordinate(xyzs_frame, flatmap):
+    """..."""
+    return flat_coordinate_frame(xyzs_frame, flatmap)
+
+def map_flat_space_positions(circuit_space_positions, using_flatmap, grouped=False):
+    """.."""
+    if isinstance(circuit_space_positions, Circuit):
+        circuit = circuit_space_positions
+        xyzs = circuit.cells.get(properties=[Cell.X, Cell.Y, Cell.Z])
+    else:
+        assert isinstance(circuit_space_positions, pandas.DataFrame)
+        xyzs = circuit_space_positions
+
+    indexed = flat_coordinate_frame(xyzs.values, using_flatmap)
+    indexed["gid"] = xyzs.index.values
+    if grouped:
+        A = indexed[["x", "y", "z"]].groupby(["f_x", "f_y"]).apply(lambda x: x.values)
+        B = indexed["gid"].groupby(["f_x", "f_y"]).apply(lambda x: x.values)
+        return A, B
+    return indexed
 
 
 def neuron_flat_coordinate_frame(circ, fm, grouped=False):
@@ -281,13 +306,17 @@ def supersample_flatmap(fm, orient, pixel_sz=34.0, include_depth=False):
 
 
 def supersampled_neuron_locations(circ, fm, orient, pixel_sz=34.0, include_depth=False):
+    """
+    circ : Bluepy Circuit, or a pandas.DataFrame containing columns `x, y,z`
+    """
     to_system = "subpixel"
     out_columns = ["flat x", "flat y"]
     if include_depth:
         to_system = "subpixel_depth"
         out_columns = ["flat x", "depth", "flat y"]
 
-    nrn_loc_frame, nrn_gid_frame = neuron_flat_coordinate_frame(circ, fm, grouped=True)
+    #nrn_loc_frame, nrn_gid_frame = neuron_flat_coordinate_frame(circ, fm, grouped=True)
+    nrn_loc_frame, nrn_gid_frame = map_flat_space_positions(circ, fm, grouped=True)
     tf = per_pixel_coordinate_transformation(fm, orient, to_system=to_system)
     idxx = nrn_loc_frame.index.intersection(tf.index)
 
@@ -304,7 +333,7 @@ def supersampled_neuron_locations(circ, fm, orient, pixel_sz=34.0, include_depth
     out = pandas.DataFrame(final_frame,
                            columns=out_columns,
                            index=pandas.Index(numpy.hstack(nrn_gid_frame[idxx].values), name="gid"))
-    return out
+    return out.sort_index()
 
 
 def flat_coordinates_of_regions(names_regions, fm, *args, make_unique=False, subsample=None):
