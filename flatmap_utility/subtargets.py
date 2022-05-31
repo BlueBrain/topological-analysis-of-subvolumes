@@ -123,7 +123,7 @@ def fmap_positions(in_data, over_flatmap_voxels=None, with_orientations=None,
     return flat_xy.dropna() if dropna else flat_xy
 
 
-def generate(circuit, flatmap_voxels, side, origin=None, angle=None):
+def generate(circuit, flatmap_voxels, *, side, origin=None, angle=None, base_target=None):
     """Generate flatmap subtargets using a grid of hexagons of given side
     for given circuit, and flatmap voxel-data.
     """

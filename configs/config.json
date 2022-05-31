@@ -28,7 +28,7 @@
         "Provide the HDF stores for input (i.e output by previous TAP steps), and an ouput pipeline data",
         "The paths should be entered with a directory as root and the name of the HDF5 file as store."
       ],
-      "root": "/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/degree-dd2",
+      "root": "/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/simplex-counts",
       "steps": {
         "COMMENTS": [
           "These are the pipeline steps that can be configured.",
@@ -60,58 +60,10 @@
           "Any common parameters may be provided here."
         ]
       },
-      "definitions": {
-        "COMMENT": [
-          "We can provide definitions to generate groups of subtargets.",
-          "Currently, the subtargets are defined in a 2D grid of the circuit's flatspace.",
-          "But nothing stops us from defining the subtargets to be named targets in the cells",
-          "that were grouped together because they occupied a common location in the circuit.",
-          "Thus if we had listed circuit's (sub-)regions, we would get those as TAP subtargets.",
-          "Here we list the central-columns for the SSCx, uniformly sized circuilar columns",
-          "and centrally located in each of the SSCx's eight (sub-)regions."
-        ]
+      "grids": {
         "hexgrid": {
           "radius": 230.0,
           "base_target": "Mosaic"
-        },
-        "central_columns": {
-          "COMMENT": [
-            "Provide a list of subtargets, each a mapping."
-          ],
-          "subtargets": {
-            "S1DZO_Column": {
-              "cells": "S1DZO_Column",
-              "voxels": "central_columns/S1DZO_Column"
-            },
-            "S1DZ_Column": {
-              "cells": "S1DZ_Column",
-              "voxels": "central_columns/S1DZ_Column"
-            },
-            "S1FL_Column": {
-              "cells": "S1FL_Column",
-              "voxels": "central_columns/S1FL_Column"
-            },
-            "S1HL_Column": {
-              "cells": "S1HL_Column",
-              "voxels": "central_columns/S1HL_Column"
-            },
-            "S1J_Column": {
-              "cells": "S1J_Column",
-              "voxels": "central_columns/S1J_Column"
-            },
-            "S1Sh_Column": {
-              "cells": "S1Sh_Column",
-              "voxels": "central_columns/S1Sh_Column"
-            },
-            "S1Tr_Column": {
-              "cells": "S1Tr_Column",
-              "voxels": "central_columns/S1Tr_Column"
-            },
-            "S1ULp_Column": {
-              "cells": "S1ULp_Column",
-              "voxels": "central_columns/S1ULp_Column"
-            }
-          },
         }
       }
     },
@@ -210,18 +162,18 @@
       "controls": {
         "dd2-model": {
           "subtargets": [
-						{"nmin": 1000, "nmax": 5000, "subtargets": 1},
-          	{"nmin": 10000, "nmax": 15000, "subtargets": 2},
-          	{"nmin": 20000, "nmax": 25000, "subtargets": 1},
-          	{"nmin": 30000, "nmax": 50000, "subtargets": 1}
+						{"nmin": 1000, "nmax": 5000, "subtargets": 5},
+          	{"nmin": 10000, "nmax": 15000, "subtargets": 10},
+          	{"nmin": 20000, "nmax": 25000, "subtargets": 5},
+          	{"nmin": 30000, "nmax": 50000, "subtargets": 5}
 					]
         },
         "erdos-renyi": {
 					"subtargets": [
-						{"nmin": 1000, "nmax": 5000, "subtargets": 1},
-          	{"nmin": 10000, "nmax": 15000, "subtargets": 2},
-          	{"nmin": 20000, "nmax": 25000, "subtargets": 1},
-          	{"nmin": 30000, "nmax": 50000, "subtargets": 1}
+						{"nmin": 1000, "nmax": 5000, "subtargets": 5},
+          	{"nmin": 10000, "nmax": 15000, "subtargets": 10},
+          	{"nmin": 20000, "nmax": 25000, "subtargets": 5},
+          	{"nmin": 30000, "nmax": 50000, "subtargets": 5}
 					]
 				}
       }
@@ -247,7 +199,7 @@
         "simplex-counts": {
 	        "source": "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py",
           "method": "simplex_counts",
-	        "controls-to-apply": ["erdos-renyi"],
+	        "controls-to-apply": ["erdos-renyi", "dd2-model"],
           "output": "pandas.Series"
         },
         "simplices": {
@@ -265,7 +217,10 @@
 	        "source": "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py",
           "method": "betti_counts",
           "kwargs": {
-	          "approximation": [-1, -1, 10000, 10000, 100000, 100000, -1, -1]
+            "min_dim": 0,
+            "max_dim": 7,
+            "coeff": 2, 
+	          "approximation": [-1, 10000, 10000, 100000, 100000, 10000, -1, -1]
           },
           "output": "pandas.Series"
         },

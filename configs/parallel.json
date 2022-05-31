@@ -78,8 +78,8 @@
       },
 			"simplex-counts": {
         "max-per-subtarget": {"memory": "50GB", "time": "600s"},
-        "number-compute-nodes": 10,
-        "number-tasks-per-node": 5,
+        "number-compute-nodes": 25,
+        "number-tasks-per-node": 4,
         "sbatch": {
           "name": "simplex-counts",
           "account": "proj83",
@@ -111,8 +111,8 @@
       },
       "betti-counts": {
         "max-per-subtarget": {"memory": "50GB", "time": "600s"},
-        "number-compute-nodes": 10,
-        "number-tasks-per-node": 5,
+        "number-compute-nodes": 50,
+        "number-tasks-per-node": 4,
         "sbatch": {
           "name": "betti-counts",
           "account": "proj83",
