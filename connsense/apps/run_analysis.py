@@ -35,12 +35,15 @@ LOG = logging.get_logger("Toplogical analysis of flatmapped subtargets.")
 def resolve_analysis(argued, against_config):
     """The argued analysis (which can be only 1) must have been configured.
     """
-    analyses = anzconn.get_analyses(against_config, as_dict=True)
-    if argued.quantity not in analyses:
+    configured = anzconn.get_analyses(against_config, as_dict=True)
+    try:
+        analyses = anzconn.filter_analyses(configured, argued.quantity, argued.subgraphs)
+    except KeyError as kerr:
         raise RuntimeError(f"Analysis {argued.quantity} must have been configured"
-                           f" in {[a.name for a in analyses.keys()]}")
+                           f" in {[a.name for a in analyses.keys()]}") from kerr
 
-    return analyses[argued.quantity]
+    assert len(analyses) == 1, "Can run only one analysis at a time"
+    return analyses[0]
 
 
 def read_control(in_file):
@@ -149,6 +152,11 @@ def get_parser():
                               "assigns batches to subtargets.\n"
                               "Default behavior will assume that the current working directory"
                               " is where the batches HDF are."))
+
+    parser.add_argument("-g", "--subgraphs", required=False, default=None,
+                        help=("Apply a configured algorithm that will generate subgraphs of an adjacency matrix\n"
+                              "Each of which will then be analyzed by an analysis."))
+
 
     parser.set_defaults(test=False)
 

@@ -17,7 +17,7 @@ from ..io.read_config import write as write_config
 from ..io.write_results import read as read_results
 from ..io.slurm import SlurmConfig
 from ..io import logging
-from .import matrices
+from .matrices import get_store
 
 STEP = "analyze-connectivity"
 
@@ -114,9 +114,11 @@ def apply_analysis(a, to_batch, among_neurons, using_store=None, tapping=None,
         return using_store.write(value) if using_store else value
 
     saved = batch.assign(idx=range(batch.shape[0])).apply(to_subtarget, axis=1)
-    update = using_store.prepare_toc(of_paths=saved)
-    using_store.append_toc(update) if using_store else matrices
-    return  using_store
+    if using_store:
+        update = using_store.prepare_toc(of_paths=saved)
+        using_store.append_toc(update)
+        return  using_store
+    return saved
 
 
 def load_subtargets_batch(rundir, batched_subtargets_h5=None, group=None):
@@ -140,7 +142,6 @@ def _remove_link(path):
     return None
 
 
-
 def cmd_sbatch_analysis(slurm_params, at_path):
     LOG.info("Prepare a Slurm command using sbatch params: \n%s", slurm_params)
     slurm_params["executable"] = "tap-analysis"
@@ -148,7 +149,7 @@ def cmd_sbatch_analysis(slurm_params, at_path):
     return slurm_config.save(to_filepath=at_path/"tap-analysis.sbatch")
 
 
-def configure_launch_multi(number, computation, using_subtargets, control, at_workspace,
+def configure_launch_multi(number, computation, using_subtargets, control, subgraphs, at_workspace,
                            cmd_sbatch=cmd_sbatch_analysis, computable="quantity",
                            action=None, in_mode=None, slurm_config=None):
     """
@@ -220,8 +221,10 @@ def configure_launch_multi(number, computation, using_subtargets, control, at_wo
 
             write(f"pushd {rundir}")
 
-            write(f"sbatch {script} --configure=config.json --mode={in_mode}"
-                  f" --{computable}={computation.name} {action}")
+            option_subgraphs = f"--subgraphs={subgraphs}" if subgraphs else ""
+            sbatch = (f"sbatch {script} --configure=config.json --mode={in_mode}"
+                      f" --{computable}={computation.name}")
+            write(f"{sbatch} {option_subgraphs} {action}")
 
             write("popd")
 
@@ -259,7 +262,7 @@ def find_base(rundir, max_expected_depth=6):
 
 
 def parallely_analyze(quantity, subtargets, neuron_properties, action=None, in_mode=None,
-                      controls=None, to_parallelize=None, to_tap=None, to_save=None,
+                      subgraphs=None, controls=None, to_parallelize=None, to_tap=None, to_save=None,
                       log_info=None):
     """Run an analysis of quantity over all the subtargets in a table of contents.
 
@@ -299,7 +302,8 @@ def parallely_analyze(quantity, subtargets, neuron_properties, action=None, in_m
 
     if controls is None:
         rundir, hdf_group = check_basedir(to_save, quantity, to_parallelize, mode=action,
-                                          controls=None, return_hdf_group=True)
+                                          subgraphs=subgraphs, controls=None,
+                                          return_hdf_group=True)
         #base = rundir.parent.parent.parent.parent
         base = find_base(rundir)
         LOG.info("Checked rundir %s without controls \n\t with base at %s", rundir, base)
@@ -316,7 +320,8 @@ def parallely_analyze(quantity, subtargets, neuron_properties, action=None, in_m
 
         if compute_nodes > 1:
             multirun = configure_launch_multi(compute_nodes, quantity,
-                                              using_subtargets=batched, control=None,
+                                              using_subtargets=batched,
+                                              control=None, subgraphs=subgraphs,
                                               at_workspace=(base, rundir),
                                               action=action, in_mode=in_mode,
                                               slurm_config=to_sbatch)
@@ -327,7 +332,8 @@ def parallely_analyze(quantity, subtargets, neuron_properties, action=None, in_m
                                     to_save=(rundir, hdf_group), log_info=log_info)
 
     rundirs, hdf_group = check_basedir(to_save, quantity, to_parallelize, mode=action,
-                                       controls=controls.algorithms.index, return_hdf_group=True)
+                                       subgraphs=subgraphs, controls=controls.algorithms.index,
+                                       return_hdf_group=True)
 
     def analyze_controlled(an, algorithm):
         """..."""
@@ -352,9 +358,10 @@ def parallely_analyze(quantity, subtargets, neuron_properties, action=None, in_m
         to_sbatch = to_parallelize.get(quantity.name, {}).get("sbatch", None)
 
         multirun = configure_launch_multi(compute_nodes, quantity,
-                                          using_subtargets=batched, control=to_run/"control.json",
-                                          at_workspace=(base, to_run),
-                                          action=action, in_mode=in_mode,
+                                          using_subtargets=batched,
+                                          control=to_run/"control.json", subgraphs=subgraphs,
+                                          at_workspace=(base, to_run), action=action, in_mode=in_mode,
+
                                           slurm_config=to_sbatch)
         LOG.info("Multinode run: \n %s", pformat(multirun))
         return multirun
@@ -368,17 +375,20 @@ def dispatch_single_node(to_compute, batched_subtargets, neuron_properties, to_t
     """
     LOG.warning("Dispatch (to %s) computation on %s subtargets on a single node.",
                 to_compute.name, len(batched_subtargets))
-    analysis = to_compute; properties = neuron_properties
+    analysis = to_compute
+    properties = neuron_properties
+
+    rundir, group = to_save
 
     def measure_batch(subtargets, *, index, bowl=None):
         """..."""
-        p = rundir / f"{index}.h5"; g = f"{group}/{to_compute.name}"
-        t = to_compute.output_type
-        s = matrices.get_store(to_hdf_at_path=p, under_group=g, for_matrix_type=t)
-        of_subtargets = (index, filter_pending(subtargets, in_store=s))
+        of_matrices = get_store(to_hdf_at_path=rundir/f"{index}.h5",
+                                under_group=f"{group}/{to_compute.hdf_group}",
+                                for_matrix_type=to_compute.output_type)
+        of_subtargets = (index, filter_pending(subtargets, in_store=of_matrices))
 
         result = apply_analysis(to_compute, to_batch=of_subtargets, among_neurons=properties,
-                                using_store=s, tapping=to_tap, batch_index=index,
+                                using_store=of_matrices, tapping=to_tap, batch_index=index,
                                 log_info=log_info)
 
         if bowl is not None:
@@ -389,8 +399,6 @@ def dispatch_single_node(to_compute, batched_subtargets, neuron_properties, to_t
     manager = Manager()
     bowl = manager.dict()
     processes = []
-
-    rundir, group = to_save
 
     n_batches = batched_subtargets.batch.max() + 1
     for batch, of_subtargets in batched_subtargets.groupby("batch"):
@@ -415,9 +423,9 @@ def dispatch_single_node(to_compute, batched_subtargets, neuron_properties, to_t
 BASEDIR_MODE = {"run": 'w', "resume": 'a', "inspect": 'r', None: 'r'}
 
 
-def check_basedir(to_save, quantity_or_algorithm, to_parallelize=None, controls=None, mode=None,
-                  return_hdf_group=False, strict=False):
-
+def check_basedir(to_save, quantity_or_algorithm, to_parallelize=None,
+                  subgraphs=None, controls=None,
+                  mode=None, return_hdf_group=False, strict=False):
     """The locaiton `to_save` in could have been used in a previous run.
 
     By default, the base directory will be prepared and returned.
@@ -429,6 +437,10 @@ def check_basedir(to_save, quantity_or_algorithm, to_parallelize=None, controls=
 
     LOG.info("Check basedir to save %s quantity / algorithm %s in mode %s to paralellize %s",
              to_save, quantity_or_algorithm.name, mode, to_parallelize)
+
+    if subgraphs:
+        LOG.info("\tCheck basedir to apply algorithm on subgraphs %s", subgraphs)
+
     assert not mode or mode in ('w', 'r', 'a'), f"Illegal mode {mode}"
 
     try:
@@ -440,10 +452,11 @@ def check_basedir(to_save, quantity_or_algorithm, to_parallelize=None, controls=
     else:
         path = Path(p)
 
-    assert path.exists(), "Cannot save in a directory that does not exist."
+    assert path.exists(), f"To save in a directory must exist. Inferred path {path} does not exist!"
+
 
     if to_parallelize:
-        LOG.info("To parallelize, check analysis basedir: \n %s", pformat(to_parallelize))
+        LOG.info("To parallelize, check analysis basedir")
         config_already = path/"parallelize.json"
         if mode == 'w' or mode == 'a':
             if strict and config_already.exists():
@@ -456,14 +469,29 @@ def check_basedir(to_save, quantity_or_algorithm, to_parallelize=None, controls=
     if not quantity_or_algorithm:
         return path if not return_hdf_group else (path, hdf_group)
 
-    sq = path / quantity_or_algorithm.name
+    sqp = path / quantity_or_algorithm.name
     if mode == 'w' or mode == 'a':
-        sq.mkdir(parents=False, exist_ok=True)
+        sqp.mkdir(parents=False, exist_ok=True)
 
     if to_parallelize and quantity_or_algorithm in to_parallelize:
-        cpath = sq / "parallelize.json"
+        cpath = sqp / "parallelize.json"
         if (mode == 'w' or mode == 'a') and not cpath.exists():
             write_config(to_parallelize[quantity_or_algorithm], to_json=cpath)
+
+    if subgraphs:
+        sq = sqp / subgraphs
+
+        if mode == 'w' or mode == 'a':
+            sq.mkdir(parents=False, exist_ok=True)
+
+        if to_parallelize and quantity_or_algorithm in to_parallelize:
+            cpath = sq / "parallelize.json"
+            if (mode == 'w' or mode == 'a') and not cpath.exists():
+                write_config(to_parallelize[quantity_or_algorithm], to_json=cpath)
+    else:
+        sq = sqp
+
+    LOG.info("Checking basedir: with subgraphing %s: %s", subgraphs, sq)
 
     def get_jobs(at_path):
         q = quantity_or_algorithm.name
@@ -651,7 +679,7 @@ def batch_stores_at_basedir(b, under_group, for_matrix_type):
     index = 0
     while True:
         p = b / f"{index}.h5"
-        yield matrices.get_store(to_hdf_at_path=p, under_group=g, for_matrix_type=m)
+        yield get_store(to_hdf_at_path=p, under_group=g, for_matrix_type=m)
         index +=1
 
     raise RuntimeError("Python should not have executed me")
@@ -713,7 +741,7 @@ def load_batched_subtargets(basedir, compute_nodes=None, as_paths=False,
     return pd.concat([c for c in compute_node_batches if c is not None], axis=0, **col_compute_node)
 
 
-def load_parallel_run_analysis(a, controlling, parallelizing, in_rundir):
+def load_parallel_run_analysis(a, subgraphing, controlling, parallelizing, in_rundir):
     """Load data stores produced by a single-node parallel computation,
     each of which should have produced a HDF store in a sub-directory
     where the analyses for a TAP pipeline are being run.
@@ -724,7 +752,7 @@ def load_parallel_run_analysis(a, controlling, parallelizing, in_rundir):
     compute_nodes = range(n_compute_nodes) if n_compute_nodes > 1 else None
     n = njobs
 
-    base, hdf_group = check_basedir(in_rundir, analysis, parallelizing,
+    base, hdf_group = check_basedir(in_rundir, analysis, parallelizing, subgraphing,
                                     (controlling.algorithms.index if controlling else None),
                                     mode='r', return_hdf_group=True)
 
@@ -745,13 +773,11 @@ def load_parallel_run_analysis(a, controlling, parallelizing, in_rundir):
                                     " To be a valid TAP workspace a previous run should have"
                                     f" created data stores for each of the {len(n_batches)} batches")
 
-            g = f"{hdf_group}/{a}"
+            g = f"{hdf_group}/{analysis.hdf_group}"
             m = analysis.output_type
-            LOG.info("Load data stores computed in a %s-parallel run for analysis %s",
-                    len(batches), g)
-            stores = {b: matrices.get_store(to_hdf_at_path=p, under_group=g, for_matrix_type=m)
-                      for b, p in batches.items()}
-            return stores
+            LOG.info("Load data stores computed in a %s-parallel run for analysis %s", len(batches), g)
+            bpits = batches.items()
+            return {b: get_store(to_hdf_at_path=p, under_group=g, for_matrix_type=m) for b,p in bpits}
 
         return load_stores(batches.drop_duplicates())
 

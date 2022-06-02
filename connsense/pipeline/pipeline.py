@@ -121,12 +121,13 @@ class TopologicalAnalysis:
         """..."""
         return self._data
 
-    def dispatch(self, step, substep, action, controls, in_mode, **kwargs):
+    def dispatch(self, step, substep, action, subgraphs, controls, in_mode, **kwargs):
         """..."""
         LOG.info("Pipeline dispatch %s %s %s", step, substep, action)
         result = (self.__steps__[step]
-                  .run(self._config, action=action, substep=substep, in_mode=in_mode,
-                       parallelize=self._parallelize, tap=self.data, controls=controls,
+                  .run(self._config, action=action, substep=substep,
+                       subgraphs=subgraphs, controls=controls,
+                       in_mode=in_mode, parallelize=self._parallelize, tap=self.data,
                        **kwargs))
 
         return result
@@ -135,7 +136,7 @@ class TopologicalAnalysis:
         """..."""
         return self._data_groups.get(step)
 
-    def collect(self, step, substep, in_mode, controls, **kwargs):
+    def collect(self, step, substep, in_mode, subgraphs, controls, **kwargs):
         """Collect the batched results generated in a single step.
         """
         runner = self.__steps__[step]
@@ -147,50 +148,10 @@ class TopologicalAnalysis:
             LOG.info("Use to gather results: %s", gather)
 
         return gather(self._config, in_mode=in_mode, parallelize=self._parallelize, substep=substep,
-                      controls=controls, **kwargs)
+                      subgraphs=subgraphs, controls=controls, **kwargs)
 
-    # def run_queue(self, steps=None, substeps=None, action=None, in_mode=None,
-    #               *args, **kwargs):
-    #     """Run the pipeline.
-    #     This used to be the `run` method for analyze-connectivity ---
-    #     This method will not work --- we will come back when we are ready to
-    #     run a pipeline queue --- for now use the `run` method
-    #     """
-    #     if self._mode == "inspect":
-    #         if not in_mode == "inspect":
-    #             raise RuntimeError("Cannot run a read-only pipeline."
-    #                                " You can use read-only mode to inspect the data"
-    #                                " that has already been computed.")
-    #         if action and action.lower() != "inspect":
-    #             raise RuntimeError(f"Cannot run {action} for a pipeline in mode inspect\n"
-    #                                "In mode inspect, there is no action to do,\n"
-    #                                " so use action=None or action='inspect'")
-
-    #     if action.lower() in ("collect", "merge"):
-    #         return self.collect(steps, in_mode, *args, **kwargs)
-
-    #     if steps:
-    #         s = self.state
-    #         self.state = PipelineState(complete=s.complete, running=s.running, queue=steps)
-    #     LOG.warning("Dispatch from %s queue: %s", len(self.state.queue), self.state.queue)
-
-    #     while self.state.queue:
-    #         step = self.state.queue.pop(0)
-
-    #         LOG.warning("Dispatch pipeline step %s", step)
-
-    #         self.running = step
-    #         result = self.dispatch(step, action, in_mode, *args, **kwargs)
-    #         self.running = None
-    #         self.state.complete[step] = result
-
-    #         LOG.warning("DONE pipeline step %s: %s", step, result)
-
-    #     LOG.warning("DONE running %s steps: ", len(self.state.complete))
-
-    #     return self.state
-
-    def run(self, step, substep=None, action=None, in_mode=None, controls=None, **kwargs):
+    def run(self, step, substep=None, action=None, in_mode=None, subgraphs=None, controls=None,
+            **kwargs):
         """Run the pipeline, one step and if defined one substep at a time.
         We can chain all the steps together later.
         """
@@ -207,9 +168,9 @@ class TopologicalAnalysis:
                                    " so use action=None or action='inspect'")
 
         if action.lower() in ("collect", "merge"):
-            return self.collect(step, substep, in_mode, controls, **kwargs)
+            return self.collect(step, substep, in_mode, subgraphs, controls, **kwargs)
 
-        result = self.dispatch(step, substep, action, controls, in_mode, **kwargs)
+        result = self.dispatch(step, substep, action, subgraphs, controls, in_mode, **kwargs)
 
         LOG.warning("DONE run action %s for pipeline step %s %s", action, step, substep)
         LOG.info("RESULT %s %s: %s", step, substep, result)

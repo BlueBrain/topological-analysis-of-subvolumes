@@ -31,12 +31,26 @@ def group_steps(config):
 class HDFStore:
     """Handle the pipeline's data.
     """
+    def load_analyses(self, config):
+        """Load analyses from `anzconn` and cast them for the needs of the `HDFStore`.
+        """
+        configured = anzconn.get_analyses(self._config, as_dict=True)
+
+        def load_configured(quantity, analyses):
+            """..."""
+            fullgraph = (analyses["fullgraph"].hdf_group, analyses["fullgraph"])
+            subgraphs = [(a.hdf_group, a) for _,a in analyses["subgraphs"].items()]
+            return [fullgraph] + subgraphs
+
+        return {name: analysis for quantity, analyses in configured.items()
+                for name, analysis in load_configured(quantity, analyses)}
+
     def __init__(self, config):
         """..."""
         self._config = config
         self._root = locate_store(config)
         self._groups = group_steps(config)
-        self._analyses = anzconn.get_analyses(config, as_dict=True)
+        self._analyses = self.load_analyses(config)
         self._controls = ranconn.get_controls(config)
 
     def get_path(self, step):
@@ -95,8 +109,10 @@ class HDFStore:
     def analyses(self):
         """A TOC for analyses results available in the HDF store.
         """
-        def toc(analysis, store):
+        def tabulate_contents(analysis, store):
             """..."""
+            if not store:
+                return None
             try:
                 return store.toc
             except FileNotFoundError as error:
@@ -104,10 +120,10 @@ class HDFStore:
                 return None
             return None
 
-        agroup = self._groups[anzconn.STEP]
-        stores = {name: anzconn.get_value_store(analysis, at_path=(self._root, agroup), in_mode='r')
-                  for name, analysis in self._analyses.items()}
-        return {analysis: toc(analysis, store) for analysis, store in stores.items() if store}
+        p = (self._root, self._groups[anzconn.STEP])
+        tocs = {an: tabulate_contents(an, anzconn.get_value_stores(analysis, at_path=p, in_mode='r'))
+                for an, analysis in self._analyses.items()}
+        return {tic: toc for tic, toc in tocs.items() if toc is not None}
 
     @lazy
     def circuits(self):

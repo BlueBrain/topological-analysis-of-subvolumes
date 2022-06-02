@@ -153,10 +153,11 @@ def check_mode(argued):
     return argued.mode
 
 
-def get_current(action, mode, config, step, substep, controls=None, with_parallelization=None):
+def get_current(action, mode, config, step, substep, subgraphs=None, controls=None,
+                with_parallelization=None):
     """..."""
     current_run = workspace.initialize if is_to_init(action) else workspace.current
-    return current_run(config, step, substep, controls, mode, with_parallelization)
+    return current_run(config, step, substep, subgraphs, controls, mode, with_parallelization)
 
 
 def main(argued=None):
@@ -176,7 +177,7 @@ def main(argued=None):
     s, ss = check_step(argued, against_config=c)
     m = check_mode(argued)
     current_run = get_current(action=a.action, mode=m, config=c,
-                              step=s, substep=ss, controls=a.controls,
+                              step=s, substep=ss, subgraphs=a.subgraphs, controls=a.controls,
                               with_parallelization=p)
     LOG.info("Workspace initialized at %s", current_run)
 
@@ -194,9 +195,9 @@ def main(argued=None):
     if not s:
         raise ValueError("Provide a step to run: ")
 
-    a = argued.action; b = argued.batch; c = argued.controls
+    a = argued.action; b = argued.batch; g = argued.subgraphs; c = argued.controls
     p = argued.sample; o = argued.output; t = argued.test
-    result = topaz.run(step=s, substep=ss, action=a, in_mode=m, controls=c, batch=b,
+    result = topaz.run(step=s, substep=ss, action=a, in_mode=m, subgraphs=g, controls=c, batch=b,
                        sample=p, output=o, dry_run=t)
 
 
@@ -266,6 +267,10 @@ def get_parser():
                               "multiple single-node computations.\n"
                               "This will allow use to configure a multi-node parallel computation for analyses\n"
                               "that require more than a single compute node."))
+
+    parser.add_argument("-g", "--subgraphs", required=False, default=None,
+                        help=("Apply a configured algorithm that will generate subgraphs of an adjacency matrix\n"
+                              "Each of which will then be analyzed by an analysis."))
 
     parser.add_argument("-x", "--controls", required=False, default=None,
                         help=("Apply a random control to a subvolume, and compute an analysis.\n"
