@@ -65,7 +65,7 @@ def getsizeof_measurement(result):
     return in_bytes / GIGABYTE
 
 
-def measure_quantity(a, of_subtarget, index_entry=None, using_neuron_properties=None,
+def measure_quantity(a, of_subtarget, control, index_entry=None, using_neuron_properties=None,
                      tapping=None, batch_size=None, log_info=None):
     """Apply an analysis to a subtarget in row of a batch.
     """
@@ -80,12 +80,11 @@ def measure_quantity(a, of_subtarget, index_entry=None, using_neuron_properties=
 
     LOG.info("Measure quantity: what's inside the subtarget of type (type %s)", type(s.matrix))
 
-    result = analysis.apply(s.matrix, neurons, tapping, index_entry, log_info)
+    result = analysis.apply(s.matrix, neurons, control, tapping, index_entry, log_info)
 
     return result
 
-
-def apply_analysis(a, to_batch, among_neurons, using_store=None, tapping=None,
+def apply_analysis(a, to_batch, among_neurons, to_control=None, using_store=None, tapping=None,
                    batch_index=None, log_info=None):
     """..."""
     label, batch = to_batch
@@ -101,7 +100,7 @@ def apply_analysis(a, to_batch, among_neurons, using_store=None, tapping=None,
         nonlocal mem_tot
         index_entry = pd.Series(row.name, index=batch.index.names)
         subtarget = (index_entry["circuit"], index_entry["subtarget"])
-        value = measure_quantity(a, of_subtarget=row, index_entry=index_entry,
+        value = measure_quantity(a, of_subtarget=row, control=to_control, index_entry=index_entry,
                                  using_neuron_properties=subset(*subtarget),
                                  tapping=tapping, batch_size=batch.shape[0],
                                  log_info=f"Batch: {batch_index}")
@@ -369,8 +368,8 @@ def parallely_analyze(quantity, subtargets, neuron_properties, action=None, in_m
     return {an: analyze_controlled(an, algorithm) for an, algorithm in controls.algorithms.items()}
 
 
-def dispatch_single_node(to_compute, batched_subtargets, neuron_properties, to_tap, to_save,
-                         log_info=None):
+def dispatch_single_node(to_compute, batched_subtargets, neuron_properties, control,
+                        to_tap, to_save, log_info=None):
     """Dispatch computation to single node with multi-processing.
     """
     LOG.warning("Dispatch (to %s) computation on %s subtargets on a single node.",
@@ -388,8 +387,8 @@ def dispatch_single_node(to_compute, batched_subtargets, neuron_properties, to_t
         of_subtargets = (index, filter_pending(subtargets, in_store=of_matrices))
 
         result = apply_analysis(to_compute, to_batch=of_subtargets, among_neurons=properties,
-                                using_store=of_matrices, tapping=to_tap, batch_index=index,
-                                log_info=log_info)
+                                to_control=control, using_store=of_matrices, tapping=to_tap,
+                                batch_index=index, log_info=log_info)
 
         if bowl is not None:
             bowl[index] = result

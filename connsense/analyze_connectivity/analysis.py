@@ -2,6 +2,8 @@
 from abc import ABC, abstractmethod
 from pprint import pformat
 
+import pandas as pd
+
 from ..plugins import import_module
 from ..io.utils import widen_by_index
 from ..io.logging import get_logger
@@ -125,17 +127,18 @@ class ApplicableFromSource(ABC):
         return self._method
 
     @staticmethod
-    def _read_matrix(adjacency):
+    def read_matrix(adjacency, with_control=None):
         """..."""
+        controlled = with_control or (lambda m: m)
         try:
             matrix = adjacency.matrix
         except AttributeError as aberration:
             LOG.error("Could not get adjancency.matrix: %s", aberration.args)
             matrix = adjacency
-        return matrix
+        return controlled(matrix)
 
     @abstractmethod
-    def apply(self, adjacency, node_properties, tap=None, subtarget=None,
+    def apply(self, adjacency, node_properties,*, with_control=None, tap=None, subtarget=None,
               log_info=None, **kwargs):
         """..."""
         raise NotImplementedError("Delegated to the concrete implementation...")
@@ -228,11 +231,11 @@ class SingleMethodAnalysisFromSource(ApplicableFromSource):
 
         return requested
 
-    def apply(self, adjacency, node_properties=None, tap=None, subtarget=None,
+    def apply(self, adjacency, node_properties=None, *, with_control=None, tap=None, subtarget=None,
               log_info=None, **kwargs):
         """Use keyword arguments to test interactively, instead of reloading a config.
         """
-        matrix = self._read_matrix(adjacency)
+        matrix = self.read_matrix(adjacency, with_control)
 
         if log_info:
             LOG.info("Apply analysis %s %s\t\t of shape %s", self.name, log_info, matrix.shape)
@@ -244,7 +247,7 @@ class SingleMethodAnalysisFromSource(ApplicableFromSource):
         LOG.info("input analysis to subtarget %s: \n%s", subtarget, pformat(input_analyses))
         try:
             result = self._apply(matrix, node_properties, *self._args,
-                                    **input_analyses, **self._kwargs, **kwargs)
+                                 **input_analyses, **self._kwargs, **kwargs)
         except RuntimeError as runt:
             called_by = log_info if log_info else "unknown"
             LOG.error("FAILURE in analysis %s of adj mat %s called by %s: "
@@ -275,9 +278,9 @@ class AdjacencySubgraphs(ApplicableFromSource):
         """..."""
         self.name
 
-    def apply(self, adjacency, node_properties, log_info=None, **kwargs):
+    def apply(self, adjacency, node_properties, with_control=None, log_info=None, **kwargs):
         """..."""
-        matrix = self._read_matrix(adjacency)
+        matrix = self.read_matrix(adjacency, with_control)
 
         if log_info:
             LOG.info("Generate subgraphs %s (%s) to adjacency %s", self.name, log_info, matrix.shape)
@@ -348,15 +351,21 @@ class SubgraphAnalysisFromSource(SingleMethodAnalysisFromSource):
         """..."""
         return f"{self.name}/{self._subgraphs.name}"
 
-    def generate_subgraphs(self, adjacency, node_properties):
+    def read_subgraphs(self, ss, with_control=None):
         """..."""
-        matrix = self._read_matrix(adjacency)
-        return self._subgraphs.apply(matrix, node_properties)
+        controlled = self.read_matrix(ss.adjacency, with_control)
+        return pd.Series({"adjacency": controlled, "node_properties": ss.node_properties},
+                         name=s.name)
 
-    def apply(self, adjacency, node_properties, *args, **kwargs):
+    def generate_subgraphs(self, adjacency, node_properties, with_control=None):
         """..."""
-        subgraphs = self.generate_subgraphs(adjacency, node_properties)
+        return (self._subgraphs.apply(adjacency, node_properties, with_control=False)
+                .apply(lambda ss: read_subgraphs(ss, with_control), axis=1))
+
+    def apply(self, adjacency, node_properties, with_control=None, **kwargs):
+        """..."""
+        subgraphs = self.generate_subgraphs(adjacency, node_properties, with_control)
 
         an_apply = super().apply
-        return subgraphs.apply(lambda s: an_apply(s.adjacency, s.node_properties, *args, **kwargs),
+        return subgraphs.apply(lambda s: an_apply(s.adjacency, s.node_properties, **kwargs),
                                axis=1)
