@@ -143,6 +143,7 @@ class ApplicableFromSource(ABC):
         """..."""
         raise NotImplementedError("Delegated to the concrete implementation...")
 
+
 class SingleMethodAnalysisFromSource(ApplicableFromSource):
     """Algorithm that can be configured as:
 
@@ -360,7 +361,7 @@ class SubgraphAnalysisFromSource(SingleMethodAnalysisFromSource):
     def generate_subgraphs(self, adjacency, node_properties, with_control=None):
         """..."""
         return (self._subgraphs.apply(adjacency, node_properties, with_control=False)
-                .apply(lambda ss: read_subgraphs(ss, with_control), axis=1))
+                .apply(lambda ss: self.read_subgraphs(ss, with_control), axis=1))
 
     def apply(self, adjacency, node_properties, with_control=None, **kwargs):
         """..."""
