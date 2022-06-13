@@ -1,8 +1,10 @@
 """What is an analysis?"""
-from ..plugins import import_module
-
-
+from abc import ABC, abstractmethod
 from pprint import pformat
+
+import pandas as pd
+
+from ..plugins import import_module
 from ..io.utils import widen_by_index
 from ..io.logging import get_logger
 
@@ -13,27 +15,23 @@ def get_analyses(in_config):
     return collect_plugins_of_type(SingleMethodAnalysisFromSource,
                                    for_analyses=in_config["analyses"])
 
+
 def collect_plugins_of_type(T, for_analyses):
     """..."""
     return {name: T(name, description) for name, description in for_analyses.items()}
 
 
-class SingleMethodAnalysisFromSource:
-    """Algorithm that can be configured as:
-
-    "analyze-connectivity": {
-      "analyses": {
-        "simplex_counts": {
-          "source": "/gpfs/bbp.cscs.ch/project/proj83/home/sood/analyses/manuscript/topological-analysis-subvolumes/topologists_connectome_analysis/analysis/simplex_counts.py",
-          "args": [],
-          "kwargs": {},
-          "method": "simplex-counts",
-          "output": "scalar"
-        }
-      }
-    }
-
+class ApplicableFromSource(ABC):
+    """Generate subgraphs of an adjacency matrix.
     """
+    @property
+    @abstractmethod
+    def apptype(self):
+        """For example: analysis, randomization, control, subgraph...
+        """
+        raise NotImplementedError(f"Provide what this {self.__class__.__name__} will do to inputs.\n",
+                                  "For example: analysis, randomization, control, subgraph...")
+
     @staticmethod
     def read_method(description):
         """..."""
@@ -67,46 +65,22 @@ class SingleMethodAnalysisFromSource:
             return None
         return policy
 
-    def __init__(self, name, description, cannot_be_analyses=None):
-        """...
-        cannot_be_analyses :: a list of names that cannot be analyses used in the input config.
-        ~                        this list will free the scientist to use the listed words as
-        ~                        argument names in their input libraries.
-        ~                     A default is provided.
-        """
+    def __init__(self, name, description):
+        """..."""
         self._name = name
         self._description = description
         self._source = self.read_source(description)
         self._args = self.read_args(description)
         self._kwargs = self.read_kwargs(description)
         self._method = self.read_method(description)
-        self._analysis = self.load(description)
+        self._apply = self.load(description)
         self._output_type = self.read_output_type(description)
         self._collection_policy = self.read_collection(description)
-        self._cannot_be_analyses = cannot_be_analyses or (
-            "adjacency", "adj", "nodes", "node_properties", "controls", "args", "kwargs")
-
-    @property
-    def name(self):
-        """..."""
-        return self._name
-
-    @property
-    def description(self):
-        return self._description
-
-    @property
-    def quantity(self):
-        """To name the column in a dataframe, or an item in a series."""
-        method =  self._description.get("method", self._analysis.__name__)
-        return self._description.get("quantity", method)
-
-    @property
-    def output_type(self):
-        return self._output_type
 
     def load(self, description):
-        """..."""
+        """...Load the described apply method...
+        Override in a subclass...
+        """
         source = self.read_source(description)
         method = self.read_method(description)
 
@@ -126,6 +100,90 @@ class SingleMethodAnalysisFromSource:
         self._module = module
         return method
 
+    @property
+    def name(self):
+        """..."""
+        return self._name
+
+    @property
+    @abstractmethod
+    def hdf_group(self):
+        """An HDf group name.
+        A concrete implementation of `AnalysisFromSource` will have to decide
+        its HDf group name.
+        """
+        raise NotImplementedError("Concrete class must decide what HDF group to save its data in.")
+
+    @property
+    def description(self):
+        return self._description
+
+    @property
+    def output_type(self):
+        return self._output_type
+
+    @property
+    def method(self):
+        return self._method
+
+    @staticmethod
+    def read_matrix(adjacency, with_control=None):
+        """..."""
+        controlled = with_control or (lambda m: m)
+        try:
+            matrix = adjacency.matrix
+        except AttributeError as aberration:
+            LOG.error("Could not get adjancency.matrix: %s", aberration.args)
+            matrix = adjacency
+        return controlled(matrix)
+
+    @abstractmethod
+    def apply(self, adjacency, node_properties,*, with_control=None, tap=None, subtarget=None,
+              log_info=None, **kwargs):
+        """..."""
+        raise NotImplementedError("Delegated to the concrete implementation...")
+
+
+class SingleMethodAnalysisFromSource(ApplicableFromSource):
+    """Algorithm that can be configured as:
+
+    "analyze-connectivity": {
+      "analyses": {
+        "simplex_counts": {
+          "source": "/gpfs/bbp.cscs.ch/project/proj83/home/sood/analyses/manuscript/topological-analysis-subvolumes/topologists_connectome_analysis/analysis/simplex_counts.py",
+          "args": [],
+          "kwargs": {},
+          "method": "simplex-counts",
+          "output": "scalar"
+        }
+      }
+    }
+
+    """
+    apptype = "analysis"
+
+    def __init__(self, name, description, cannot_be_analyses=None):
+        """...
+        cannot_be_analyses :: a list of names that cannot be analyses used in the input config.
+        ~                        this list will free the scientist to use the listed words as
+        ~                        argument names in their input libraries.
+        ~                     A default is provided.
+        """
+        super().__init__(name, description)
+        self._cannot_be_analyses = cannot_be_analyses or (
+            "adjacency", "adj", "nodes", "node_properties", "controls", "args", "kwargs")
+
+    @property
+    def quantity(self):
+        """To name the column in a dataframe, or an item in a series."""
+        method =  self._description.get("method", self._apply.__name__)
+        return self._description.get("quantity", method)
+
+    @property
+    def hdf_group(self):
+        """..."""
+        return self.name
+
     def _input_analyses(self, tap, subtarget):
         """Get other analyses from the TAP that are needed for this one.
 
@@ -134,7 +192,7 @@ class SingleMethodAnalysisFromSource:
         TODO: Provide better documnetation, and log messages to help the user
         """
         import inspect
-        signat = inspect.signature(self._analysis)
+        signat = inspect.signature(self._apply)
 
         index_entry = tuple(subtarget)
 
@@ -174,20 +232,14 @@ class SingleMethodAnalysisFromSource:
 
         return requested
 
-    def apply(self, adjacency, node_properties=None, tap=None, subtarget=None,
+    def apply(self, adjacency, node_properties=None, *, with_control=None, tap=None, subtarget=None,
               log_info=None, **kwargs):
         """Use keyword arguments to test interactively, instead of reloading a config.
         """
-        matrix = adjacency.matrix
-        try:
-            matrix = adjacency.matrix
-        except AttributeError as err:
-            LOG.error("Could not get adjacency matrix: %s", err)
-            matrix = adjacency
+        matrix = self.read_matrix(adjacency, with_control)
 
         if log_info:
-            LOG.info("Apply analysis %s %s\t\t of shape %s",
-                     self.name, log_info, matrix.shape)
+            LOG.info("Apply analysis %s %s\t\t of shape %s", self.name, log_info, matrix.shape)
 
         if node_properties is not None:
             assert node_properties.shape[0] == matrix.shape[0]
@@ -195,8 +247,8 @@ class SingleMethodAnalysisFromSource:
         input_analyses = self._input_analyses(tap, subtarget) if tap else {}
         LOG.info("input analysis to subtarget %s: \n%s", subtarget, pformat(input_analyses))
         try:
-            result = self._analysis(matrix, node_properties, *self._args,
-                                    **input_analyses, **self._kwargs, **kwargs)
+            result = self._apply(matrix, node_properties, *self._args,
+                                 **input_analyses, **self._kwargs, **kwargs)
         except RuntimeError as runt:
             called_by = log_info if log_info else "unknown"
             LOG.error("FAILURE in analysis %s of adj mat %s called by %s: "
@@ -216,3 +268,105 @@ class SingleMethodAnalysisFromSource:
         TODO: We could have the scientist provide a collect method.
         """
         return data
+
+
+class AdjacencySubgraphs(ApplicableFromSource):
+    """..."""
+    apptype = "subgraph"
+
+    @property
+    def hdf_group(self):
+        """..."""
+        self.name
+
+    def apply(self, adjacency, node_properties, with_control=None, log_info=None, **kwargs):
+        """..."""
+        matrix = self.read_matrix(adjacency, with_control)
+
+        if log_info:
+            LOG.info("Generate subgraphs %s (%s) to adjacency %s", self.name, log_info, matrix.shape)
+
+        if node_properties is not None:
+            assert matrix.shape[0] == node_properties.shape[0]
+
+        try:
+            result = self._apply(adjacency, node_properties, **kwargs)
+        except Exception as failure:
+            called_by = log_info if log_info else "NA"
+            LOG.error("FAILURE in subgraphs %s of adj mat %s called by %s. Exception caught: \n%s",
+                      self.name, matrix.shape, called_by, failure)
+            return None
+
+        if log_info:
+            LOG.info("Done subgraphs %s of adjacency of shape %s from %s", self.name, matrix.shape,
+                     log_info)
+
+        return result
+
+
+class SubgraphAnalysisFromSource(SingleMethodAnalysisFromSource):
+    """Run an analysis on the subgraphs of an adjacency matrix.
+    """
+    class MissingRequiredConfiguration(KeyError): pass
+
+    def __init__(self, name, description, subgraphs, **kwargs):
+        """..."""
+        LOG.info("Initialize SubgraphAnalysisFromSource with name %s, description %s, subgraphs %s",
+                 name, description, subgraphs)
+        label, algorithm = subgraphs
+
+        try:
+            subgraphs_to_apply = description["subgraphs-to-apply"]
+        except KeyError as keharr:
+            raise SubgraphAnalysisFromSource.MissingRequiredConfiguration(
+                "Analysis description should also describe the subgraphs to apply."
+            ) from keharr
+
+        LOG.info("SubgraphAnalysisFromSource got subgraphs to apply:\n%s", subgraphs_to_apply)
+
+        try:
+            subgraph_description = subgraphs_to_apply[label]
+        except KeyError as keharr:
+            raise SubgraphAnalysisFromSource.MissingRequiredConfiguration(
+                f"Subgraph descriptions should also contain informationl about {label}."
+            ) from keharr
+
+        LOG.info("SubgraphAnalysisFromSource got subgraph description:\n%s", subgraph_description)
+
+        try:
+            output_type = subgraph_description["output"]
+        except KeyError as keharr:
+            raise SubgraphAnalysisFromSource.MissingRequiredConfiguration(
+                f"Subgraph {label}'s description should specify the resulting subgraph analysis' "
+                "output type as entry `output`"
+            ) from keharr
+        description["output"] = output_type
+
+        self._subgraphs = AdjacencySubgraphs(label, algorithm)
+
+        super().__init__(name, description, **kwargs)
+        #super().__init__(f"{name}_{self._subgraphs.label}", description, **kwargs)
+
+    @property
+    def hdf_group(self):
+        """..."""
+        return f"{self.name}/{self._subgraphs.name}"
+
+    def read_subgraphs(self, ss, with_control=None):
+        """..."""
+        controlled = self.read_matrix(ss.adjacency, with_control)
+        return pd.Series({"adjacency": controlled, "node_properties": ss.node_properties},
+                         name=s.name)
+
+    def generate_subgraphs(self, adjacency, node_properties, with_control=None):
+        """..."""
+        return (self._subgraphs.apply(adjacency, node_properties, with_control=False)
+                .apply(lambda ss: self.read_subgraphs(ss, with_control), axis=1))
+
+    def apply(self, adjacency, node_properties, with_control=None, **kwargs):
+        """..."""
+        subgraphs = self.generate_subgraphs(adjacency, node_properties, with_control)
+
+        an_apply = super().apply
+        return subgraphs.apply(lambda s: an_apply(s.adjacency, s.node_properties, **kwargs),
+                               axis=1)

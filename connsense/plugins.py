@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 
+
 def import_module(from_path, with_method=None):
     """..."""
     path = Path(from_path)
@@ -80,10 +81,10 @@ def get_module(from_object, with_function=None):
                 raise TypeError(f" {module} is missing required method {function}.")
             return method
 
-        if isinstance(has_function, str):
-            methods = get_method(has_function)
+        if isinstance(has_functions, str):
+            methods = get_method(has_functions)
 
-        methods = {f: get_method(f) for f in iterate(has_function)}
+        methods = {f: get_method(f) for f in iterate(has_functions)}
 
         return (module, methods)
 
