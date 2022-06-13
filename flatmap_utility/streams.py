@@ -21,9 +21,11 @@
 
 # %% [markdown]
 """
-Thalamic inputs into the cortex are modeled as fibers entering from the white-matter
-and proceeding towars the pia, along a local orientation.
-We have defined orientation for each voxel in the atlas.
+We have modeled corticocortical inputs into the SSCx as fibers entering from the white-matter
+and proceeding towards the pia, along the local voxel orientations.
+We have defined a `flatspace` for the circuit to map these *white-matter projections* from one
+SSCx-subregion to another, as well as to locate the entry points of thalamocortical projections.
+Here we introduce a `flatmap_utility` to handle such `flatspace` projections.
 
 Flatmapping involves the mapping of each voxel (and then each circuit-space point)
 to a pixel in the flat-space.
@@ -131,7 +133,7 @@ def distribute_radially(circuit_space):
 
 
 class InputStream:
-    """A thalamic input fiber passes trough the cortex, whitematter --> pia or pia --> whitematter,
+    """A input fiber passes trough the cortex, whitematter --> pia or pia --> whitematter,
     along local orientation.
     But there are other ways to think of a stream-line.
     """
@@ -140,7 +142,7 @@ class InputStream:
                  center=None, radius=None):
         """...
         """
-        self._center = np.array([2000., 2000.]) if center is None else center
+        self._center = np.array([2000., 2000.]) if center is None else np.array(center)
         self._radius = 230.0 if radius is None else radius
 
         self._circuit = circuit
@@ -189,18 +191,21 @@ class InputStream:
         orientations = self.orient(positions)
         return pd.concat([positions, orientations], keys=["position", "orientation"], axis=1)
 
+    def fmap(self, peas):
+        """Flatmap the positions argued.
+        """
+        return (fmutils.supersampled_neuron_locations(peas,
+                                                     self.flatmap,
+                                                     self.atlas.load_data("orientation"),
+                                                     include_depth=True)
+                .rename(columns={"flat x": "flat_x", "flat y": "flat_y"}))
+
     @lazy
     def voxels_flat_space(self):
         """..."""
 
-        def fmap(_):
-            return (fmutils.supersampled_neuron_locations(self.voxels_circuit_space.position,
-                                                          self.flatmap,
-                                                          self.atlas.load_data("orientation"),
-                                                          include_depth=True)
-                    .rename(columns={"flat x": "flat_x", "flat y": "flat_y"}))
-
-        positions = cache_evaluation_of(fmap, self.atlas, "fmap")
+        positions = cache_evaluation_of(lambda _: self.fmap(self.voxels_circuit_space.position),
+                                        on_circuit=self.atlas, as_attribute="fmap")
         return pd.concat([positions], axis=1, keys=["position"])
 
     @lazy
