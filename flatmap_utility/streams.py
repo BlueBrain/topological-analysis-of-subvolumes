@@ -46,8 +46,43 @@ import pandas as pd
 from voxcell.voxel_data import OrientationField
 from bluepy import Cell
 
+from connsense.io import logging
+
 from flatmap_utility import flatmap_utility as fmutils
 from flatmap_utility.subtargets import cache_evaluation_of, XYZ
+
+
+LOG = logging.get_logger(__name__)
+
+# %% [markdown]
+"""
+We will be mapping between the flatspace and real coordinates of the circuit.
+It will be useful to estalish a terminology, so that it is easy to use and follow the code.
+"""
+
+def define_term(value, description):
+    """Define a term.
+
+    TODO: Consider making a class, like HD did for DMT.
+    """
+    LOG.info("Define a connsense term %s: \n\t%s", value, description)
+    return value
+
+
+CRCTSPACE = define_term("circuit_space",
+                        "A tag that names the circuit space coordinates in all dataframes passed around.")
+FMAPSPACE = define_term("flat_space",
+                        "A tag that names the flat space coordinates in all dataframes passed around.")
+FMAP_X = define_term("flat_x",
+                     "A tag that names the flat space coordinate x within FMAPSPACE columns")
+
+FMAP_Y = define_term("flat_y",
+                     "A tag that names the flat space coordinate x within FMAPSPACE columns")
+
+DEPTH = define_term("depth",
+                    "A tag that names the flat space coordinate x within FMAPSPACE columns")
+
+# %%
 
 FXY = ["flat_x", "flat_y"]
 
@@ -105,7 +140,8 @@ def get_bins(xs, resolution, padding=0.1):
     else:
         assert "delta" not in resolution and "nbins" not in resolution, \
             "Resolution can be specified by only one of `bins, delta, nbins`."
-    return bins
+
+    return bins[np.searchsorted(bins, xs) - 1]
 
 
 def get_distance(positions, origin, orientation=None):
@@ -124,36 +160,54 @@ def get_distance(positions, origin, orientation=None):
     return pd.Series(sin_theta * distance_origin, name="distance", index=positions.index).fillna(0.)
 
 
-def distribute_radially(circuit_space):
+def distribute_radially(circuit_space, statistics=None):
     """..."""
-    mean_position = circuit_space.position.mean()
-    mean_orientation = circuit_space.orientation.mean()
-    norm = np.linalg.norm(mean_orientation)
-    return get_distance(circuit_space.position, mean_position, mean_orientation/norm)
+    position = circuit_space.position.mean().to_numpy()
+
+    statistics = statistics or "median"
+    if isinstance(statistics, str):
+        statistics = [statistics]
+
+    _mo = circuit_space.orientation.mean()
+    orientation = (_mo / np.linalg.norm(_mo)).to_numpy()
+
+    radial = get_distance(circuit_space.position, position, orientation).agg(statistics)
+
+    positions_orientations_shape = ([("position", "x"), ("position", "y"), ("position", "z"),
+                                    ("orientation", "x"), ("orientation", "y"), ("orientation", "z")]
+                                    + [("shape", f"radial_{statistic}") for statistic in statistics])
+    return pd.Series(np.concatenate([position, orientation, radial.values], axis=0),
+                     index=pd.MultiIndex.from_tuples(positions_orientations_shape))
 
 
-class InputStream:
-    """A input fiber passes trough the cortex, whitematter --> pia or pia --> whitematter,
-    along local orientation.
-    But there are other ways to think of a stream-line.
+class FlatSpaceColumn:
+    """A straight column in the circuit's flatmap space (flatspace for short)
+    Positions in the circuit are mapped to a flat space, however each position can be assigned
+    a depth to form a three dimensional flatspace!
     """
 
-    def __init__(self, circuit, *, atlas=None, flatmap=None, orientations=None,
-                 center=None, radius=None):
-        """...
-        """
-        self._center = np.array([2000., 2000.]) if center is None else np.array(center)
-        self._radius = 230.0 if radius is None else radius
+    def __init__(self, center, radius, circuit, *, atlas=None, flatmap=None, orientations=None,
+                 number_cells=None):
+        """..."""
+        self._center = np.array(center)
+        self._radius = radius
 
         self._circuit = circuit
         self._atlas = atlas
         self._flatmap = flatmap
         self._orientations = orientations
 
+        self._number_cells = number_cells
+
     @lazy
     def name(self):
         """..."""
         return f"C{tuple(self._center)}"
+
+    @lazy
+    def center(self):
+        """...We need a reverse transformation of coordinates."""
+        return pd.Series({FMAPSPACE: self._center, CRCTSPACE: np.nan})
 
     @lazy
     def circuit(self):
@@ -225,14 +279,13 @@ class InputStream:
         radial = np.linalg.norm(positions_in_flat_space.position[FXY] - self._center, axis=1)
         return radial < self._radius
 
-    def filter_catchment(self, circuit_space_positions):
+    def filter_column(self, circuit_space_positions):
         """..."""
         flat_space = fmutils.supersampled_neuron_locations(circuit_space_positions,
                                                            self.flatmap, self.orientations,
                                                            include_depth=True)
         mask = self.get_mask(flat_space)
         return circuit_space_positions[mask]
-
 
     def orient(self, circuit_space_positions):
         """..."""
@@ -241,7 +294,7 @@ class InputStream:
 
     @lazy
     def cells(self):
-        """Neurons in this `InputStream`'s catchment.
+        """Neurons in this `FlatSpaceColumn`'s catchment.
         """
         xyzs = self.circuit.cells.get(properties=XYZ)
         circuit_space = pd.concat([xyzs, self.orient(xyzs)], keys=["position", "orientation"], axis=1)
@@ -261,33 +314,199 @@ class InputStream:
 
         return cells.sort_values(by=("flat_space", "position", "depth"))
 
-    def catchment(self, resolution={"nbins": 100}, using="voxels"):
+
+    @lazy
+    def number_cells(self):
         """..."""
-        assert using in ("cells", "voxels"), f"Cannot define catchement using {using}"
+        if self._number_cells:
+            return self._number_cells
+        return self.cells.shape[0]
 
-        data = self.cells if using=="cells" else self.voxels
-        depth_bins = get_bins(data.flat_space.position.depth, resolution)
-
-        depth_bins = np.searchsorted(depth_bins, data.flat_space.position.depth) - 1
-
-        return data.reset_index().assign(depth_bin=depth_bins).set_index(["depth_bin", "gid"])
-
-    def trace(self, resolution={"nbins": 100}, using="voxels"):
+    @staticmethod
+    def values_space(s, in_position_data):
         """..."""
-        catchment = self.catchment(resolution, using).circuit_space
+        try:
+            return in_position_data[s]
+        except KeyError:
+            pass
+        return None
 
-        mean_positions = catchment.position.groupby("depth_bin").mean()
-        mean_orientations = catchment.orientation.groupby("depth_bin").mean()
-        norm = np.linalg.norm(mean_orientations, axis=1)
+    def position_relatively(self, xyzs):
+        """...Position flatspace positions relative to the center of this `FlatSpaceColumn`.
 
-        return pd.concat([mean_positions, mean_orientations.apply(lambda c: c/norm, axis=0 )], axis=1,
-                         keys=["position", "orientation"])
+        The simpler case would be that `xyzs` is just the flatspace positions, in which case we
+        just subract the center of this `FlatSpaceColumn`.
+        It could also have to columns, one for circuit-space, another flat-space positions.
+        In this case we would have to subtract the circuit-space center of this `FlatSpaceColumn`.
+        """
+        spaces = {FMAPSPACE: self.values_space(FMAPSPACE, in_position_data=xyzs),
+                  CRCTSPACE: self.values_space(CRCTSPACE, in_position_data=xyzs)}
 
+        relative_spaces = {space: value - self.center[space] for space, value in spaces.items()
+                           if value is not None}
 
-    def channel(self, resolution={"nbins": 100}, using="voxels"):
+        return xyzs.assign(**relative_spaces)
+
+    def flatmap_positions(self, xyzs):
         """..."""
-        catchment = self.catchment(resolution, using).circuit_space
-        if catchment.empty:
-            return None
-        radial = pd.concat([distribute_radially(grp) for _, grp in catchment.groupby("depth_bin")])
-        return catchment.assign(radial = radial.values)
+        return xyzs[[FMAP_X, FMAP_Y]]
+
+    def measure_radial(self, distance_of):
+        """...Measure radial distance in flatmap space from the flat center of this `FlatSpaceColumn`
+        """
+        relative = self.position_relatively(xyzs=distance_of)[FMAPSPACE]
+        return np.linalg.norm(relative, axis=1)
+
+    class DoesNotSeemToBeFlatMapData(AttributeError): pass
+
+    def mask(self, dataframe, *, positions_within_radial):
+        """...Positions must be in flatspace.
+        --------------------------------------------------------------------------------------------
+        Arguments
+        --------------------------------------------------------------------------------------------
+        dataframe :: of positions, or contains positions in a multi-indexed column
+
+        positions_with_radius :: Float #that must be provided as a keyword argument.
+        --------------------------------------------------------------------------------------------
+        TODO: We can add further filters ...
+        """
+        def _mask(positions):
+            """Mask the positions sub-dataframe in the input.
+            """
+            radial = self.measure_radial(distance_of=positions)
+            return radial < positions_within_radial
+
+        try:
+            positions = dataframe.position
+        except AttributeError:
+            return _mask(positions=dataframe)
+        return _mask(positions)
+
+    def distribute_radially(self, circuit_space, statistics=None):
+        """..."""
+        position = circuit_space.position.mean().to_numpy()
+
+        statistics = statistics or "median"
+        if isinstance(statistics, str):
+            statistics = [statistics]
+
+        _mo = circuit_space.orientation.mean()
+        orientation = (_mo / np.linalg.norm(_mo)).to_numpy()
+
+        radial = get_distance(circuit_space.position, position, orientation).agg(statistics)
+
+        positions_orientations_shape = ([("position", "x"), ("position", "y"), ("position", "z"),
+                                        ("orientation", "x"), ("orientation", "y"), ("orientation", "z")]
+                                        + [("shape", f"radial_{statistic}") for statistic in statistics]
+                                        + [("flat", "x"), ("flat", "y")]
+                                        + [("nodes", "number")])
+
+        values = np.concatenate([position, orientation, radial.values, self._center, [self.number_cells]],
+                                axis=0)
+
+        return pd.Series(values, index=pd.MultiIndex.from_tuples(positions_orientations_shape))
+
+    def channel(self, in_space, of_positions, radius=None, depth_bins=None, statistics="median",
+                keep_index=None):
+        """Dig a channel as a dataframe of circuit-space or flatmap-space positions,
+        that are within this `FlatSpaceColumn`.
+        If a radius is provided, then a smaller (circular) column with that radius will be
+        used to filter. This smaller column will be centered at this `FlatSpaceColumn`'s center,
+        and the argued radius value should be smaller than it's radius
+        If no radius is argued all the positions in this `FlatSpaceColumn` will be used.
+
+        Argued depth bins will be used to bin the positions and find means.
+        A column called `shape` will be returned with mean positions  and orientations for each bin.
+        Each bin's shape will be the mean radial distance from the axis that is parallel
+        to the mean orientation and pass through the mean position of the bin
+
+        """
+        assert in_space in ("circuit", "flat"), f"Invalid space {in_space}"
+        space = CRCTSPACE if in_space == "cirucit" else FMAPSPACE
+
+        assert of_positions in ("voxels", "cells"), f"Invalid positions {of_positions}"
+
+        peas = self.voxels if of_positions=="voxels" else self.cells
+
+        if peas.empty:
+            return pd.DataFrame()
+
+        mask = lambda: self.mask(peas[FMAPSPACE], positions_within_radial=radius)
+        inchannel = peas[mask()] if radius is not None else peas
+
+        depth_values = inchannel[FMAPSPACE].position.depth.values
+        depth_bins = get_bins(depth_values, resolution={"nbins": depth_bins or 20})
+
+        depth_index = ["depth_bin"] + (keep_index or ["gid"])
+        depth_groups = (inchannel.reset_index().assign(depth_bin=depth_bins).set_index(depth_index)
+                        .groupby("depth_bin"))
+
+        def shape(at_depth):
+            return self.distribute_radially(circuit_space=at_depth.circuit_space, statistics=statistics)
+
+        return depth_groups.apply(shape)
+
+    @staticmethod
+    def lingress(channel_shape):
+        """Fit a linear model to the channel shape.
+        """
+        import statsmodels.api as sm
+        from statsmodels.formula import api as StatModel
+        from patsy import ModelDesc
+
+        description = ModelDesc.from_formula("radial ~ depth")
+        input_data = {"radial": channel_shape.values, "depth": channel_shape.index.values}
+        model = StatModel.ols(description, input_data)
+        fit = model.fit()
+        params = pd.concat([fit.params], axis=0, keys=["params"])
+        pvalues = pd.concat([fit.pvalues], axis=0, keys=["pvalues"])
+        error = pd.concat([pd.Series({"rsquared": fit.rsquared, "rsquared_adj": fit.rsquared_adj})],
+                        axis=0, keys=["fit"])
+        return params.append(pvalues).append(error)
+
+    @staticmethod
+    def lingress_channels(in_dataframe, statistics=None):
+        """Fit linear models to channel """
+        statistics = statistics or in_dataframe["shape"].columns
+        if isinstance(statistics, str):
+            statistics = [statistics]
+
+        def lingress_subtarget(s, channel):
+            def lingress_stat(istic):
+                channel_istic = channel["shape"].droplevel("subtarget")[istic]
+                by_subtarget = pd.Index([s], name="subtarget")
+                return pd.DataFrame([FlatSpaceColumn.lingress(channel_istic)], index=by_subtarget)
+            return pd.concat([lingress_stat(istic=s) for s in statistics], axis=1, keys=statistics)
+
+        subtargets = in_dataframe.groupby("subtarget")
+        return pd.concat([lingress_subtarget(s, channel) for s, channel in subtargets])
+
+
+def dig_channels(in_subtargets, with_radius, in_circuit, using=None, depth_bins=20, statistics=None):
+    """..."""
+    LOG.info("Compute shapes for %s subtargets", len(in_subtargets))
+    statistics = statistics or ["min", "mean", "std", "median", "mad", "max"]
+
+    def get_channel(with_description):
+        """..."""
+        LOG.info("Get channel shape for subtargets[%s]", with_description.progress)
+        fmap_xy = np.array((with_description[FMAP_X], with_description[FMAP_Y]))
+        size = with_description["size"]
+        fmap_column = FlatSpaceColumn(fmap_xy, with_radius, in_circuit, number_cells=size)
+        return fmap_column.channel(in_space="circuit", of_positions=(using or "voxels"),
+                                   depth_bins=depth_bins, statistics=statistics)
+
+    progress = [f"{int(p)}%"  for p in 100 * np.linspace(0, 1, len(in_subtargets))]
+    channels_as_dataframes = in_subtargets.assign(progress=progress).apply(get_channel, axis=1)
+    return pd.concat([c for c in channels_as_dataframes], keys=in_subtargets.index)
+
+
+def compute_shapes(of_subtargets, with_radius, in_circuit, using=None, depth_bins=20,
+                   statistics=None, to_summarize=None):
+    """..."""
+    channels = dig_channels(of_subtargets, with_radius, in_circuit, using, depth_bins, statistics)
+
+    if not to_summarize:
+        return channels
+
+    return FlatSpaceColumn.lingress_channels(in_dataframe=channels, statistics=to_summarize)
