@@ -185,6 +185,62 @@ def distribute_radially(circuit_space, flat_space=None, statistics=None):
         return circuit_space_dist
 
 
+class FlatMap:
+    """A utility to handle and read data from a circut atlas' flatmap.NRRD.
+    """
+    def __init__(self, atlas):
+        """..."""
+        self._atlas = atlas
+
+    @lazy
+    def voxel_data(self):
+        """..."""
+        return self._atlas.load_data("flatmap")
+
+    @lazy
+    def orientations(self):
+        """..."""
+        return OrientationField.load_nrrd(Path(self._atlas.dirpath) / "orientation.nrrd")
+
+    @staticmethod
+    def frame_indices(in_voxel_data):
+        """..."""
+        fx = in_voxel_data.raw[:, :, :, 0]; fy = in_voxel_data.raw[:, :, :, 1]
+        i, j, k = np.where(np.logical_and(fx > -1, fy > -1))
+        return pd.DataFrame(np.array([i, j, k]).transpose(), columns=list("ijk"))
+
+    @lazy
+    def voxel_indices(self):
+        """///"""
+        return self.frame_indices(self.voxel_data)
+
+    def orient(self, circuit_space_positions):
+        """..."""
+        return pd.DataFrame(self.orientations.lookup(circuit_space_positions.values)[:, :, 1],
+                            columns=XYZ)
+
+    @lazy
+    def voxel_circuit_space(self):
+        """..."""
+        xyz = dict(i=Cell.X, j=Cell.Y, k=Cell.Z)
+        positions = self.voxel_data.indices_to_positions(self.voxel_indices).rename(columns=xyz)
+        orientations = self.orient(positions)
+        return pd.concat([positions, orientations], keys=["position", "orientation"], axis=1)
+
+    def fmap(self, circuit_space_positions):
+        """..."""
+        return (fmutils.supersampled_neuron_locations(circuit_space_positions, self.voxel_data,
+                                                      self._atlas.load_data("orientation"),
+                                                      include_dept=True)
+                .rename(columns={"flat x": FMAP_X, "flat y": FMAP_Y}))
+
+    @lazy
+    def voxels_flat_space(self):
+        """..."""
+        positions = cache_evaluation_of(lambda _: self.fmap(self.voxels_circuit_space.position),
+                                        on_circuit=self.atlas, as_attribute="fmap")
+        return pd.concat([positions], axis=1, keys=["position"])
+
 
 class FlatSpaceColumn:
     """A straight column in the circuit's flatmap space (flatspace for short)
