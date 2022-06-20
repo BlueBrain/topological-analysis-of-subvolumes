@@ -190,3 +190,19 @@ class HDFStore:
         return OrderedDict([("nodes", self.get_nodes(*args)),
                             ("adjacency", self.get_adjacency(*args, connectome or "local")),
                             ("randomizations", self.get_randomizations(*args, connectome, randomizations))])
+
+
+    def locate_fmap_columns(self, circuit, subtargets=None, with_size=None):
+        """..."""
+        in_circuit = self.subtarget_gids.loc[circuit]
+        nodes = in_circuit.apply(len).droplevel(["flat_x", "flat_y"]).rename("nodes")
+
+        def get_edges(subtarget):
+            return self.pour_adjacency(circuit, subtarget, "local").sum()
+
+        idx_subtargets = in_circuit.index.get_level_values("subtarget")
+        edges = pd.Series([get_edges(s) for s in idx_subtargets], name="edges", index=idx_subtargets)
+
+        numbers = pd.concat([nodes, edges], axis=1)
+        fmap_xy = in_circuit.index.to_frame().reset_index(drop=True).set_index("subtarget")
+        return pd.concat([fmap_xy, numbers], axis=1, keys=["position", "number"])

@@ -132,7 +132,7 @@ def get_bins(xs, resolution, padding=0.1):
             except KeyError:
                 raise TypeError("resolution must provide one of `nbins, delta, bins`")
             else:
-                bins = np.linspace(xmin, xmax, nbins)
+                bins = np.linspace(xmin, xmax, nbins + 1)
         else:
             assert "nbins" not in resolution,\
                 "Resolution can be specified by only one of `bins, delta, nbins`."
@@ -144,7 +144,7 @@ def get_bins(xs, resolution, padding=0.1):
     return bins[np.searchsorted(bins, xs) - 1]
 
 
-def get_distance(positions, origin, orientation=None):
+def get_radial(positions, origin, orientation=None):
     """
     Get distance of positions from an `origin`.
     If `orientation` is provided, compute distance from an axis that starts at
@@ -156,11 +156,13 @@ def get_distance(positions, origin, orientation=None):
         return distance_origin
 
     cos_theta = np.dot(positions_relative, orientation) / distance_origin
+    thetas = pd.Series(np.arccos(cos_theta), name="theta", index=positions.index)
     sin_theta = np.sqrt(1. - cos_theta ** 2)
-    return pd.Series(sin_theta * distance_origin, name="distance", index=positions.index).fillna(0.)
+    distances = (pd.Series(sin_theta * distance_origin, name="distance", index=positions.index)
+                 .fillna(0.))
+    return pd.concat([thetas, distances], axis=1)
 
-
-def distribute_radially(circuit_space, statistics=None):
+def distribute_radially(circuit_space, flat_space=None, statistics=None):
     """..."""
     position = circuit_space.position.mean().to_numpy()
 
@@ -176,8 +178,12 @@ def distribute_radially(circuit_space, statistics=None):
     positions_orientations_shape = ([("position", "x"), ("position", "y"), ("position", "z"),
                                     ("orientation", "x"), ("orientation", "y"), ("orientation", "z")]
                                     + [("shape", f"radial_{statistic}") for statistic in statistics])
-    return pd.Series(np.concatenate([position, orientation, radial.values], axis=0),
-                     index=pd.MultiIndex.from_tuples(positions_orientations_shape))
+    circuit_space_dist =  pd.Series(np.concatenate([position, orientation, radial.values], axis=0),
+                                    index=pd.MultiIndex.from_tuples(positions_orientations_shape))
+
+    if not flat_space:
+        return circuit_space_dist
+
 
 
 class FlatSpaceColumn:
@@ -187,7 +193,7 @@ class FlatSpaceColumn:
     """
 
     def __init__(self, center, radius, circuit, *, atlas=None, flatmap=None, orientations=None,
-                 number_cells=None):
+                 number_cells=None, number_connections=None):
         """..."""
         self._center = np.array(center)
         self._radius = radius
@@ -198,6 +204,7 @@ class FlatSpaceColumn:
         self._orientations = orientations
 
         self._number_cells = number_cells
+        self._number_connections = number_connections
 
     @lazy
     def name(self):
@@ -406,9 +413,108 @@ class FlatSpaceColumn:
 
         return pd.Series(values, index=pd.MultiIndex.from_tuples(positions_orientations_shape))
 
-    def channel(self, in_space, of_positions, radius=None, depth_bins=None, statistics="median",
+    @staticmethod
+    def move_index_value(of_statistics, to_column_level_of_dataframe):
+        """Pandas aggregation operations that we use give dataframes with each statistic
+        in the index. We want to move the statistic to a new level of the columns,
+        thus makeing the dataframe wide from long in statistic.
+        """
+        def value(statistic):
+            return to_column_level_of_dataframe.loc[[statistic]].reset_index(drop=True)
+
+        return pd.concat([value(s) for s in of_statistics], axis=1, keys=of_statistics)
+
+    @staticmethod
+    def summarize_circuit_space(column, statistics):
+        """..."""
+        stats = column.circuit_space.position.agg(statistics)
+        positions = FlatSpaceColumn.move_index_value(statistics, to_column_level_of_dataframe=stats)
+
+        stats = column.circuit_space.orientation.agg(statistics)
+        orientations = FlatSpaceColumn.move_index_value(statistics, to_column_level_of_dataframe=stats)
+
+        return pd.concat([positions, orientations], axis=1, keys=["position", "orientation"])
+
+    @staticmethod
+    def summarize_circuit_space(column, statistics):
+        """..."""
+        def summarize_quantity(q):
+            """..."""
+            quantity = column.circuit_space[q].agg(statistics)
+            if q == "orientation":
+                norm = quantity.apply(lambda statistic: np.linalg.norm(statistic), axis=1)
+                quantity = quantity.div(norm, axis=0)
+            return FlatSpaceColumn.move_index_value(statistics, to_column_level_of_dataframe=quantity)
+
+        positions = summarize_quantity("position")
+        orientations = summarize_quantity("orientation")
+
+        def get_overlap(by_statistic):
+            """What is the overlap of the column's summary orientation (by argued statistic),
+            with each orientation in the column.
+            This overlap can serve as a proxy for the pairwise overlaps...
+            """
+            orientation = orientations[by_statistic].values[0]
+            return pd.DataFrame([(column.circuit_space.orientation
+                                  .apply(lambda r: np.dot(r.values, orientation), axis=1)
+                                  .agg(["mean", "std"]))])
+
+        overlaps = pd.concat([get_overlap(s) for s in statistics], axis=1, keys=statistics)
+
+        return pd.concat([positions, orientations, overlaps],
+                         axis=1, keys=["position", "orientation", "overlap"])
+
+
+    @staticmethod
+    def summarize_flat_space(column, statistics):
+        """..."""
+        stats = column.flat_space.position.agg(statistics)
+        positions = FlatSpaceColumn.move_index_value(statistics, stats)
+
+        return pd.concat([positions], axis=1, keys=["position"])
+
+    @staticmethod
+    def summarize_radial(column, statistics, in_space=None):
+        """..."""
+        in_space = in_space or CRCTSPACE
+        assert in_space in (FMAPSPACE, CRCTSPACE), f"Unknown space {in_space}"
+
+        if in_space == CRCTSPACE:
+            positions = column.circuit_space.position
+            center = positions.mean().to_numpy()
+
+            orientations = column.circuit_space.orientation
+            mean_orient = orientations.mean().to_numpy()
+            axis = mean_orient / np.linalg.norm(mean_orient)
+
+        else:
+            positions = column.flat_space.position
+            center = positions.mean().to_numpy()
+            axis = np.array([0., 1., 0.])
+
+        radial_positions = get_radial(positions, center, axis)
+        stats = radial_positions.agg(statistics)
+        radial = FlatSpaceColumn.move_index_value(statistics, stats)
+
+        return pd.concat([radial], axis=1, keys=["radial"])
+
+    @staticmethod
+    def summarize_shape(column, statistics):
+        """..."""
+        circuit_space = FlatSpaceColumn.summarize_circuit_space(column, statistics)
+        radial_circuit_space = FlatSpaceColumn.summarize_radial(column, statistics, CRCTSPACE)
+        circuit_space_and_radial = pd.concat([circuit_space, radial_circuit_space], axis=1)
+
+        fmap_space = FlatSpaceColumn.summarize_flat_space(column, statistics)
+        radial_fmap_space = FlatSpaceColumn.summarize_radial(column, statistics, FMAPSPACE)
+        fmap_space_and_radial = pd.concat([fmap_space, radial_fmap_space], axis=1)
+
+        return pd.concat([circuit_space_and_radial, fmap_space_and_radial], axis=1,
+                         keys=[CRCTSPACE, FMAPSPACE])
+
+    def channel(self, of_positions, radius=None, depth_bins=None, statistics="median",
                 keep_index=None):
-        """Dig a channel as a dataframe of circuit-space or flatmap-space positions,
+        """Dig a channel as a dataframe of circuit-space and flatmap-space positions...
         that are within this `FlatSpaceColumn`.
         If a radius is provided, then a smaller (circular) column with that radius will be
         used to filter. This smaller column will be centered at this `FlatSpaceColumn`'s center,
@@ -421,9 +527,6 @@ class FlatSpaceColumn:
         to the mean orientation and pass through the mean position of the bin
 
         """
-        assert in_space in ("circuit", "flat"), f"Invalid space {in_space}"
-        space = CRCTSPACE if in_space == "cirucit" else FMAPSPACE
-
         assert of_positions in ("voxels", "cells"), f"Invalid positions {of_positions}"
 
         peas = self.voxels if of_positions=="voxels" else self.cells
@@ -442,9 +545,10 @@ class FlatSpaceColumn:
                         .groupby("depth_bin"))
 
         def shape(at_depth):
-            return self.distribute_radially(circuit_space=at_depth.circuit_space, statistics=statistics)
+            return self.summarize_shape(at_depth, statistics=statistics)
 
-        return depth_groups.apply(shape)
+        shapes_at_depth = depth_groups.apply(shape).droplevel(None)
+        return shapes_at_depth
 
     @staticmethod
     def lingress(channel_shape):
@@ -465,48 +569,112 @@ class FlatSpaceColumn:
         return params.append(pvalues).append(error)
 
     @staticmethod
-    def lingress_channels(in_dataframe, statistics=None):
+    def lingress_conicity(channels, statistics=None, drop_ends=None):
         """Fit linear models to channel """
-        statistics = statistics or in_dataframe["shape"].columns
-        if isinstance(statistics, str):
-            statistics = [statistics]
 
         def lingress_subtarget(s, channel):
-            def lingress_stat(istic):
-                channel_istic = channel["shape"].droplevel("subtarget")[istic]
-                by_subtarget = pd.Index([s], name="subtarget")
-                return pd.DataFrame([FlatSpaceColumn.lingress(channel_istic)], index=by_subtarget)
-            return pd.concat([lingress_stat(istic=s) for s in statistics], axis=1, keys=statistics)
+            """..."""
+            if drop_ends is not None:
+                if drop_ends == 0:
+                    channel = channel.iloc[1:]
+                elif drop_ends == -1:
+                    channel = channel.iloc[:-1]
+                elif drop_ends == True or drop_ends == [0, -1]:
+                    channel = channel.iloc[1:-1]
+                else:
+                    raise ValueError(f"Unhandled drop ends for {drop_ends}")
 
-        subtargets = in_dataframe.groupby("subtarget")
+            if channel.empty:
+                return
+
+            radial = channel.circuit_space.radial
+
+            def lingress_stat(istic):
+                """..."""
+                by_subtarget = pd.Index([s], name="subtarget")
+                lr = FlatSpaceColumn.lingress(radial[istic].distance.droplevel("subtarget"))
+                lr.columns = pd.MultiIndex.from_tuples([(f"conicity_{l0}", l1)
+                                                        for l0, l1 in lr.index.values])
+
+                return pd.DataFrame([lr], index=by_subtarget)
+
+            return pd.concat([lingress_stat(istic) for istic in statistics], axis=1, keys=statistics)
+
+        subtargets = channels.groupby("subtarget")
         return pd.concat([lingress_subtarget(s, channel) for s, channel in subtargets])
 
 
 def dig_channels(in_subtargets, with_radius, in_circuit, using=None, depth_bins=20, statistics=None):
     """..."""
-    LOG.info("Compute shapes for %s subtargets", len(in_subtargets))
     statistics = statistics or ["min", "mean", "std", "median", "mad", "max"]
 
-    def get_channel(with_description):
+    def get_channel(for_subtarget):
         """..."""
-        LOG.info("Get channel shape for subtargets[%s]", with_description.progress)
-        fmap_xy = np.array((with_description[FMAP_X], with_description[FMAP_Y]))
-        size = with_description["size"]
-        fmap_column = FlatSpaceColumn(fmap_xy, with_radius, in_circuit, number_cells=size)
-        return fmap_column.channel(in_space="circuit", of_positions=(using or "voxels"),
+        at_fmap_xy = np.array((for_subtarget.position[FMAP_X], for_subtarget.position[FMAP_Y]))
+        fmap_column = FlatSpaceColumn(at_fmap_xy, with_radius, in_circuit,
+                                      number_cells=for_subtarget.number.nodes,
+                                      number_connections=for_subtarget.number.edges)
+        return fmap_column.channel(of_positions=(using or "voxels"), radius=None,
                                    depth_bins=depth_bins, statistics=statistics)
-
+                                   
     progress = [f"{int(p)}%"  for p in 100 * np.linspace(0, 1, len(in_subtargets))]
     channels_as_dataframes = in_subtargets.assign(progress=progress).apply(get_channel, axis=1)
     return pd.concat([c for c in channels_as_dataframes], keys=in_subtargets.index)
 
 
+def compute_conicity(channels, statistics, drop_ends):
+    """..."""
+    lingress = FlatSpaceColumn.lingress_conicity(channels, statistics, drop_ends)
+
+    column_depth = (channels.flat_space.position["median"].depth.groupby("subtarget")
+                    .agg(lambda ds: ds.max() - ds.min()).rename("column_depth")
+                    .loc[lingress.index])
+
+    LOG.info("%s column depths ", len(column_depth))
+
+    conicity_ratio_empirical = (channels.circuit_space.radial["mean"].distance.groupby("subtarget")
+                                .agg(lambda sr: sr[-1] / sr[0]).rename("ratio_empirical")
+                                .loc[lingress.index])
+
+    def summarize(s):
+        LOG.info("%s entries in %s lingress ", len(lingress[s]), s)
+
+        conicity_top = lingress[s].params.Intercept.rename("top")
+        conicity_slope = lingress[s].params.depth.rename("slope")
+        conicity_rsquared = lingress[s].fit.rsquared.rename("rsquared")
+
+        conicity_ratio_model = ((conicity_top.values + conicity_slope.values * column_depth)
+                                / conicity_top.values).rename("ratio_model")
+
+        return pd.concat([conicity_top, conicity_slope, conicity_rsquared,
+                          conicity_ratio_model, conicity_ratio_empirical,
+                          column_depth], axis=1)
+
+    return pd.concat([summarize(s) for s in statistics], axis=1, keys=statistics)
+
+def analyze_conicity(in_subtargets, with_radius, in_circuit, using=None,
+                     depth_bins=20, statistics=None, to_summarize=None,
+                     drop_ends=None):
+    """Measure subtargets conicity and characterize it.
+    TODO: What are these parameters?
+    ~ Define a class that parameterizes an analysis of the flatmap-column conicity,
+    ~ and then may be runs it too.
+
+    in_subtargets: DataFrame containing flatspace position and node, edge numbers...
+
+    """
+    channels = dig_channels(in_subtargets, with_radius, in_circuit, using, depth_bins, statistics)
+
+    conicity = compute_conicity(channels, statistics=to_summarize, drop_ends=drop_ends)
+
 def compute_shapes(of_subtargets, with_radius, in_circuit, using=None, depth_bins=20,
                    statistics=None, to_summarize=None):
     """..."""
-    channels = dig_channels(of_subtargets, with_radius, in_circuit, using, depth_bins, statistics)
+    channels = dig_channels(of_subtargets.position, with_radius, in_circuit, using, depth_bins, statistics)
 
     if not to_summarize:
         return channels
 
-    return FlatSpaceColumn.lingress_channels(in_dataframe=channels, statistics=to_summarize)
+    conicity = FlatSpaceColumn.lingress_conicity(channels, statistics=to_summarize)
+
+    return conicity.join(of_subtargets.number)
