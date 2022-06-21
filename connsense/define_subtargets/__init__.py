@@ -3,6 +3,7 @@
 NOTE: As of today (20220207), this file is under a refactor towards a uniform configuration
 ~     each pipeline step.
 """
+from collections.abc import Mapping
 from pathlib import Path
 
 import pandas as pd
@@ -15,7 +16,7 @@ from flatmap_utility.tessellate import TriTille
 
 from .config import SubtargetsConfig
 from ..pipeline import workspace
-from ..io.write_results import write
+from ..io.write_results import write, default_hdf
 from ..io import read_config, logging
 from ..io.read_config import check_paths
 
@@ -288,21 +289,39 @@ def generate_predefined(subtargets_config, fmt):
 
     return pd.concat([generate_group(g, subtargets=ss) for g, ss in subtargets_group.items()])
 
+
 def define(subtarget_type, using_config, fmt=None):
     """..."""
     fmt = fmt or "wide"
     assert fmt in ("wide", "long"), f"Unknown format {fmt}"
 
     subtargets_config = SubtargetsConfig(using_config)
-    if subtarget_type == "hexgrid":
-        subtargets = generate_hexgrid(subtargets_config, fmt)
-    elif subtarget_type == "predefined":
-        subtargets = generate_predefined(subtargets_config, fmt)
-    else:
-        raise ValueError(f"Unknown subtarget type {subtarget_type}")
+    try:
+        subtarget_def = subtargets_config.definitions[subtarget_type]
+    except KeyError as kerr:
+        raise ValueError(f"Unknown subtarget type {subtarget_type}") from kerr
 
-    return subtargets
-    return format_wide(subtargets) if fmt=="wide" else subtargets
+    return subtarget_def.generate(subtargets_config.input_circuit)
+
+def read(config):
+    """..."""
+    try:
+        path = Path(config)
+    except TypeError:
+        assert isinstance(config, Mapping)
+        return config
+    return  read_config.read(path)
+
+
+def output_specified_in(configured_paths, and_argued_to_be):
+    """..."""
+    steps = configured_paths["steps"]
+    to_hdf_at_path, under_group = steps.get(STEP, default_hdf(STEP))
+
+    if and_argued_to_be:
+        to_hdf_at_path = and_argued_to_be
+
+    return (to_hdf_at_path, under_group)
 
 
 def run(config, action, substep=None, in_mode=None, parallelize=None,
@@ -326,19 +345,19 @@ def run(config, action, substep=None, in_mode=None, parallelize=None,
     kwargs :: keyword arguments that will be dropped --- but may make sense to another step
     ~        These are passed by the pipeline run interface...
     """
-    LOG.warning("Define %s subtargets inside the circuit %s", definition, input_paths)
-
-    config = read_config.read(config)
+    config = read(config)
+    input_paths, output_paths = check_paths(config, STEP)
+    LOG.warning("Define %s subtargets inside the circuit %s", substep, input_paths)
 
     in_rundir = workspace.get_rundir(config, mode=in_mode, **kwargs)
     to_define_subtargets_in = workspace.locate_base(in_rundir, for_step=STEP)
-
-    _= define(config, sample=sample, fmt="wide")
+    LOG.warning("\tworking in %s", to_define_subtargets_in)
 
     subtargets = define(subtarget_type=substep, using_config=config, fmt="wide")
 
     LOG.info("Defined %s %s-subtargets.", len(subtargets), substep)
-    output = write(subtargets, to_path=(config.paths["pipeline"]["root"], STEP))
+    to_output = output_specified_in(output_paths, and_argued_to_be=output)
+    output = write(subtargets, to_path=to_output)
     LOG.warning("DONE: define_subtargets %s %s in mode %s", action, substep, in_mode)
     return output
 
@@ -393,7 +412,7 @@ def run_0(config, in_mode=None, parallelize=None, *args,
     if dry_run:
         LOG.info("TEST pipeline plumbing.")
     else:
-        subtargets = define(config, sample=sample, fmt="wide")
+        subtargets = define_0(config, sample=sample, fmt="wide")
         LOG.info("Done defining %s subtargets.", subtargets.shape)
 
     LOG.info("Write result to %s", output)

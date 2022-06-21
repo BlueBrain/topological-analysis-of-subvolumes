@@ -54,16 +54,51 @@
   },
   "parameters": {
     "define-subtargets": {
-      "common": {
-        "COMMENT": [
-          "Subtargets are grouped by their defnition provided in the next section.",
-          "Any common parameters may be provided here."
-        ]
-      },
-      "grids": {
-        "hexgrid": {
-          "radius": 230.0,
-          "base_target": "Mosaic"
+      "COMMENT": [
+        "Conventions to define a subtarget are still evolving.\n",
+        "Subtargets cannot be only connsense defined, and we keep exploring conventions to allow several."
+      ],
+      "definitions": {
+        "hexgrid-cells": {
+          "COMMENT": [
+            "A hexagonal grid in the circuit's flatmap space (a.k.a. flatspace), ",
+            "using methods provided in `connsense/flatmap_utility\n",
+            "Cell positions should be directly distributed among the hexagonal (flatspace-) subtargets\n",
+            "with the specs provided as `parameters` below."
+          ],
+          "shape": "hexgrid",
+          "parameters": {
+            "origin": [0.0, 0.0],
+            "radius": 230.0,
+            "base_target": "Mosaic"
+          }
+        },
+        "hexgrid-voxels": {
+          "COMMENT": [
+            "A hexagonal grid in the circuit's flatmap space, using an NRRD file and a metadata / info file.\n",
+            "For each voxel, the NRRD should contain an integer ID that refers to the subtarget that the voxel\n",
+            "is mapped to. The ID's should be mapped to the subtargets they refer to in a dataframe provided as \n",
+            "`info`."
+          ],
+          "nrrd": "/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/column_identities.nrrd",
+          "info":  "/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/voxel-based-hex-grid-info.h5"
+        },
+        "central-columns": {
+          "COMMENT": [
+            "A column along the layers in each of the SSCx's 8 subregions that have been reconstructed.\n",
+            "Each column's cells are present as a circuit cell-target and will be loaded to define the subtarget"
+          ],
+          "group": "central_columns",
+          "members": [
+            "S1DZO_Column",
+            "S1DZ_Column",
+            "S1FL_Column",
+            "S1HL_Column",
+            "S1J_Column",
+            "S1Sh_Column",
+            "S1Tr_Column",
+            "S1ULp_Column"
+          ]
         }
       }
     },

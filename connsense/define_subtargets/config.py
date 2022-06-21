@@ -136,14 +136,34 @@ class SubtargetsConfig:
 
         A use-case separate from the cortical flapmap hexgrid, might be a set of
         columns defined for the Hippocampus CA1 circuit.
+
+        TODO: the methods used here are a quick iteration to accommodate NRRD subtargets.
+        ~   AND must be refactored to remove all the circuit specific information like central-columns...
         """
-        if group == "hexgrid":
-            return Hexgrid(self, using_spec)
+        def define_shape(s, parameters):
+            """..."""
+            if s == "hexgrid":
+                return Hexgrid(self, parameters)
+            raise NotImplementedError(f"Subtargets with shape {s} not yet provided by `connsense`.")
 
-        if group == "central_columns":
-            return CentralColumns(self, using_spec)
+        def define_nrrd(at_path, and_info_at):
+            """..."""
+            return SubtargetsRegisteredInNRRD(self, at_path, and_info_at)
 
-        raise NotImplementedError(f"Definition {group} of subtargets.")
+        def define_predefined_group(g, members):
+            """..."""
+            return PredefinedSubtargetsGroup(self, g, members)
+
+        if group == "hexgrid-cells":
+            return define_shape(using_spec["shape"], using_spec["parameters"])
+
+        if group == "hexgrid-voxels":
+            return define_nrrd(at_path=using_spec["nrrd"], and_info_at=using_spec["info"])
+
+        if group == "central-columns":
+            return define_predefined_group("central_columns", using_spec["members"])
+
+        raise NotImplementedError(f"Group {group} of subtargets with spec {using_spec}")
 
     @lazy
     def definitions(self):
@@ -234,6 +254,73 @@ class Hexgrid:
                               "gids": group["gid"].to_list()})
 
         return subtargets[variables].groupby(index_vars).apply("enlist").gids
+
+
+class SubtargetsRegisteredInNRRD:
+    """..."""
+    def __init__(self, config, path, and_info_at):
+        """...
+        config : `SubtargetConfig` instance
+        """
+        self._config = config
+        self._path_nrrd = path
+        self._grid_info = and_info_at
+
+    @lazy
+    def grid_info(self):
+        """Read the NRRD, join with the grid info and change column names...
+        """
+        info = pd.read_hdf(self._grid_info, "grid-info")
+        to_flatspace = {"nrrd-file-id": "subtarget_id", "grid-i": "flat_i", "grid-j": "flat_j",
+                        "grid-x": "flat_x", "grid-y": "flat_y", "grid-subtarget": "subtarget"}
+        return info.rename(columns=to_flatspace).set_index("subtarget_id")
+
+    def assign_cells(self, in_circuit, with_label):
+        """Assign cells in a circuit to the subtargets,
+        to get one dataframe for each input circuit that contains
+        """
+        from conntility.circuit_models.neuron_groups import load_group_filter
+
+        loader_cfg = {
+            "loading":{ # Neuron properties to load. Here we put anything that may interest us
+                "properties": ["x", "y", "z", "layer", "synapse_class"],
+                "atlas": [
+                    {"data": self._path_nrrd, "properties": ["column-id"]}
+                ],
+            }
+        }
+
+        neurons = load_group_filter(in_circuit, loader_cfg).rename(columns={"column-id": "subtarget_id"})
+        flatmapped = neurons[neurons.subtarget_id > 0]  # Only include neurons in voxels that have been assigned to columns
+        with_info = flatmapped.set_index("subtarget_id").join(self.grid_info)
+
+        idxvars = ["circuit", "subtarget", "flat_x", "flat_y"]
+        return with_info.assign(circuit=with_label).groupby(idxvars).apply(lambda g: list(g.gid))
+
+    def generate(self, circuits=None):
+        """..."""
+        circuits = circuits or self.input_circuits
+        return pd.concat([self.assign_cells(in_circuit=c, with_label=l) for l, c in circuits.items()])
+
+
+class PredefinedSubtargetsGroup:
+    """Define subtargets using named circuit cell targets.
+    """
+    def __init__(self, config,  group, members):
+        """...
+        config : `SubtargetConfig` instance
+        group : The group of subtargets, example central_columns, or regions.
+        ~       The circuit atlas is expected to contain this folder from where
+        ~       individual subtarget NRRDs can be loaded/
+        members : Names of the subtargets...
+        """
+        self._config = config
+        self._group = group
+        self._members = members
+
+    def generate_subtarget(self, s):
+        """Generate one subtarget..."""
+        raise NotImplementedError("Shold not be hard, but will be done after NRRDs.")
 
 
 class CentralColumns:

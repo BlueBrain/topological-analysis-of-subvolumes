@@ -519,7 +519,7 @@ def run(config, action, substep=None, controls=None, in_mode=None, parallelize=N
     LOG.info("Analyses to run %s", pformat(analyses))
 
     basedir = workspace.locate_base(rundir, STEP)
-    m =in_mode; p = read_parallelization(parallelize) if parallelize else None
+    m = in_mode; p = read_parallelization(parallelize) if parallelize else None
     analyzed_results = dispatch(toc_dispatch, neurons, analyses, action, in_mode,
                                 controls=read_controls(config, controls),
                                 parallelize=p,

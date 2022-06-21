@@ -79,7 +79,7 @@ def lower(argument):
     return argument.lower() if argument else None
 
 
-SUBSTEPS = OrderedDict([("define-subtargets", "grids"),
+SUBSTEPS = OrderedDict([("define-subtargets", "definitions"),
                         ("extract-neurons", None),
                         ("evaluate-subtargets", "metrics"),
                         ("extract-connectivity", "connectomes"),
