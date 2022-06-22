@@ -289,7 +289,6 @@ class SubtargetsRegisteredInNRRD:
                 ],
             }
         }
-
         neurons = load_group_filter(in_circuit, loader_cfg).rename(columns={"column-id": "subtarget_id"})
         flatmapped = neurons[neurons.subtarget_id > 0]  # Only include neurons in voxels that have been assigned to columns
         with_info = flatmapped.set_index("subtarget_id").join(self.grid_info)

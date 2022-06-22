@@ -157,7 +157,7 @@ def get_parser():
 
 def main(argued=None):
     """..."""
-    LOG.info("Initialize the topological analysis pipeline.")
+    LOG.info("Run a TAP analysis.")
 
     if not argued:
         parser = get_parser()

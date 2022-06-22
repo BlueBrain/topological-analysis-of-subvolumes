@@ -8,8 +8,11 @@ import numpy
 from bluepy import Circuit
 
 from ..io import read_config as read_cfg
+from ..io.read_config import check_paths
 from ..io.write_results import read as read_results, write, default_hdf
 from ..io import logging
+
+from ..define_subtargets.config import SubtargetsConfig
 
 STEP = "extract-neurons"
 LOG = logging.get_logger(STEP)
@@ -36,7 +39,7 @@ def extract(circuits, subtargets, params):
     if len(params) == 0:
         print("Warning: No properties to extract given. This step will do nothing!")
 
-    circuits = dict([(k, Circuit(v)) for k, v in circuits.items()])
+    circuits = {k: c if isinstance(c, Circuit) else Circuit(c) for k, c in circuits.items()}
 
     # TODO: find a better way
     if "depth" in params:
@@ -98,7 +101,28 @@ def _resolve_hdf(location, paths):
     return (path,group)
 
 
-def run(config, in_mode=None, parallelize=None, output=None, dry_run=False, **kwargs):
+def read(config):
+    """..."""
+    try:
+        path = Path(config)
+    except TypeError:
+        assert isinstance(config, Mapping)
+        return config
+    return  read_config.read(path)
+
+
+def output_specified_in(configured_paths, and_argued_to_be):
+    """..."""
+    steps = configured_paths["steps"]
+    to_hdf_at_path, under_group = steps.get(STEP, default_hdf(STEP))
+
+    if and_argued_to_be:
+        to_hdf_at_path = and_argued_to_be
+
+    return (to_hdf_at_path, under_group)
+
+
+def run(config, in_mode=None, parallelize=None, output=None, **kwargs):
     """Launch extraction of  neurons.
 
     TODO
@@ -112,50 +136,37 @@ def run(config, in_mode=None, parallelize=None, output=None, dry_run=False, **kw
         raise NotImplementedError(f"Parallilization of {STEP}")
 
     cfg = read(config)
-    paths = cfg["paths"]
+    input_paths, output_paths = check_paths(cfg, STEP)
 
-    if "circuit" not in paths:
+    subtarget_cfg = SubtargetsConfig(cfg)
+
+    if "circuit" not in cfg["paths"]:
         raise RuntimeError("No circuits defined in config!")
-    if "define-subtargets" not in paths:
-        raise RuntimeError("No defined columns in config!")
-    if "extract-neurons" not in paths:
-        raise RuntimeError("No neurons in config!")
+    if "define-subtargets" not in input_paths["steps"] or "define-subtargets" not in output_paths["steps"]:
+        raise RuntimeError("Missing subtarget definitions in config.")
+    if "extract-neurons" not in input_paths["steps"] or "extract-neurons" not in output_paths["steps"]:
+        raise RuntimeError("Missing neuron extraction in config!")
 
-    if not dry_run:
-        circuits = cfg["paths"]["circuit"]
-
-    path_targets = cfg["paths"]["define-subtargets"]
+    #path_targets = cfg["paths"]["define-subtargets"]
+    path_targets = output_paths["steps"]["define-subtargets"]
 
     LOG.info("READ targets from path %s", path_targets)
-    if dry_run:
-        LOG.info("TEST pipeline plumbing.")
-    else:
-        targets = read_results(path_targets, for_step="define-subtargets")
-        LOG.info("DONE read number of targets read: %s", targets.shape[0])
+    subtargets = read_results(path_targets, for_step="define-subtargets")
+    LOG.info("DONE read number of targets read: %s", subtargets.shape[0])
 
     cfg = cfg["parameters"].get(STEP, {})
     params = cfg.get("properties", [])
 
     LOG.info("Cell properties to extract: %s", params)
-    if dry_run:
-        LOG.info("TEST pipeline plumbing.")
-    else:
-        extracted = extract(circuits, targets, params)
-        LOG.info("DONE, extracting %s", params)
+    extracted = extract(subtarget_cfg.input_circuit, subtargets, params)
+    LOG.info("DONE, extracting %s", params)
 
-
-    output = _resolve_hdf(output, paths)
+    to_output = output_specified_in(output_paths, and_argued_to_be=output)
     LOG.info("WRITE neuron properties to archive %s\n\t under group %s",
-             output[0], output[1])
-    if dry_run:
-        LOG.info("TEST pipeline plumbing.")
-    else:
-        write(extracted, to_path=output, format="table")
-        LOG.info("DONE neuron properties to archive.")
+             to_output[0], to_output[1])
+    write(extracted, to_path=to_output, format="table")
+    LOG.info("DONE neuron properties to archive.")
 
-    if dry_run:
-        LOG.info("DONE dry-run testing the pipeline's plumbing")
-    else:
-        LOG.warning("DONE extract neurons for %s subtargets", targets.shape[0])
+    LOG.warning("DONE extract neurons for subtargets, with %s neurons in a dataframe", extracted.shape[0])
 
-    return f"Saved output {output}"
+    return f"Saved output {to_output}"

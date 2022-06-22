@@ -154,9 +154,7 @@
         ]
       },
       "connectomes": [
-        [
-          "local"
-        ]
+        "local"
       ]
     },
     "connectivity-controls": {

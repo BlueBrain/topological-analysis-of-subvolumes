@@ -4,9 +4,15 @@ import numpy
 from scipy import sparse
 import pandas
 from tqdm import tqdm
-import bluepy
+from bluepy import Circuit
 
+from ..io.write_results import (read as read_results,
+                                write_toc_plus_payload as write,
+                                default_hdf)
+from ..io.read_config import check_paths
 from ..io import logging
+
+from ..define_subtargets.config import SubtargetsConfig
 
 STEP = "extract-connectivity"
 LOG = logging.get_logger(STEP)
@@ -68,7 +74,7 @@ def find_connectome_files(circuit_dict):
 def run_extraction(circuits, subtargets, list_of_connectomes):
     if len(list_of_connectomes) == 0:
         LOG.warning("No connectomes defined. This step will do nothing!")
-    circuits = dict([(k, bluepy.Circuit(v)) for k, v in circuits.items()])
+    circuits = dict([(k, Circuit(v)) for k, v in circuits.items()])
 
     connectome_names = [" + ".join(lst) for lst in list_of_connectomes]
     connectome_series = pandas.Series(list_of_connectomes, index=connectome_names)
@@ -94,10 +100,15 @@ def run_extraction(circuits, subtargets, list_of_connectomes):
 
 
 def run_extraction_from_full_matrix(circuits, subtargets, list_of_connectomes):
+    """..."""
+    LOG.info("Extract connectivity for connectomes: %s", list_of_connectomes)
+
     if len(list_of_connectomes) == 0:
         LOG.warning("No connectomes defined. This step will do nothing!")
-    circuits = dict([(k, bluepy.Circuit(v)) for k, v in circuits.items()])
+
+    circuits = {k: c if isinstance(c, Circuit) else Circuit(c) for k, c in circuits.items()}
     connectome_files = find_connectome_files(circuits)
+
     connectome_names = [" + ".join(lst) for lst in list_of_connectomes]
 
     circ_lvl_idx = subtargets.index.names.index("circuit")
@@ -126,3 +137,51 @@ def run_extraction_from_full_matrix(circuits, subtargets, list_of_connectomes):
         res.append(pandas.concat(res_over_connectomes, keys=connectome_names, names=["connectome"]))
     res = pandas.concat(res, keys=circ_names, names=["circuit"])
     return res
+
+
+def output_specified_in(configured_paths, and_argued_to_be):
+    """..."""
+    steps = configured_paths["steps"]
+    to_hdf_at_path, under_group = steps.get(STEP, default_hdf(STEP))
+
+    if and_argued_to_be:
+        to_hdf_at_path = and_argued_to_be
+
+    return (to_hdf_at_path, under_group)
+
+
+def resolve_connectomes(in_argued):
+    """..."""
+    if isinstance(in_argued, str):
+        return [[in_argued]]
+
+    raise NotImplementedError(f"Argued type {type(in_argued)}."
+                              " To do when ready to analyze local + mid-range.")
+
+def extract_subtargets(in_config, connectome=None, output=None):
+    """..."""
+    LOG.warning("Extract conectivity of subtargets")
+
+    input_paths, output_paths = check_paths(in_config, STEP)
+
+    subtarget_cfg = SubtargetsConfig(in_config)
+
+    path_subtargets = output_paths["steps"]["define-subtargets"]
+    LOG.info("Read subtargets from %s", path_subtargets)
+    subtargets = read_results(path_subtargets, for_step="extract-connectivity")
+    LOG.info("Done reading subtargets %s", len(subtargets))
+
+    connectome = connectome or "local"
+
+    parameters = in_config["parameters"]["extract-connectivity"]
+    configured = parameters.get("connectomes", [])
+    assert connectome in configured, f"Argued connectome {connectome} must be among {configured}"
+
+    extracted = run_extraction_from_full_matrix(subtarget_cfg.input_circuit, subtargets,
+                                                resolve_connectomes(in_argued=connectome))
+
+    to_output = output_specified_in(output_paths, and_argued_to_be=output)
+    write(extracted, to_output, format="table")
+
+    LOG.warning("DONE, exctracting %s subtarget connectivity", len(extracted))
+    return to_output

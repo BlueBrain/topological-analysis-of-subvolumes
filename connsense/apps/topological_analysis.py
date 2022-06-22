@@ -139,9 +139,10 @@ def check_step(as_argued, against_config):
     if not ss:
         return (s, None)
 
-    assert ss in parameters, (f"substep {ss} is not a substep of step {s}."
-                              f" Provide one of {pformat(list(parameters.keys()))}")
-
+    if ss not in parameters:
+        configured = parameters if isinstance(parameters, list) else list(parameters.keys())
+        raise AssertionError(f"substep {ss} is not a substep of step {s}."
+                             f" Provide one of {pformat(configured)}")
     return (s, ss)
 
 
