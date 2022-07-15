@@ -67,7 +67,7 @@ def parallely_randomize(controls, subtargets, neurons, action,
     to_sbatch = to_parallelize.get(controls.name, {}).get("sbatch", None)
 
     multirun = configure_launch_multi(compute_nodes, computation=controls, computable="control",
-                                      using_subtargets=batched, control=None,
+                                      using_subtargets=batched, control=None, subgraphs=None,
                                       at_workspace=(base, rundir), cmd_sbatch=cmd_sbatch_randomization,
                                       action=action, in_mode=in_mode, slurm_config=to_sbatch)
     LOG.info("Multinode randomization run: \n%s", pformat(multirun))
@@ -92,8 +92,8 @@ def read_parallelization(config):
     return step
 
 
-def run(config, action, substep=None, in_mode=None, parallelize=None,
-        output=None, tap=None, **kwargs):
+def run(config, action, substep=None, in_mode=None, parallelize=None, output=None, tap=None,
+        **kwargs):
     """Run an action such as `init, run, continue, merge or collect` on
     TAP step `randomization-connetivity`.
     All the relevant information must be provided in the TAP config.

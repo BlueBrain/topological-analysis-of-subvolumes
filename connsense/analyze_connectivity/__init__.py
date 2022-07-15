@@ -20,9 +20,10 @@ from ..io.write_results import (read as read_results,
                                 write_toc_plus_payload,
                                 default_hdf)
 
-from ..io import read_config, logging
 from ..io.read_config import check_paths
-from .analysis import SingleMethodAnalysisFromSource
+from ..io import read_config
+from ..io import logging
+from .analysis import SingleMethodAnalysisFromSource, SubgraphAnalysisFromSource
 from .analyze import BATCHED_SUBTARGETS, parallely_analyze
 from .import matrices
 
@@ -235,19 +236,38 @@ def get_analyses(config, names=False, as_dict=False):
 
     configured = analyze_params["analyses"]
 
-    LOG.warning("configured analyses %s", configured)
+    LOG.warning("configured analyses \n%s", pformat(list(configured.keys())))
 
     if names:
         return list(configured.keys())
 
-    if not as_dict:
-        return [SingleMethodAnalysisFromSource(name, description)
-                for name, description in configured.items()]
-    return {name: SingleMethodAnalysisFromSource(name, description)
-            for name, description in configured.items() if name != "COMMEMT"}
+    def generate_analyses(items, OfType, **kwargs):
+        """..."""
+        return dict((n, OfType(name=n, description=d, **kwargs)) for n, d in items
+                    if n!= "COMMENT" and n!= "common")
 
+    subgraphs_config = all_parameters["connectivity-subgraphs"]["algorithms"]
 
-def filter_analyses(ns, substep):
+    def generate_analyses(name, description):
+        """There may be more than one analyses to generate for a single list in the configuration.
+        """
+        fullanalysis = SingleMethodAnalysisFromSource(name, description)
+
+        try:
+            subgraphs = description["subgraphs-to-apply"]
+        except KeyError:
+            subanalyses = {}
+        else:
+            algorithms = lambda s: (s, subgraphs_config[s])
+            subanalyses = {s: SubgraphAnalysisFromSource(name, description, algorithms(s)) for s in subgraphs}
+
+        return {"fullgraph": fullanalysis, "subgraphs": subanalyses}
+
+    analyses = {name: generate_analyses(name, description) for name, description in configured.items()}
+
+    return analyses if as_dict else list(analyses.values())
+
+def filter_analyses(ns, substep, subgraphs):
     """Filter an analyze-connectivity substep --- provided at the CLI.
     """
     analyses = ns
@@ -255,23 +275,35 @@ def filter_analyses(ns, substep):
         return analyses
 
     try:
-        substep_analysis = analyses[substep]
+        substep_analyses = analyses[substep]
     except KeyError as kerr:
-        raise KeyError(f"analyze-connectivity <substep> {substep}"
-                       " must be missing in the config.") from kerr
-    return [substep_analysis]
+        LOG.error("analyze-connectivity <substep> %s must be missing the config: \n%s", substep, kerr)
+
+    if subgraphs:
+        try:
+            subgraphs_analyses = substep_analyses["subgraphs"]
+        except KeyError:
+            LOG.error("No subgraphs in the substep %s analyses!", substep)
+            return None
+
+        if subgraphs is True:
+            return subgraphs_analyses
+
+        return [subgraphs_analyses[subgraphs]]
+
+    return [substep_analyses]
 
 
-def get_value_store(analysis, at_path, from_cache=None, in_mode='a'):
+def get_value_stores(analysis, at_path, from_cache=None, in_mode='a'):
     """..."""
     if not from_cache:
         to_hdf_at_path, under_group = at_path; m = in_mode
-        return matrices.get_store(to_hdf_at_path, under_group + "/" + analysis.name,
+        return matrices.get_store(to_hdf_at_path, under_group + "/" + analysis.hdf_group,
                                   for_matrix_type=analysis.output_type, in_mode=m)
     try:
         store = from_cache[analysis]
     except KeyError:
-        store = get_value_store(analysis, at_path)
+        store = get_value_stores(analysis, at_path)
         from_cache[analysis] = store
     return store
 
@@ -377,7 +409,7 @@ def load_adjacencies(paths, from_batch=None, return_batches=True, sample=None):
     return subset_subtargets((toc, batches) if return_batches else toc, sample)
 
 
-def dispatch(adjacencies, neurons, analyses, action=None, in_mode=None, controls=None,
+def dispatch(adjacencies, neurons, analyses, action=None, in_mode=None, subgraphs=None, controls=None,
              parallelize=None, output=None, tap=None, dry_run=False):
     """Dispatch a table of contents of adjacencies, ...
 
@@ -410,7 +442,7 @@ def dispatch(adjacencies, neurons, analyses, action=None, in_mode=None, controls
         LOG.info("Test plumbing: analyze: dispatch toc")
         return None
 
-    args = (adjacencies, neurons, action, in_mode, controls, parallelize["analyses"], tap, output)
+    args = (adjacencies, neurons, action, in_mode, subgraphs, controls, parallelize["analyses"], tap, output)
     results = {quantity: parallely_analyze(quantity, *args) for quantity in analyses}
 
     LOG.info("Done, analyzing %s matrices", len(adjacencies))
@@ -426,7 +458,7 @@ def save_output(results, to_path):
     p, group = to_path
 
     def in_store(analysis):
-        g = f"{group}/{analysis.name}"
+        g = f"{group}/{analysis.hdf_group}"
         m = analysis.output_type
         return matrices.get_store(to_hdf_at_path=p, under_group=g, for_matrix_type=m)
 
@@ -487,7 +519,7 @@ def _check_paths(config):
     return check_paths(config, STEP)
 
 
-def run(config, action, substep=None, controls=None, in_mode=None, parallelize=None,
+def run(config, action, substep=None, subgraphs=None, controls=None, in_mode=None, parallelize=None,
         output=None, batch=None, sample=None, tap=None, dry_run=None, **kwargs):
     """..."""
     from connsense.pipeline import workspace
@@ -515,13 +547,13 @@ def run(config, action, substep=None, controls=None, in_mode=None, parallelize=N
 
     configured = get_analyses(config, as_dict=True)
     LOG.info("Analyses in the configuration %s", pformat(configured.keys()))
-    analyses = filter_analyses(configured, substep)
+    analyses = filter_analyses(configured, substep, subgraphs)
     LOG.info("Analyses to run %s", pformat(analyses))
 
     basedir = workspace.locate_base(rundir, STEP)
     m = in_mode; p = read_parallelization(parallelize) if parallelize else None
     analyzed_results = dispatch(toc_dispatch, neurons, analyses, action, in_mode,
-                                controls=read_controls(config, controls),
+                                subgraphs, controls=read_controls(config, controls),
                                 parallelize=p,
                                 output=(basedir, hdf_group),
                                 tap=tap, dry_run=dry_run)
@@ -532,13 +564,15 @@ def run(config, action, substep=None, controls=None, in_mode=None, parallelize=N
     return analyzed_results
 
 
-def load_batched_results(analyses, controls, parallelization, output):
+def load_batched_results(analyses, subgraphs, controls, parallelization, output):
     """..."""
     from .analyze import load_parallel_run_analysis
-    return {a: load_parallel_run_analysis(a, controls, parallelization, output) for a in analyses}
+    return {a: load_parallel_run_analysis(a, subgraphs, controls, parallelization, output)
+            for a in analyses}
 
 
-def collect(config, in_mode, parallelize, substep=None, controls=None, output=None, **kwargs):
+def collect(config, in_mode, parallelize, substep=None, subgraphs=None, controls=None, output=None,
+            **kwargs):
     """Collect batched results into a single store.
 
     substep :: Name of the analysis to store that is provided at the CLI as analyze-connectivity substep.
@@ -560,13 +594,14 @@ def collect(config, in_mode, parallelize, substep=None, controls=None, output=No
 
     _, hdf_group = output_paths["steps"].get(STEP, default_hdf(STEP))
     configured = get_analyses(config, as_dict=True)
-    analyses = filter_analyses(configured, substep)
+    analyses = filter_analyses(configured, substep, subgraphs)
     LOG.info("Collect analyses %s", pformat([a.name for a in analyses]))
 
     rundir = workspace.get_rundir(config, mode=in_mode, **kwargs)
     basedir = workspace.locate_base(rundir, STEP)
     to_save = (basedir, hdf_group)
-    batched_results = load_batched_results(analyses, controls, to_parallelize["analyses"], to_save)
+    batched_results = load_batched_results(analyses, subgraphs, controls, to_parallelize["analyses"],
+                                           to_save)
 
     LOG.info("Loaded results : \n%s ", pformat(batched_results))
 

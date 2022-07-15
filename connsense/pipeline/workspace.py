@@ -17,8 +17,8 @@ STEP = "setup-pipeline"
 LOG = logging.get_logger(STEP)
 
 
-def get_rundir(config, step=None, substep=None, controls=None, mode=None, with_base=False,
-               *args, **kwargs):
+def get_rundir(config, step=None, substep=None, subgraphs=None, controls=None, mode=None,
+                with_base=False, *args, **kwargs):
     """..
     """
 
@@ -49,8 +49,7 @@ def get_rundir(config, step=None, substep=None, controls=None, mode=None, with_b
     pipeline = config["paths"]
 
     basedir = Path(pipeline["root"])
-    assert basedir.exists() and basedir.is_dir(),\
-        f"Pipeline root folder {basedir} must exist."
+    assert basedir.exists() and basedir.is_dir(), f"Pipeline root folder {basedir} must exist."
 
     rundir = basedir / "run"
     rundir.mkdir(parents=False, exist_ok=True)
@@ -58,22 +57,30 @@ def get_rundir(config, step=None, substep=None, controls=None, mode=None, with_b
     modir = rundir / mode if mode else rundir
     modir.mkdir(parents=False, exist_ok=True)
 
-    if not step:
-        assert not substep, f"Substep {f} of step None maketh sense None"
-        return apply_controls((rundir, modir) if with_base else modir)
+    if step:
+        stepdir = modir / step
+        stepdir.mkdir(parents=False, exist_ok=True)
 
-    stepdir = modir / step
-    stepdir.mkdir(parents=False, exist_ok=True)
+        if substep and substep != "_":
+            substepdir = stepdir / substep
+            substepdir.mkdir(parents=False, exist_ok=True)
 
-    if not substep or substep == "_":
-        return apply_controls((rundir, stepdir) if with_base else stepdir)
+            if subgraphs:
+                subgraphsdir = substepdir / subgraphs
+                subgraphsdir.mkdir(parents=False, exist_ok=True)
+                result = apply_controls((rundir, subgraphsdir) if with_base else subgraphsdir)
+            else:
+                result = apply_controls((rundir, substepdir) if with_base else substepdir)
 
-    substepdir = stepdir / substep
-    substepdir.mkdir(parents=False, exist_ok=True)
+        else:
+            result = apply_controls((rundir, stepdir) if with_base else stepdir)
 
-    result = apply_controls((rundir, substepdir) if with_base else substepdir)
-    LOG.info("get rundir for mode %s, step %s, substep %s, controls %s: %s",
-             mode, step, substep, controls, result)
+    else:
+        assert not substep, f"Substep {substep} of step None maketh sense None"
+        result = apply_controls((rundir, modir) if with_base else modir)
+
+    LOG.info("get rundir for mode %s, step %s, substep %s, subgraphs %s, controls %s: %s",
+             mode, step, substep, subgraphs, controls, result)
     return result
 
 
@@ -124,17 +131,19 @@ def timestamp(dir):
     return at_time
 
 
-def initialize(config, step=None, substep=None, controls=None, mode=None, parallelize=None, strict=False):
+def initialize(config, step=None, substep=None, subgraphs=None, controls=None,
+               mode=None, parallelize=None, strict=False):
     """Set up a run of the pipeline.
     """
     c = config; s = step; ss = substep; m = mode; p = parallelize
-    LOG.info("Initialize workspace for config \n %s", pformat(c))
+    LOG.info("Initialize workspace for config with keys: \n %s", pformat(list(c.keys())))
+
     if p:
-        LOG.info("with parallelization \n %s", pformat(p))
+        LOG.info("with parallelization keys \n %s", pformat(list(p.keys())))
     else:
         LOG.info("witout parallelization.")
 
-    to_run, stage = get_rundir(c, s, ss, controls, mode, with_base=True)
+    to_run, stage = get_rundir(c, s, ss, subgraphs, controls, mode, with_base=True)
 
     if not s:
         assert not ss, f"Substep {ss} of step None maketh sense None"
@@ -160,12 +169,12 @@ def cleanup(config, **kwargs):
     raise NotImplementedError
 
 
-def current(config, step, substep, controls, mode, to_parallelize):
+def current(config, step, substep, subgraphs, controls, mode, to_parallelize):
     """..."""
-    run, stage = get_rundir(config, step, substep, controls, mode, with_base=True)
+    run, stage = get_rundir(config, step, substep, subgraphs, controls, mode, with_base=True)
 
     if not stage.exists():
-        stage = initialize(config, step, substep, controls, mode, to_parallelize)
+        stage = initialize(config, step, substep, subgraphs, controls, mode, to_parallelize)
 
     return stage
 

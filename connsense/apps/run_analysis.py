@@ -35,12 +35,15 @@ LOG = logging.get_logger("Toplogical analysis of flatmapped subtargets.")
 def resolve_analysis(argued, against_config):
     """The argued analysis (which can be only 1) must have been configured.
     """
-    analyses = anzconn.get_analyses(against_config, as_dict=True)
-    if argued.quantity not in analyses:
+    configured = anzconn.get_analyses(against_config, as_dict=True)
+    try:
+        analyses = anzconn.filter_analyses(configured, argued.quantity, argued.subgraphs)
+    except KeyError as kerr:
         raise RuntimeError(f"Analysis {argued.quantity} must have been configured"
-                           f" in {[a.name for a in analyses.keys()]}")
+                           f" in {[a.name for a in analyses.keys()]}") from kerr
 
-    return analyses[argued.quantity]
+    assert len(analyses) == 1, "Can run only one analysis at a time"
+    return analyses[0]
 
 
 def read_control(in_file):
@@ -96,7 +99,7 @@ def lazy_random(control, among_neurons, pipeline_store=None):
     return apply_to_batch
 
 
-def apply_control(in_file, to_toc, among_neurons, using_batches, using_cache):
+def apply_control_batched(in_file, to_toc, among_neurons, using_batches, using_cache):
     """..."""
     to_batched = pd.concat([to_toc, using_batches], axis=1)
 
@@ -150,10 +153,51 @@ def get_parser():
                               "Default behavior will assume that the current working directory"
                               " is where the batches HDF are."))
 
+    parser.add_argument("-g", "--subgraphs", required=False, default=None,
+                        help=("Apply a configured algorithm that will generate subgraphs of an adjacency matrix\n"
+                              "Each of which will then be analyzed by an analysis."))
+
+
     parser.set_defaults(test=False)
 
     return parser
 
+
+def main_0(argued=None):
+    """..."""
+    LOG.info("Initialize the topological analysis pipeline.")
+
+    if not argued:
+        parser = get_parser()
+        argued = parser.parse_args()
+
+    at_path = Path(argued.configure)
+    config = pipeline.TopologicalAnalysis.read_config(at_path)
+    c = config
+    input_paths, output_paths = anzconn._check_paths(config)
+
+    in_basedir = Path(argued.batches or Path.cwd())
+    neurons = anzconn.load_neurons(input_paths)
+
+    original, assigned = anzconn.load_adjacencies(input_paths, from_batch=in_basedir)
+    pipeline_store = TAPStore(config)
+    batched = apply_control_batched(in_basedir/"control.json", to_toc=original, among_neurons=neurons,
+                                    using_batches=assigned, using_cache=pipeline_store)
+
+    analysis = resolve_analysis(argued, against_config=c)
+    LOG.info("Run analysis %s for a %s batched adjacencies: \n%s", analysis, len(batched),
+             pformat(batched))
+
+    _, hdf_group = output_paths["steps"].get(STEP, default_hdf(STEP))
+
+    LOG.info("Compute analysis %s on %s subtargets, saving results to (%s, %s)",
+             analysis.name, len(batched), in_basedir, hdf_group)
+
+    result = analyze.dispatch_single_node(analysis, batched, neurons, control=None,
+                                          to_tap=pipeline_store, to_save=(in_basedir, hdf_group))
+    LOG.warning("DONE running analysis %s for batch %s of %s subtargets saving (%s, %s).",
+                analysis.name, argued.batches, len(batched), in_basedir, hdf_group)
+    return result
 
 def main(argued=None):
     """..."""
@@ -173,8 +217,12 @@ def main(argued=None):
 
     original, assigned = anzconn.load_adjacencies(input_paths, from_batch=in_basedir)
     pipeline_store = TAPStore(config)
-    batched = apply_control(in_basedir/"control.json", to_toc=original, among_neurons=neurons,
-                            using_batches=assigned, using_cache=pipeline_store)
+
+    control = read_control(in_basedir / "control.json")
+    if control:
+        control = lazy_random(control, among_neurons=neurons)
+
+    batched = pd.concat([original.rename("matrix"), assigned], axis=1)
 
     analysis = resolve_analysis(argued, against_config=c)
     LOG.info("Run analysis %s for a %s batched adjacencies: \n%s", analysis, len(batched),
@@ -185,11 +233,12 @@ def main(argued=None):
     LOG.info("Compute analysis %s on %s subtargets, saving results to (%s, %s)",
              analysis.name, len(batched), in_basedir, hdf_group)
 
-    result = analyze.dispatch_single_node(analysis, batched, neurons,
+    result = analyze.dispatch_single_node(analysis, batched, neurons, control,
                                           to_tap=pipeline_store, to_save=(in_basedir, hdf_group))
     LOG.warning("DONE running analysis %s for batch %s of %s subtargets saving (%s, %s).",
                 analysis.name, argued.batches, len(batched), in_basedir, hdf_group)
     return result
+
 
 
 if __name__ == "__main__":

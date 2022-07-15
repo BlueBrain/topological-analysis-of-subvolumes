@@ -102,10 +102,10 @@ def flat_coordinate_frame(coordinates3d, fm, grouped=False):
     return coord_frame
 
 
-
 def index_flat_coordinate(xyzs_frame, flatmap):
     """..."""
     return flat_coordinate_frame(xyzs_frame, flatmap)
+
 
 def map_flat_space_positions(circuit_space_positions, using_flatmap, grouped=False):
     """.."""
@@ -125,8 +125,22 @@ def map_flat_space_positions(circuit_space_positions, using_flatmap, grouped=Fal
     return indexed
 
 
+def _get_positions(from_object):
+    """Get positoins from an object that could be a pandas data frame,
+    or a circuit with cells.
+    """
+    xyz = ["x", "y", "z"]
+
+    try:
+        cells = from_object.cells
+    except AttributeError:
+        return from_object[xyz]
+
+    return cells.get(properties=xyz)
+
+
 def neuron_flat_coordinate_frame(circ, fm, grouped=False):
-    coordinates3d = circ.cells.get(properties=["x", "y", "z"])
+    coordinates3d = _get_positions(from_object=circ)
     coord_frame = flat_coordinate_frame(coordinates3d.values, fm)
     coord_frame["gid"] = coordinates3d.index.values
     if grouped:
