@@ -1,29 +1,31 @@
 """General utilities."""
 
 import importlib
-from collections import OrderedDict
 from pathlib import Path
 
-import pandas as pd
 
 def import_module(from_path, with_method=None):
     """..."""
-    path = Path(from_path)
+    try:
+        module = import_module_with_name(from_path)
+    except ModuleNotFoundError:
+        path = Path(from_path)
 
-    assert path.exists
+        assert path.exists(), f"No such path {path}"
 
-    assert path.suffix == ".py", f"Not a python file {path}!"
+        assert path.suffix == ".py", f"Not a python file {path}!"
 
-    spec = importlib.util.spec_from_file_location(path.stem, path)
+        spec = importlib.util.spec_from_file_location(path.stem, path)
 
-    module = importlib.util.module_from_spec(spec)
+        module = importlib.util.module_from_spec(spec)
 
-    spec.loader.exec_module(module)
+        spec.loader.exec_module(module)
 
     if with_method:
         if not hasattr(module, with_method):
             raise TypeError(f"No method to {with_method}")
         return (module, getattr(module, with_method))
+
     return module
 
 
@@ -80,10 +82,10 @@ def get_module(from_object, with_function=None):
                 raise TypeError(f" {module} is missing required method {function}.")
             return method
 
-        if isinstance(has_function, str):
-            methods = get_method(has_function)
+        if isinstance(has_functions, str):
+            methods = get_method(has_functions)
 
-        methods = {f: get_method(f) for f in iterate(has_function)}
+        methods = {f: get_method(f) for f in iterate(has_functions)}
 
         return (module, methods)
 
