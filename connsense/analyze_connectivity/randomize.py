@@ -185,7 +185,12 @@ def read_randomization(configured, argument=None):
     assert not argument or isinstance(argument, str)
 
     parameters = configured["parameters"]
-    randomize = parameters["connectivity-controls"]
+    try:
+        randomize = parameters["connectivity-controls"]
+    except KeyError:
+        LOG.warning("No connectivity controls configured")
+        return None if argument else {}
+
     algorithms = {k: v for k, v in randomize["algorithms"].items() if k != "COMMENT"}
     return algorithms[argument] if argument else algorithms
 

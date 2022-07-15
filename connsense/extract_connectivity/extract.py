@@ -1,4 +1,5 @@
 """Connectivity in subtargets."""
+from collections.abc import Mapping
 import h5py
 import numpy
 from scipy import sparse
@@ -6,6 +7,7 @@ import pandas
 from tqdm import tqdm
 from bluepy import Circuit
 
+from connsense import plugins
 from ..io.write_results import (read as read_results,
                                 write_toc_plus_payload as write,
                                 default_hdf)
@@ -171,14 +173,23 @@ def extract_subtargets(in_config, connectome=None, output=None):
     subtargets = read_results(path_subtargets, for_step="extract-connectivity")
     LOG.info("Done reading subtargets %s", len(subtargets))
 
-    connectome = connectome or "local"
 
     parameters = in_config["parameters"]["extract-connectivity"]
     configured = parameters.get("connectomes", [])
+
+    connectome = connectome or "local"
     assert connectome in configured, f"Argued connectome {connectome} must be among {configured}"
 
-    extracted = run_extraction_from_full_matrix(subtarget_cfg.input_circuit, subtargets,
-                                                resolve_connectomes(in_argued=connectome))
+    if isinstance(configured, Mapping):
+        computation = configured[connectome]
+        LOG.info("Use a configured method to extract connectivity: %s", computation)
+        _, method = plugins.import_module(computation["source"], computation["method"])
+        extracted = method(subtarget_cfg.input_circuit, connectome, subtargets)
+    else:
+        LOG.info("Use connsense built in methods to extract connectivity.")
+        assert isinstance(configured, list)
+        extracted = run_extraction_from_full_matrix(subtarget_cfg.input_circuit, subtargets,
+                                                    resolve_connectomes(in_argued=connectome))
 
     to_output = output_specified_in(output_paths, and_argued_to_be=output)
     write(extracted, to_output, format="table")

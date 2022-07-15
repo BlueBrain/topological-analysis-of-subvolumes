@@ -160,10 +160,7 @@ def read_node_properties(from_object):
     else:
         root = path; group = "neurons"
 
-    return (read((root, group), "extract-neurons")
-            .droplevel(["flat_x", "flat_y"])
-            .reset_index()
-            .set_index(["circuit", "subtarget"]))
+    return read((root, group), "extract-neurons").reset_index().set_index(["circuit", "subtarget"])
 
 
 def resolve_output_between(argued, and_configured):

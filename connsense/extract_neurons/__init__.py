@@ -60,25 +60,15 @@ def extract(circuits, subtargets, params):
             nrn_depths = circ_depth.loc[circ_depth.index.intersection(gids)]
             props = pd.concat([props, nrn_depths], axis=1)  # Should fill missing gids with NaN
         props.index = pd.MultiIndex.from_tuples([index + (gid,) for gid in gids],
-                                                names=["circuit", "subtarget",
-                                                       "flat_x", "flat_y", "gid"])
+                                                names=(list(subtargets.index.names) + ["gid"]))
+                                                #names=["circuit", "subtarget",
+                                                       #"flat_x", "flat_y", "gid"])
         return props
 
     neuron_properties = pd.concat([get_props(index, gids) for index, gids in subtargets.iteritems()])
     LOG.info("DONE neuron properties extractions: %s", neuron_properties.shape)
 
     return neuron_properties
-
-
-def read(config):
-    """..."""
-    try:
-        return read_cfg.read(config)
-    except TypeError:
-        pass
-
-    assert isinstance(config, Mapping)
-    return config
 
 
 def _resolve_hdf(location, paths):
@@ -108,7 +98,7 @@ def read(config):
     except TypeError:
         assert isinstance(config, Mapping)
         return config
-    return  read_config.read(path)
+    return  read_cfg.read(path)
 
 
 def output_specified_in(configured_paths, and_argued_to_be):

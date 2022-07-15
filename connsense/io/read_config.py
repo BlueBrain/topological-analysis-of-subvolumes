@@ -2,6 +2,7 @@ from collections.abc import Mapping, Iterable
 import os
 from pathlib import Path
 import json
+import yaml
 
 
 def adjust_root(in_a_dict_paths):
@@ -39,29 +40,9 @@ def adjust_root(in_a_dict_paths):
     return {label: nest(specified) for label, specified in files}
 
 
-def read(fn, raw=False):
-    """Read JSON format config, converting a relative path specification to absolute.
+def locate_relpaths(cfg):
+    """Convert relative paths to absolute paths.
     """
-    try:
-        path = Path(fn)
-    except TypeError as terror:
-        raise TypeError(f"Unexpected type of config file reference{type(fn)}.") from terror
-
-    with open(path, "r") as fid:
-        cfg = json.load(fid)
-
-    assert "paths" in cfg,\
-        "Configuration file must specify 'paths' to input/output files!"
-
-    assert "parameters" in cfg,\
-        "Configuration file must specify 'parameters' for pipeline steps!"
-
-    if raw:
-        return cfg
-
-    format_paths = cfg["paths"].get("format", "relative")
-    if format_paths == "absolute":
-        return cfg
 
     path_circuit = adjust_root(cfg["paths"]["circuit"])
     path_flatmap = adjust_root(cfg["paths"].get("flatmap", None))
@@ -90,6 +71,40 @@ def read(fn, raw=False):
 
     return {"steps": pipeline["steps"], "paths": paths, "parameters": parameters}
 
+
+def read(fn, raw=False):
+    """Read JSON format config, converting a relative path specification to absolute.
+    """
+    try:
+        path = Path(fn)
+    except TypeError as terror:
+        raise TypeError(f"Unexpected type of config file reference{type(fn)}.") from terror
+
+
+    def read_raw():
+        if path.suffix.lower() in (".yaml", "yml"):
+            with open(path, "r") as fid:
+                return yaml.load(fid, Loader=yaml.FullLoader)
+        if path.suffix.lower() == ".json":
+            with open(path, "r") as fid:
+                return json.load(fid)
+
+    cfg = read_raw()
+
+    assert "paths" in cfg,\
+        "Configuration file must specify 'paths' to input/output files!"
+
+    assert "parameters" in cfg,\
+        "Configuration file must specify 'parameters' for pipeline steps!"
+
+    if raw:
+        return cfg
+
+    format_paths = cfg["paths"].get("format", "relative")
+    if format_paths == "absolute":
+        return cfg
+
+    return locate_relpaths(cfg)
 
 def serialize_json(paths):
     """..."""

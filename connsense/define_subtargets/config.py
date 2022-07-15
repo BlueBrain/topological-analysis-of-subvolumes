@@ -4,6 +4,7 @@ of circuit atlas.
 from collections.abc import Mapping
 from pathlib import Path
 from lazy import lazy
+import yaml
 
 import numpy as np
 import pandas as pd
@@ -20,22 +21,22 @@ class SubtargetsConfig:
     """Define and load subtargets in a circuit's flatmap."""
 
     @staticmethod
-    def read_json(from_object, reader):
+    def read_config(from_object, reader):
         """
         Read JSON from an object, using a reader.
         Notice that `from_object` may already be a dict.
         This makes `SubtargetsConfig` definition makes more flezible,
         allowing us to initialize with a dict that may have been read by
         an config interpreter upstream in the stream.
+
+        Reformat the provided config.
+        In the JSON config we have dicts which are entered as lists in the YAML.
+        Convert the lists to dicts.
         """
         if isinstance(from_object, Mapping):
             return from_object
 
-        try:
-            path = Path(from_object)
-        except TypeError:
-            return from_object
-
+        path = from_object
         reader = reader or read_config
         config = reader.read(path)
         return config
@@ -46,7 +47,7 @@ class SubtargetsConfig:
         label  : Label for the subtargets (sub)-section in the config.
         """
 
-        config = self.read_json(config, reader)
+        config = self.read_config(config, reader)
         assert isinstance(config, Mapping), type(config)
 
         self._config = config
@@ -150,9 +151,9 @@ class SubtargetsConfig:
             """..."""
             return SubtargetsRegisteredInNRRD(self, at_path, and_info_at)
 
-        def define_predefined_group(g, members):
+        def define_predefined_group(spec):
             """..."""
-            return PredefinedSubtargetsGroup(self, g, members)
+            return PredefinedSubtargetsGroup(self, spec)
 
         if group == "hexgrid-cells":
             return define_shape(using_spec["shape"], using_spec["parameters"])
@@ -160,8 +161,13 @@ class SubtargetsConfig:
         if group == "hexgrid-voxels":
             return define_nrrd(at_path=using_spec["nrrd"], and_info_at=using_spec["info"])
 
-        if group == "central-columns":
-            return define_predefined_group("central_columns", using_spec["members"])
+        if group == "central-columns": #TO REMOVE, central-columns will be entered as pre-defined
+            return define_predefined_group(using_spec["members"])
+
+        if group == "pre-defined":
+            return define_predefined_group(using_spec)
+
+
 
         raise NotImplementedError(f"Group {group} of subtargets with spec {using_spec}")
 
@@ -305,7 +311,7 @@ class SubtargetsRegisteredInNRRD:
 class PredefinedSubtargetsGroup:
     """Define subtargets using named circuit cell targets.
     """
-    def __init__(self, config,  group, members):
+    def __init__(self, config,  spec):
         """...
         config : `SubtargetConfig` instance
         group : The group of subtargets, example central_columns, or regions.
@@ -314,12 +320,26 @@ class PredefinedSubtargetsGroup:
         members : Names of the subtargets...
         """
         self._config = config
-        self._group = group
-        self._members = members
+        self._subtargets = spec["subtargets"]
 
     def generate_subtarget(self, s):
         """Generate one subtarget..."""
         raise NotImplementedError("Shold not be hard, but will be done after NRRDs.")
+
+    def assign_cells(self, in_circuit, with_label):
+        """..."""
+        def start_target(t):
+            """A target from the circuit's start.targets.
+            """
+            return t.split('/')[1]
+
+        return pd.Series([list(in_circuit.cells.ids(start_target(t))) for t in self._subtargets], name="gids",
+                         index=pd.MultiIndex.from_tuples([(with_label, t) for t in self._subtargets],
+                                                         names=["circuit", "subtarget"]))
+
+    def generate(self, circuits):
+        """..."""
+        return pd.concat([self.assign_cells(in_circuit=c, with_label=l) for l, c in circuits.items()])
 
 
 class CentralColumns:

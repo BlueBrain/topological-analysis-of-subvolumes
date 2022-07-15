@@ -28,7 +28,7 @@
         "Provide the HDF stores for input (i.e output by previous TAP steps), and an ouput pipeline data",
         "The paths should be entered with a directory as root and the name of the HDF5 file as store."
       ],
-      "root": "/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/simplex-counts",
+      "root": "/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/redefine-subtargets",
       "steps": {
         "COMMENTS": [
           "These are the pipeline steps that can be configured.",

@@ -232,6 +232,10 @@ def get_analyses(config, names=False, as_dict=False):
     """..."""
     all_parameters = config["parameters"]
 
+    if STEP not in all_parameters:
+        LOG.warning("No analyses configured.")
+        return {} if as_dict else []
+
     analyze_params = all_parameters[STEP]
 
     configured = analyze_params["analyses"]
@@ -246,7 +250,19 @@ def get_analyses(config, names=False, as_dict=False):
         return dict((n, OfType(name=n, description=d, **kwargs)) for n, d in items
                     if n!= "COMMENT" and n!= "common")
 
-    subgraphs_config = all_parameters["connectivity-subgraphs"]["algorithms"]
+    try:
+        connectivity_subgraphs = all_parameters["connectivity-subgraphs"]
+    except KeyError:
+        subgraphs_config = {}
+    else:
+        subgraphs_config = connectivity_subgraphs["algorithms"]
+
+    def algorithms(subgraph):
+        try:
+            scfg = subgraphs_config[subgraph]
+        except KeyError as e:
+            raise KeyError(f"An algorithm to subgraph {subgraph} was not set.")
+        return (s, scfg)
 
     def generate_analyses(name, description):
         """There may be more than one analyses to generate for a single list in the configuration.
@@ -258,7 +274,6 @@ def get_analyses(config, names=False, as_dict=False):
         except KeyError:
             subanalyses = {}
         else:
-            algorithms = lambda s: (s, subgraphs_config[s])
             subanalyses = {s: SubgraphAnalysisFromSource(name, description, algorithms(s)) for s in subgraphs}
 
         return {"fullgraph": fullanalysis, "subgraphs": subanalyses}

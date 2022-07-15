@@ -30,11 +30,16 @@ class TopologicalAnalysis:
     from connsense import randomize_connectivity
     from connsense import analyze_connectivity
 
-    __steps__ = OrderedDict([("define-subtargets"      , Step(define_subtargets)),
-                             ("extract-neurons"        , Step(extract_neurons)),
-                             ("extract-connectivity"   , Step(extract_connectivity)),
-                             ("randomize-connectivity" , Step(randomize_connectivity)),
-                             ("analyze-connectivity"   , Step(analyze_connectivity))])
+    __steps__ = OrderedDict([("define-subtargets", Step(define_subtargets)),
+                             ("define_subtargets", Step(define_subtargets)),
+                             ("extract-neurons", Step(extract_neurons)),
+                             ("extract_neurons", Step(extract_neurons)),
+                             ("extract-connectivity", Step(extract_connectivity)),
+                             ("extract_connectivity", Step(extract_connectivity)),
+                             ("randomize-connectivity", Step(randomize_connectivity)),
+                             ("randomize_connectivity", Step(randomize_connectivity)),
+                             ("analyze-connectivity", Step(analyze_connectivity)),
+                             ("analyze_connectivity", Step(analyze_connectivity))])
 
     @classmethod
     def sequence_of_steps(cls):
