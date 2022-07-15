@@ -52,7 +52,7 @@ def run(config, action, substep=None, in_mode=None, output=None, **kwargs):
 
     LOG.warning("Extract subtarget connectivity from connectome %s", connectome)
 
-    rundir, stage_dir = workspace.get_rundir(config, STEP, substep)
+    stage_dir = workspace.get_rundir(config, STEP, substep)
 
     _, hdf_group = output_paths["steps"].get(STEP, default_hdf(STEP))
 
@@ -82,6 +82,7 @@ def run(config, action, substep=None, in_mode=None, output=None, **kwargs):
             to_launch.write(aline + '\n')
 
         write(f"#################### EXTRACT connectivity ######################")
+
 
         write(f"pushd {stage_dir}")
 
