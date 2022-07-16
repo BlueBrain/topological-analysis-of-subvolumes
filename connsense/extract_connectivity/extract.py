@@ -173,7 +173,6 @@ def extract_subtargets(in_config, connectome=None, output=None):
     subtargets = read_results(path_subtargets, for_step="extract-connectivity")
     LOG.info("Done reading subtargets %s", len(subtargets))
 
-
     parameters = in_config["parameters"]["extract-connectivity"]
     configured = parameters.get("connectomes", [])
 

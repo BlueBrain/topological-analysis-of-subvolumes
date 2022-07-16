@@ -194,3 +194,16 @@ def locate_base(in_rundir, for_step, create=False):
                                 "`tap --config=<location> init analyze-connectivity simplices`\n"
                                 "will create a directory to compute simplices in.")
     return base
+
+def find_base(rundir, max_expected_depth=6):
+    """...
+    Computations are staged hierarchically under a root dir.
+    This method will find where the root is from a directory under it.
+    """
+    if rundir.name == "run":
+        return rundir
+
+    if max_expected_depth == 0:
+        return None
+
+    return find_base(rundir.parent, max_expected_depth-1)

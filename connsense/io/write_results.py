@@ -22,6 +22,7 @@ def write(extracted, to_path, format=None, metadata=None):
     path : a string or a tuple of strings
     metadata : A dict whose key, values will be added to the HDF-groups' attributes
     """
+    print("WRITE EXTRACTION", extracted)
     metadata = metadata or {}
     try:
         path_hdf_store, group_identifier = to_path

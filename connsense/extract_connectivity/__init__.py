@@ -35,6 +35,14 @@ def cmd_sbatch_extraction(slurm_params, at_path):
     return slurm_config.save(to_filepath=at_path/"tap-connectivity.sbatch")
 
 
+def _remove_link(path):
+    try:
+        return path.unlink()
+    except FileNotFoundError:
+        pass
+    return None
+
+
 def get_current(action, mode, config, step, substep, controls=None, with_parallelization=None):
     """..."""
     current_run = workspace.initialize if is_to_init(action) else workspace.current
@@ -53,6 +61,11 @@ def run(config, action, substep=None, in_mode=None, output=None, **kwargs):
     LOG.warning("Extract subtarget connectivity from connectome %s", connectome)
 
     stage_dir = workspace.get_rundir(config, STEP, substep)
+    basedir = workspace.find_base(stage_dir)
+
+    copy_config = stage_dir.joinpath("config.json")
+    _remove_link(copy_config)
+    copy_config.symlink_to(basedir/"config.json")
 
     _, hdf_group = output_paths["steps"].get(STEP, default_hdf(STEP))
 
@@ -82,7 +95,6 @@ def run(config, action, substep=None, in_mode=None, output=None, **kwargs):
             to_launch.write(aline + '\n')
 
         write(f"#################### EXTRACT connectivity ######################")
-
 
         write(f"pushd {stage_dir}")
 

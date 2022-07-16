@@ -18,6 +18,7 @@ from ..io.write_results import read as read_results
 from ..io.slurm import SlurmConfig
 from ..io import logging
 from .matrices import get_store
+from connsense.pipeline.workspace import find_base
 
 STEP = "analyze-connectivity"
 
@@ -245,19 +246,6 @@ def get_algorithms(subtargets):
     """..."""
     return get_index(subtargets).algorithm.unique()
 
-
-def find_base(rundir, max_expected_depth=6):
-    """...
-    Computations are staged hierarchically under a root dir.
-    This method will find where the root is from a directory under it.
-    """
-    if rundir.name == "run":
-        return rundir
-
-    if max_expected_depth == 0:
-        return None
-
-    return find_base(rundir.parent, max_expected_depth-1)
 
 
 def parallely_analyze(quantity, subtargets, neuron_properties, action=None, in_mode=None,
