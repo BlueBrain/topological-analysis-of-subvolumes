@@ -18,7 +18,8 @@ from ..io.write_results import (read as read_results,
 
 from ..io.slurm import SlurmConfig
 from ..io import read_config, logging
-from ..analyze_connectivity import (default_hdf, read, check_paths,
+from ..io.read_config import check_paths
+from ..analyze_connectivity import (default_hdf, read,
                                     load_neurons, load_adjacencies)
 from ..analyze_connectivity.randomize import read_random_controls, RandomControls
 from ..analyze_connectivity.analyze import (check_basedir, find_base,
