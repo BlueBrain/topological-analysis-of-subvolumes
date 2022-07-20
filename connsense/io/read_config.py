@@ -144,10 +144,10 @@ def check_paths(in_config, step):
         raise RuntimeError("No circuits defined in config!")
 
     if "define-subtargets" not in input["steps"]:
-        raise RuntimeError("No defined columns in config!")
+        raise RuntimeError("No method to define subtargets.")
 
-    if "extract-neurons" not in input["steps"]:
-        raise RuntimeError("No neurons in config!")
+    if "extract-nodes" not in input["steps"]:
+        raise RuntimeError("No method to extract nodes.!")
 
     if "extract-connectivity" not in input["steps"]:
         raise RuntimeError("No connection matrices in config!")

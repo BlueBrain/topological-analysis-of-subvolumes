@@ -4,7 +4,7 @@ The brain circuit's connections are mediated via multiple-synapses, and may cons
 Here we develop features in ~connsense~ to handle such features of a brain network.
 Instead of defining individual sections, we will develop the complete description.
 
-#+name: paths-config-init
+#+name: config-init
 #+begin_src yaml :tangle no :noweb yes :padline no
 description: >-
   Configure a `connsense` pipeline
@@ -17,7 +17,7 @@ There will be two sections in the /pipeline/ config.
 * Paths
 The section ~paths~ configures the locations of the circuit to analyze, and HDF5 paths for the ~TAP-store~~.
 
-#+name: paths-config-init
+#+name: config-paths
 #+begin_src yaml :tangle no :noweb yes :padline no
 paths:
   description: >-
@@ -48,12 +48,13 @@ paths:
 We can configure ~connsense~ to use methods provided in the ~parameters~ section.
 The parameters section will be a mapping of pipeline step to it's parameters.
 
-#+name: paths-config-init
+#+name: config-parameters
 #+begin_src yaml :tangle no :noweb yes :padline no
 
 parameters:
   description: >-
     Configure parameters for each pipeline step as a mapping.
+  analyses:
 #+end_src
 
 ** Define subtargets
@@ -63,7 +64,7 @@ However, each defintiion must apply to a specified node population. The same val
 must be used to extract it's node-properties. Ideally this value should be the same as entered in the circuit's
 SONATA files.
 
-#+name: parameters-define-subtargets
+#+name: config-parameters-define-subtargets
 #+begin_src yaml :tangle no :noweb yes :comments org :padline no
 define-subtargets:
   description: >-
@@ -75,29 +76,27 @@ define-subtargets:
       using methods provided in connsense/flatmap_utility.
       Cell positions will be distributed among the hexagonal subtargets, in a grid generated with
       the configured parameters.
-    node-population: "default"
+    node_population: "default"
     shape: hexgrid
     parameters:
       origin: [0.0, 0.0, 0.0]
       radius: 230.0
       base_target: "Mosaic"
-
   hexgrid-voxels:
     description: >-
       A hexagonal grid in the circuit's flatmap space (a.k.a flatspace),
       using an NRRD file that maps each voxel to the subtarget it belongs in.
       In addition to the NRRD file, a file providing subtarget info is also required.
-    node-population: "default"
+    node_population: "default"
     nrrd: "/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/column_identities.nrrd"
     info: "/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/voxel-based-hex-grid-info.h5"
-
   pre-defined:
     description: >-
       The pre-defined subtargets' node-ids  must be available in the circuit's data.
       The entries should be of the form `<group>/<member>` such that the entry can be used the subtarget's
       NRRD mask from `circuit.atlas`. Subtargets will be defined using a `connsense` method that uses `bluepy`
       to extract each subtarget's GIDs from the circuit.
-    node-population: "default"
+    node_population: "default"
     subtargets:
       - "central_columns/S1DZO_Column"
       - "central_columns/S1DZ_Column"
@@ -118,7 +117,7 @@ the node extraction. Each population's configuration must include a reference to
 For the SSCx dissemination circuit we specify the population to be named /default/, and use the extractor provided
 packaged in ~connsense~ that uses ~bluepy~. The properties to extract must also be provided.
 
-#+name: parameters-extract-nodes
+#+name: config-parameters-extract-nodes
 #+begin_src yaml :tangle no :noweb yes :comments no :padline no
 extract-nodes:
   description: >-
@@ -188,7 +187,7 @@ def extract_nodes(in_circuit, as_configured):
 ** Extract edges
 To extract the circuit's edges, we will list the circuit's /connectomes/.
 
-#+name: parameters-extract-connectivity
+#+name: config-parameters-extract-connectivity
 #+begin_src yaml :tangle no :noweb yes :comments no :padline no
 extract-edges:
   description: >-
@@ -237,7 +236,7 @@ extract-edges:
 ** Analyze connectivity
 Parameters for analyses will be a mapping from analyses to it's parameters.
 
-#+name: parameters-analyze-connectivity
+#+name: config-parameters-analyze-connectivity
 #+begin_src yaml :tangle no :noweb yes :comments no :padline no
 analyze-connectivity:
   description:
@@ -248,7 +247,7 @@ analyze-connectivity:
 Let us configure an analyses of synaptic convergence. The analysis method will not have access to the circuit.
 Instead it will be passed the adjacency matrix, and node and edge properties.
 
-#+name: parameters-analyze-connectivity-synaptic-convergence
+#+name: config-parameters-analyze-connectivity-synaptic-convergence
 #+begin_src yaml :tangle no :noweb yes :comments no :padline no
 synaptic-convergence:
   description:
@@ -263,7 +262,7 @@ synaptic-convergence:
 
 Next, consider an analysis to compute the neuronal divergence. Such a method does not need edge-properties.
 
-#+name: parameters-analyze-connectivity-intrinsic-extrinsic-connections
+#+name: config-parameters-analyze-connectivity-intrinsic-extrinsic-connections
 #+begin_src yaml :tangle no :noweb yes :comments no :padline no
 neuronal-convergence:
   description:
@@ -278,3 +277,21 @@ neuronal-convergence:
 
 Thats' it. We can enter analyses one by one. However before we will have to refactor ~connsense~ to define subtargers,
 extract neurons, and connectivity using the configs defined above.
+
+* Results
+The result of our discussion is the YAML configuration:
+
+#+begin_src yaml :tangle connsense.yaml :noweb yes :comments no :padline no
+<<config-init>>
+
+<<config-paths>>
+
+<<config-parameters>>
+    <<config-parameters-define-subtargets>>
+
+    <<config-parameters-extract-nodes>>
+
+    <<config-parameters-extract-connectivity>>
+
+    <<config-parameters-anlyze-connectivity>>
+#+end_src

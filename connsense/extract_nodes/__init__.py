@@ -14,9 +14,9 @@ from ..io import logging
 
 from ..define_subtargets.config import SubtargetsConfig
 
-STEP = "extract-neurons"
+STEP = "extract-nodes"
 LOG = logging.get_logger(STEP)
-NEURON_XYZ = ["x", "y", "z"]
+XYZ = ["x", "y", "z"]
 
 
 def get_neuron_depths(circuit):
@@ -35,7 +35,7 @@ def get_neuron_depths(circuit):
 def extract(circuits, subtargets, params):
     """Run the extractoin for 1 circuit.
     """
-    LOG.info("RUN neuron properties extractions")
+    LOG.info("RUN node properties extractions")
     if len(params) == 0:
         print("Warning: No properties to extract given. This step will do nothing!")
 
@@ -43,8 +43,8 @@ def extract(circuits, subtargets, params):
 
     # TODO: find a better way
     if "depth" in params:
-        LOG.info("Compute depths as neuron properties")
-        depths = dict([(k, get_neuron_depths(v)) for k, v in circuits.items()])
+        LOG.info("Compute depths as node properties")
+        depths = dict([(k, get_node_depths(v)) for k, v in circuits.items()])
         params.remove("depth")
         include_depth = True
     else:
@@ -65,10 +65,10 @@ def extract(circuits, subtargets, params):
                                                        #"flat_x", "flat_y", "gid"])
         return props
 
-    neuron_properties = pd.concat([get_props(index, gids) for index, gids in subtargets.iteritems()])
-    LOG.info("DONE neuron properties extractions: %s", neuron_properties.shape)
+    node_properties = pd.concat([get_props(index, gids) for index, gids in subtargets.iteritems()])
+    LOG.info("DONE node properties extractions: %s", node_properties.shape)
 
-    return neuron_properties
+    return node_properties
 
 
 def _resolve_hdf(location, paths):
@@ -152,11 +152,11 @@ def run(config, in_mode=None, parallelize=None, output=None, **kwargs):
     LOG.info("DONE, extracting %s", params)
 
     to_output = output_specified_in(output_paths, and_argued_to_be=output)
-    LOG.info("WRITE neuron properties to archive %s\n\t under group %s",
+    LOG.info("WRITE node properties to archive %s\n\t under group %s",
              to_output[0], to_output[1])
     write(extracted, to_path=to_output, format="table")
     LOG.info("DONE neuron properties to archive.")
 
-    LOG.warning("DONE extract neurons for subtargets, with %s neurons in a dataframe", extracted.shape[0])
+    LOG.warning("DONE extract nodes for subtargets, with %s entries in a dataframe", extracted.shape[0])
 
     return f"Saved output {to_output}"
