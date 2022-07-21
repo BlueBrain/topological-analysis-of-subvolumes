@@ -325,7 +325,7 @@ def get_value_stores(analysis, at_path, from_cache=None, in_mode='a'):
 
 def load_neurons(paths, dry_run=False):
     """..."""
-    hdf, group = paths["steps"]["extract-neurons"]
+    hdf, group = paths["steps"]["extract-nodes"]
     LOG.info("Load neuron properties from %s/%s", hdf, group)
 
     if dry_run:

@@ -1,0 +1,184 @@
+description: >-
+  Configure a `connsense` pipeline
+version: 2.0.0
+date: 20220720
+
+paths:
+  description: >-
+    The ~connsense~ pipeline needs paths to the input data to load from, and output paths to store data.
+    Paths to the circuit must be provided along with paths to the HDF5 archive that will store the pipeline's
+    results.
+  format: relative
+  circuit:
+    root: "/gpfs/bbp.cscs.ch/project/proj83/circuits"
+    files:
+      Bio_M: "Bio_M/20200805/CircuitConfig_TC_WM"
+  pipeline:
+    root: "/gpfs/bbp.cscs.ch/project/proj83/home/sood/portal/develop/factology-v2/analyses/connsense/"
+    steps:
+      define-subtargets: "subtargets"
+      extract-nodes: "nodes"
+      evaluate-subtargets: "subtarget_quality"
+      extract-connectivity: "edges/original"
+      randomize-connectivity: "edges/randomized"
+      analyze-connevtivity: "analysis"
+    input:
+      store: "connsense.h5"
+    output:
+      store: "connsense.h5"
+
+
+parameters:
+  description: >-
+    Configure parameters for each pipeline step as a mapping.
+  define-subtargets:
+    description: >-
+      Configure how subtargets are defined.
+  
+    definitions:
+      hexgrid-cells:
+        description: >-
+           A hexagonal grid in the circuit's flatmap space (a.k.a flatspace),
+           using methods provided in connsense/flatmap_utility.
+           Cell positions will be distributed among the hexagonal subtargets, in a grid generated with
+           the configured parameters.
+        node_population: "default"
+        shape: hexgrid
+        parameters:
+        origin: [0.0, 0.0, 0.0]
+        radius: 230.0
+        base_target: "Mosaic"
+      hexgrid-voxels:
+        description: >-
+          A hexagonal grid in the circuit's flatmap space (a.k.a flatspace),
+          using an NRRD file that maps each voxel to the subtarget it belongs in.
+          In addition to the NRRD file, a file providing subtarget info is also required.
+        node_population: "default"
+        nrrd: "/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/column_identities.nrrd"
+        info: "/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/voxel-based-hex-grid-info.h5"
+      pre-defined:
+        description: >-
+          The pre-defined subtargets' node-ids  must be available in the circuit's data.
+          The entries should be of the form `<group>/<member>` such that the entry can be used the subtarget's
+          NRRD mask from `circuit.atlas`. Subtargets will be defined using a `connsense` method that uses `bluepy`
+          to extract each subtarget's GIDs from the circuit.
+        node_population: "default"
+        subtargets:
+          - "central_columns/S1DZO_Column"
+          - "central_columns/S1DZ_Column"
+          - "central_columns/S1FL_Column"
+          - "central_columns/S1HL_Column"
+          - "central_columns/S1J_Column"
+          - "central_columns/S1Sh_Column"
+          - "central_columns/S1Tr_Column"
+          - "central_columns/S1ULp_Column"
+
+  extract-nodes:
+    description: >-
+      Specify the populations to extract from a circuit.
+    populations:
+      default:
+        description: >-
+          The default population will be that of neurons in the SSCx.
+          To extract the neurons we will use a `connsense` method that uses ~bluepy~.
+        extractor:
+          source: connsense
+          method: bluepy
+        properties:
+          - region
+          - layer
+          - x
+          - y
+          - z
+          - depth
+          - synapse_class
+          - mtype
+          - etype
+          - morphology
+
+  evaluate-subtargets:
+    description: >-
+      To evaluate the subtargets defined in the previous step, we define the metrics to be provided by connsense.
+    metrics:
+      orthogonality:
+        description: >-
+          Subtargets must be non-overlapping. How orthogonal / non-overlapping are the subtargets?
+        apply-to-subtargets:
+          - hexgrid-cells
+          - hexgrid-voxels
+          - pre-defined
+        source: connsense.evaulate_subtargets.metrics
+        method: orthogonality
+  
+      conicality:
+        description: >-
+          How conical are the flatmap subtargets?
+        apply-to-subtargets:
+          - hexgrid-cells
+          - hexgrid-voxels
+        source: connsense.evaluate_subtargets.metrics
+        method: conicality
+  
+      neuron_counts:
+        description: >-
+          Number of neurons in a subtarget. The number can be used to indicate outliers. Too small may be removed.
+        apply-to-subtargets:
+          - hexgrid-cells
+          - hexgrid-voxels
+          - pre-defined
+        source: connsense.evaulate_subtargets.metrics
+        methods: neuron_counts
+  
+      target_composition:
+        description: >-
+          Composition of the subtargets by layer, and mtype using a method in `connsense`.
+          A custom method may be provided.
+        apply-to-subtargets:
+          - hexgrid-cells
+          - hexgrid-voxels
+          - pre-defined
+        source: connsense.evaulate_subtargets.metrics
+        methods: target_composition
+
+  extract-connectivity:
+    description: >-
+      Specify the connectomes to extract from.
+      Connections will be extracted for each subtarget as an adjacency matrix, with or without connection-strengths.
+      A connection is between a pair of source and target nodes, and may be a multi-edge connection.
+      We will also specify a set of edge-properties to extract from the circuit.
+    populations:
+      local:
+        source_node_population: "default"
+        target_node_population: "default"
+        connectome: "local"
+        extractor:
+          source: connsense
+          method: bluepy
+      long-range:
+        source_node_population: "default"
+        target_node_population: "default"
+        connectome: "intra_sscx_wm"
+        extractor:
+          source: connsense
+          method: bluepy
+      cortico-cortical:
+        source_node_population: "default"
+        target_node_population: "default"
+        connectome: ["local", "intra_sscx_wm"]
+        extractor:
+          source: connsense
+          method: bluepy
+      thalamic-vpm:
+        source_node_population: null
+        target_node_population: "default"
+        connectome: "Thalamocortical-VPM"
+        extractor:
+          source: connsense
+          method: bluepy
+      thalamic-pom:
+        source_node_population: null
+        target_node_population: "default"
+        connectome: "Thalamocortical-POM"
+        extractor:
+          source: connsense
+          method: bluepy

@@ -1,7 +1,6 @@
 """Extract subtargets' connectivity.
 """
 from collections.abc import Mapping
-from argparse import ArgumentParser
 from pathlib import Path
 
 from ..io.write_results import (read as read_results,
@@ -47,6 +46,7 @@ def get_current(action, mode, config, step, substep, controls=None, with_paralle
     """..."""
     current_run = workspace.initialize if is_to_init(action) else workspace.current
     return current_run(config, step, substep, controls, mode, with_parallelization)
+
 
 def run(config, action, substep=None, in_mode=None, output=None, **kwargs):
     """..."""

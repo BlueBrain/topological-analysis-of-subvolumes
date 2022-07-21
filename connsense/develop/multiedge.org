@@ -30,7 +30,7 @@ paths:
     files:
       Bio_M: "Bio_M/20200805/CircuitConfig_TC_WM"
   pipeline:
-    root: "/gpfs/bbp.cscs.ch/project/proj83/home/sood/portal/factology-v2/analyses/connsense/"
+    root: "/gpfs/bbp.cscs.ch/project/proj83/home/sood/portal/develop/factology-v2/analyses/connsense/"
     steps:
       define-subtargets: "subtargets"
       extract-nodes: "nodes"
@@ -54,7 +54,6 @@ The parameters section will be a mapping of pipeline step to it's parameters.
 parameters:
   description: >-
     Configure parameters for each pipeline step as a mapping.
-  analyses:
 #+end_src
 
 ** Define subtargets
@@ -70,42 +69,43 @@ define-subtargets:
   description: >-
     Configure how subtargets are defined.
 
-  hexgrid-cells:
-    description: >-
-      A hexagonal grid in the circuit's flatmap space (a.k.a flatspace),
-      using methods provided in connsense/flatmap_utility.
-      Cell positions will be distributed among the hexagonal subtargets, in a grid generated with
-      the configured parameters.
-    node_population: "default"
-    shape: hexgrid
-    parameters:
+  definitions:
+    hexgrid-cells:
+      description: >-
+         A hexagonal grid in the circuit's flatmap space (a.k.a flatspace),
+         using methods provided in connsense/flatmap_utility.
+         Cell positions will be distributed among the hexagonal subtargets, in a grid generated with
+         the configured parameters.
+      node_population: "default"
+      shape: hexgrid
+      parameters:
       origin: [0.0, 0.0, 0.0]
       radius: 230.0
       base_target: "Mosaic"
-  hexgrid-voxels:
-    description: >-
-      A hexagonal grid in the circuit's flatmap space (a.k.a flatspace),
-      using an NRRD file that maps each voxel to the subtarget it belongs in.
-      In addition to the NRRD file, a file providing subtarget info is also required.
-    node_population: "default"
-    nrrd: "/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/column_identities.nrrd"
-    info: "/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/voxel-based-hex-grid-info.h5"
-  pre-defined:
-    description: >-
-      The pre-defined subtargets' node-ids  must be available in the circuit's data.
-      The entries should be of the form `<group>/<member>` such that the entry can be used the subtarget's
-      NRRD mask from `circuit.atlas`. Subtargets will be defined using a `connsense` method that uses `bluepy`
-      to extract each subtarget's GIDs from the circuit.
-    node_population: "default"
-    subtargets:
-      - "central_columns/S1DZO_Column"
-      - "central_columns/S1DZ_Column"
-      - "central_columns/S1FL_Column"
-      - "central_columns/S1HL_Column"
-      - "central_columns/S1J_Column"
-      - "central_columns/S1Sh_Column"
-      - "central_columns/S1Tr_Column"
-      - "central_columns/S1ULp_Column"
+    hexgrid-voxels:
+      description: >-
+        A hexagonal grid in the circuit's flatmap space (a.k.a flatspace),
+        using an NRRD file that maps each voxel to the subtarget it belongs in.
+        In addition to the NRRD file, a file providing subtarget info is also required.
+      node_population: "default"
+      nrrd: "/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/column_identities.nrrd"
+      info: "/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/voxel-based-hex-grid-info.h5"
+    pre-defined:
+      description: >-
+        The pre-defined subtargets' node-ids  must be available in the circuit's data.
+        The entries should be of the form `<group>/<member>` such that the entry can be used the subtarget's
+        NRRD mask from `circuit.atlas`. Subtargets will be defined using a `connsense` method that uses `bluepy`
+        to extract each subtarget's GIDs from the circuit.
+      node_population: "default"
+      subtargets:
+        - "central_columns/S1DZO_Column"
+        - "central_columns/S1DZ_Column"
+        - "central_columns/S1FL_Column"
+        - "central_columns/S1HL_Column"
+        - "central_columns/S1J_Column"
+        - "central_columns/S1Sh_Column"
+        - "central_columns/S1Tr_Column"
+        - "central_columns/S1ULp_Column"
 #+end_src
 
 ** Extract nodes
@@ -141,7 +141,6 @@ extract-nodes:
         - mtype
         - etype
         - morphology
-        - gid
 #+end_src
 
 Let us now implement a ~Python~ method to handle the configuration above.
@@ -183,13 +182,68 @@ def extract_nodes(in_circuit, as_configured):
     return {p: extract_population(params, subtargets[p], in_circuit) for p, params in populations.items()}
 #+end_src
 
+** Evaluate subtargets
+How good are the subtargets we have defined in the previous sections?
+Consider the flatmap subtargets we have developed for the SSCx. We expect these subtargets to be conical in shape,
+the radius increasing along its principal axis oriented from the white-matter to pia.
+We would add a computation among the metrics that evaluate the subtargets.
+At the moment of <2022-07-20 Wed> we do not have any metrics entered below. So this configuration step will not work.
+However writing it out, we learn how this step should work.
 
-** Extract edges
+#+name: config-parameters-evaluate-subtargets
+#+begin_src yaml :tagnle no :noweb yes :comments org :padline no
+evaluate-subtargets:
+  description: >-
+    To evaluate the subtargets defined in the previous step, we define the metrics to be provided by connsense.
+  metrics:
+    orthogonality:
+      description: >-
+        Subtargets must be non-overlapping. How orthogonal / non-overlapping are the subtargets?
+      apply-to-subtargets:
+        - hexgrid-cells
+        - hexgrid-voxels
+        - pre-defined
+      source: connsense.evaulate_subtargets.metrics
+      method: orthogonality
+
+    conicality:
+      description: >-
+        How conical are the flatmap subtargets?
+      apply-to-subtargets:
+        - hexgrid-cells
+        - hexgrid-voxels
+      source: connsense.evaluate_subtargets.metrics
+      method: conicality
+
+    neuron_counts:
+      description: >-
+        Number of neurons in a subtarget. The number can be used to indicate outliers. Too small may be removed.
+      apply-to-subtargets:
+        - hexgrid-cells
+        - hexgrid-voxels
+        - pre-defined
+      source: connsense.evaulate_subtargets.metrics
+      methods: neuron_counts
+
+    target_composition:
+      description: >-
+        Composition of the subtargets by layer, and mtype using a method in `connsense`.
+        A custom method may be provided.
+      apply-to-subtargets:
+        - hexgrid-cells
+        - hexgrid-voxels
+        - pre-defined
+      source: connsense.evaulate_subtargets.metrics
+      methods: target_composition
+#+end_src
+
+
+** Extract connectivity / edges
 To extract the circuit's edges, we will list the circuit's /connectomes/.
 
 #+name: config-parameters-extract-connectivity
 #+begin_src yaml :tangle no :noweb yes :comments no :padline no
-extract-edges:
+extract-connectivity:
   description: >-
     Specify the connectomes to extract from.
     Connections will be extracted for each subtarget as an adjacency matrix, with or without connection-strengths.
@@ -281,17 +335,19 @@ extract neurons, and connectivity using the configs defined above.
 * Results
 The result of our discussion is the YAML configuration:
 
-#+begin_src yaml :tangle connsense.yaml :noweb yes :comments no :padline no
+#+begin_src yaml :tangle pipeline.yaml :noweb yes :comments no :padline no
 <<config-init>>
 
 <<config-paths>>
 
 <<config-parameters>>
-    <<config-parameters-define-subtargets>>
+  <<config-parameters-define-subtargets>>
 
-    <<config-parameters-extract-nodes>>
+  <<config-parameters-extract-nodes>>
 
-    <<config-parameters-extract-connectivity>>
+  <<config-parameters-evaluate-subtargets>>
 
-    <<config-parameters-anlyze-connectivity>>
+  <<config-parameters-extract-connectivity>>
+
+  <<config-parameters-anlyze-connectivity>>
 #+end_src

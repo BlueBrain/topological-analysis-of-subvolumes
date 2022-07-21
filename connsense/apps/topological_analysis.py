@@ -80,7 +80,7 @@ def lower(argument):
 
 
 SUBSTEPS = OrderedDict([("define-subtargets", "definitions"),
-                        ("extract-neurons", None),
+                        ("extract-nodes", "populations"),
                         ("evaluate-subtargets", "metrics"),
                         ("extract-connectivity", "connectomes"),
                         ("randomize-connectivity", "controls"),
@@ -110,7 +110,6 @@ def _parameterize_substeps_0(s, in_config):
         return None
 
     return in_config["parameters"][s][param]
-
 
 
 def check_step(as_argued, against_config):

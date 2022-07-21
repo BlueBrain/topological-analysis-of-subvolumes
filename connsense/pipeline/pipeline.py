@@ -25,20 +25,17 @@ PipelineState = namedtuple("PipelineState", ["complete", "running", "queue"],
 class TopologicalAnalysis:
     """..."""
     from connsense import define_subtargets
-    from connsense import extract_neurons
+    from connsense import extract_nodes
+    from connsense import evaluate_subtargets
     from connsense import extract_connectivity
     from connsense import randomize_connectivity
     from connsense import analyze_connectivity
 
     __steps__ = OrderedDict([("define-subtargets", Step(define_subtargets)),
-                             ("define_subtargets", Step(define_subtargets)),
-                             ("extract-neurons", Step(extract_neurons)),
-                             ("extract_neurons", Step(extract_neurons)),
-                             ("extract-connectivity", Step(extract_connectivity)),
+                             ("extract-nodes", Step(extract_nodes)),
+                             ("evaluate-subtargets", Step(evaluate_subtargets)),
                              ("extract_connectivity", Step(extract_connectivity)),
-                             ("randomize-connectivity", Step(randomize_connectivity)),
                              ("randomize_connectivity", Step(randomize_connectivity)),
-                             ("analyze-connectivity", Step(analyze_connectivity)),
                              ("analyze_connectivity", Step(analyze_connectivity))])
 
     @classmethod
@@ -132,8 +129,8 @@ class TopologicalAnalysis:
         result = (self.__steps__[step]
                   .run(self._config, action=action, substep=substep,
                        subgraphs=subgraphs, controls=controls,
-                       in_mode=in_mode, parallelize=self._parallelize, tap=self.data,
-                       **kwargs))
+                       in_mode=in_mode, parallelize=self._parallelize,
+                       tap=self.data, **kwargs))
 
         return result
 

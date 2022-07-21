@@ -19,7 +19,7 @@ LOG = logging.get_logger(STEP)
 XYZ = ["x", "y", "z"]
 
 
-def get_neuron_depths(circuit):
+def get_node_depths(circuit):
     LOG.info("RUN neuron depths extraction")
     from flatmap_utility import supersampled_neuron_locations
     #  TODO: Use config-provided flatmap, if possible
@@ -32,20 +32,20 @@ def get_neuron_depths(circuit):
     return depths
 
 
-def extract(circuits, subtargets, params):
+def extract(circuits, subtargets, properties):
     """Run the extractoin for 1 circuit.
     """
     LOG.info("RUN node properties extractions")
-    if len(params) == 0:
+    if len(properties) == 0:
         print("Warning: No properties to extract given. This step will do nothing!")
 
     circuits = {k: c if isinstance(c, Circuit) else Circuit(c) for k, c in circuits.items()}
 
     # TODO: find a better way
-    if "depth" in params:
+    if "depth" in properties:
         LOG.info("Compute depths as node properties")
         depths = dict([(k, get_node_depths(v)) for k, v in circuits.items()])
-        params.remove("depth")
+        properties.remove("depth")
         include_depth = True
     else:
         include_depth = False
@@ -54,7 +54,7 @@ def extract(circuits, subtargets, params):
 
     def get_props(index, gids):
         circuit = circuits[index[0]]
-        props = circuit.cells.get(gids, properties=params)
+        props = circuit.cells.get(gids, properties=properties)
         if include_depth:
             circ_depth = depths[index[0]]
             nrn_depths = circ_depth.loc[circ_depth.index.intersection(gids)]
@@ -112,7 +112,9 @@ def output_specified_in(configured_paths, and_argued_to_be):
     return (to_hdf_at_path, under_group)
 
 
-def run(config, in_mode=None, parallelize=None, output=None, **kwargs):
+#def run0(config, in_mode=None, parallelize=None, output=None, **kwargs):
+#
+def run(config, action, substep, in_mode=None, parallelize=None, output=None, **kwargs):
     """Launch extraction of  neurons.
 
     TODO
@@ -120,6 +122,11 @@ def run(config, in_mode=None, parallelize=None, output=None, **kwargs):
     Use a `rundir` to run extraction of neurons in.
     """
     LOG.warning("Extract neurons for subtargets.")
+
+    if action != "run":
+        raise ValueError(f"extract-nodes will only run, not {action}")
+
+    node_population = substep
 
     if parallelize and STEP in parallelize and parallelize[STEP]:
         LOG.error("NotImplemented yet, parallilization of %s", STEP)
@@ -134,7 +141,7 @@ def run(config, in_mode=None, parallelize=None, output=None, **kwargs):
         raise RuntimeError("No circuits defined in config!")
     if "define-subtargets" not in input_paths["steps"] or "define-subtargets" not in output_paths["steps"]:
         raise RuntimeError("Missing subtarget definitions in config.")
-    if "extract-neurons" not in input_paths["steps"] or "extract-neurons" not in output_paths["steps"]:
+    if "extract-nodes" not in input_paths["steps"] or "extract-nodes" not in output_paths["steps"]:
         raise RuntimeError("Missing neuron extraction in config!")
 
     #path_targets = cfg["paths"]["define-subtargets"]
@@ -145,10 +152,13 @@ def run(config, in_mode=None, parallelize=None, output=None, **kwargs):
     LOG.info("DONE read number of targets read: %s", subtargets.shape[0])
 
     cfg = cfg["parameters"].get(STEP, {})
-    params = cfg.get("properties", [])
+    params = cfg.get("populations", [])
 
-    LOG.info("Cell properties to extract: %s", params)
-    extracted = extract(subtarget_cfg.input_circuit, subtargets, params)
+    if node_population not in params:
+        raise ValueError(f"Argued node population {node_population} not found among configured params \n{params}")
+
+    LOG.info("Node properties to extract: %s", params)
+    extracted = extract(subtarget_cfg.input_circuit, subtargets, params[node_population]["properties"])
     LOG.info("DONE, extracting %s", params)
 
     to_output = output_specified_in(output_paths, and_argued_to_be=output)

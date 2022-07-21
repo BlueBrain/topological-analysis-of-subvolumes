@@ -69,7 +69,7 @@ class HDFStore:
     def nodes(self):
         """Subtarget nodes that have been saved to the HDf store."""
         try:
-            return read_node_properties(self.get_path("extract-neurons"))
+            return read_node_properties(self.get_path("extract-nodes"))
         except (KeyError, FileNotFoundError):
             return None
 
