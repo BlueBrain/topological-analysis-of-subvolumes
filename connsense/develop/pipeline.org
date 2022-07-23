@@ -108,6 +108,7 @@ define-subtargets:
         - "central_columns/S1ULp_Column"
 #+end_src
 
+
 ** Extract nodes
 To configure the extraction of nodes, we must specify node populations in the circuit.
 
@@ -182,6 +183,7 @@ def extract_nodes(in_circuit, as_configured):
     return {p: extract_population(params, subtargets[p], in_circuit) for p, params in populations.items()}
 #+end_src
 
+
 ** Evaluate subtargets
 How good are the subtargets we have defined in the previous sections?
 Consider the flatmap subtargets we have developed for the SSCx. We expect these subtargets to be conical in shape,
@@ -239,7 +241,23 @@ evaluate-subtargets:
 
 
 ** Extract connectivity / edges
-To extract the circuit's edges, we will list the circuit's /connectomes/.
+To extract the circuit's edges, we will list the circuit's /connectomes/. If we want to extract edge-properties
+(/i.e./ synapse properties), we will list them.
+
+#+name: synapse-properties-to-extract
+#+begin_src yaml :tangle no :noweb yes :comments no :padline no
+ - "type"
+ - "g_synx"
+ - "u_syn"
+ - "d_syn"
+ - "f_syn"
+ - "axonal_delay"
+ - "dtc"
+ - "nrrp"
+ - "touch_distance"
+ - "conductance_ratio"
+ - "u_hill_coefficient"
+#+end_src
 
 #+name: config-parameters-extract-connectivity
 #+begin_src yaml :tangle no :noweb yes :comments no :padline no
@@ -255,36 +273,47 @@ extract-connectivity:
       target_node_population: "default"
       connectome: "local"
       extractor:
-        source: connsense
-        method: bluepy
+        source: connsense.extract_connectivity.bluepy
+        method: extract_connectivity
+      properties:
+        <<synapse-properties-to-extract>>
+
     long-range:
       source_node_population: "default"
       target_node_population: "default"
-      connectome: "intra_sscx_wm"
+      connectome: "intra_SSCX_midrange_wm"
       extractor:
-        source: connsense
-        method: bluepy
+        source: connsense.extract_connectivity.bluepy
+        method: extract_connectivity
+      properties:
+        <<synapse-properties-to-extract>>
     cortico-cortical:
       source_node_population: "default"
       target_node_population: "default"
-      connectome: ["local", "intra_sscx_wm"]
+      connectome: ["local", "intra_SSCX_midrange_wm"]
       extractor:
-        source: connsense
-        method: bluepy
+        source: connsense.extract_connectivity.bluepy
+        method: extract_connectivity
+      properties:
+        <<synapse-properties-to-extract>>
     thalamic-vpm:
       source_node_population: null
       target_node_population: "default"
-      connectome: "Thalamocortical-VPM"
+      connectome: "Thalamocortical_input_VPM"
       extractor:
-        source: connsense
-        method: bluepy
+        source: connsense.extract_connectivity.bluepy
+        method: extract_connectivity
+      properties:
+        <<synapse-properties-to-extract>>
     thalamic-pom:
       source_node_population: null
       target_node_population: "default"
-      connectome: "Thalamocortical-POM"
+      connectome: "Thalamocortical_input_POM"
       extractor:
-        source: connsense
-        method: bluepy
+        source: connsense.extract_connectivity.bluepy
+        method: extract_connectivity
+      properties:
+        <<synapse-properties-to-extract>>
 #+end_src
 
 ** Analyze connectivity

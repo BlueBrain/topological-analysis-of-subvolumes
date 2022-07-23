@@ -7,6 +7,9 @@ from pathlib import Path
 
 def import_module(from_path, with_method=None):
     """..."""
+    if not from_path:
+        assert not with_method, "Cannot find a method without a path."
+        return (None, None)
     try:
         module = import_module_with_name(from_path)
     except ModuleNotFoundError:

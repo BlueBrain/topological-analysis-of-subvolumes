@@ -1,0 +1,147 @@
+{
+ "VERSION": "0.0.0",
+  "COMMENTS": [
+    "Specify how to parallilize the pipeline steps.",
+    "This is a work in progress, and will evolve before stabilizing",
+    "to a longer term solultion than immediate use."
+  ],
+  "common": {
+    "COMMENTS": ["Specify common parallelization parameters",
+                 "that will apply to each of the analyses in the next section."]
+  },
+  "randomize-connectivity": {
+	  "COMMENTS": [
+			"Configure the parallelization of randomizations..."
+    ],
+    "controls": {
+      "dd2-model": {
+        "max-per-subtarget": {"memory": "50GB", "time": "600s"},
+        "number-compute-nodes": 5,
+        "number-tasks-per-node":4,
+        "sbatch": {
+          "name": "randomization",
+          "account": "proj83",
+	  			"time": "8:00:00",
+          "venv": "/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/load_env.sh"
+        }
+      },
+			"erdos-renyi": {
+        "max-per-subtarget": {"memory": "50GB", "time": "600s"},
+        "number-compute-nodes": 5,
+        "number-tasks-per-node":4,
+        "sbatch": {
+          "name": "randomization",
+          "account": "proj83",
+	  			"time": "8:00:00",
+          "venv": "/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/load_env.sh"
+        }
+      }
+		}
+  },
+  "analyze-connectivity": {
+    "COMMEMTS": ["Computational requirements for each analysis will be read from",
+                 "the common requirements set in the 'common' section and the section",
+                 "for the analysis itself.",
+                 "Each suggestion may contain the maximum requirements per subtarget",
+                 "which can be used to configure the number of tasks to run in parallel.",
+                 "However, ideally this value should be prescribed directly as ",
+                 "two separate entries: `number-compute-nodes` and `number-tasks-per-node`."],
+    "common": {
+      "COMMENTS": "Provide parallelization parameters to apply to each of the analyses.",
+      "venv": {
+        "COMMENTS": ["Path to either the folder containing the Python virtual-env to use,",
+                     "or path to a shell script that can be sourced.",
+                     "Such a script can be used to load modules before the virtual-env.",
+                     "It is also possible to provide modules in this congiguration as well."],
+        "path": "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/load_env.sh"
+      },
+      "modules": {
+        "COMMENTS": "A list modules to load at runtime.",
+        "list": []
+      }
+    },
+    "analyses": {
+      "COMMENTS": ["Each suggestion may contain the maximum requirements per subtarget",
+                   "which can be used to configure the number of tasks to run in parallel.",
+                   "However, ideally this value should be prescribed directly as ",
+                   "two separate entries: `number-compute-nodes` and `number-tasks-per-node`."],
+      "degree": {
+        "max-per-subtarget": {"memory": "50GB", "time": "600s"},
+        "number-compute-nodes": 10,
+        "number-tasks-per-node":5,
+        "sbatch": {
+          "name": "degree",
+          "account": "proj83",
+	  			"time": "8:00:00",
+          "venv": "/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/load_env.sh"
+        }
+      },
+			"simplex-counts": {
+        "max-per-subtarget": {"memory": "50GB", "time": "600s"},
+        "number-compute-nodes": 25,
+        "number-tasks-per-node": 4,
+        "sbatch": {
+          "name": "simplex-counts",
+          "account": "proj83",
+	  			"time": "24:00:00",
+          "venv": "/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/load_env.sh"
+        }
+      },
+      "simplices": {
+        "max-per-subtarget": {"memory": "50GB", "time": "600s"},
+        "number-compute-nodes": 20,
+        "number-tasks-per-node": 5,
+        "sbatch": {
+          "name": "simplices",
+          "account": "proj83",
+	  			"time": "24:00:00",
+          "venv": "/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/load_env.sh"
+        }
+      },
+      "node-participation": {
+        "max-per-subtarget": {"memory": "50GB", "time": "600s"},
+        "number-compute-nodes": 10,
+        "number-tasks-per-node": 5,
+        "sbatch": {
+          "name": "node-participation",
+          "account": "proj83",
+	  			"time": "24:00:00",
+          "venv": "/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/load_env.sh"
+        }
+      },
+      "betti-counts": {
+        "max-per-subtarget": {"memory": "50GB", "time": "600s"},
+        "number-compute-nodes": 50,
+        "number-tasks-per-node": 4,
+        "sbatch": {
+          "name": "betti-counts",
+          "account": "proj83",
+	  			"time": "24:00:00",
+          "venv": "/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/load_env.sh"
+        }
+      },
+      "bedge-counts": {
+        "max-per-subtarget": {"memory": "50GB", "time": "600s"},
+        "number-compute-nodes": 10,
+        "number-tasks-per-node": 5,
+        "sbatch": {
+          "name": "bedge-counts",
+          "account": "proj83",
+	  			"time": "24:00:00",
+          "venv": "/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/load_env.sh"
+        }
+      },
+      "model_params_dd2": {
+        "max-per-subtarget": {"memory": "50GB", "time": "600s"},
+        "number-compute-nodes": 20,
+        "number-tasks-per-node": 5,
+        "sbatch": {
+          "name": "model_params_dd2",
+          "account": "proj83",
+	  			"time": "24:00:00",
+          "venv": "/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/load_env.sh"
+        }
+      }
+    }
+  }
+}

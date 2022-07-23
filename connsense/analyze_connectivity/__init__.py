@@ -323,7 +323,7 @@ def get_value_stores(analysis, at_path, from_cache=None, in_mode='a'):
     return store
 
 
-def load_neurons(paths, dry_run=False):
+def load_neurons(paths, index_with_connectome=None, and_flatxy=False, dry_run=False):
     """..."""
     hdf, group = paths["steps"]["extract-nodes"]
     LOG.info("Load neuron properties from %s/%s", hdf, group)
@@ -332,11 +332,24 @@ def load_neurons(paths, dry_run=False):
         LOG.info("Test plumbing: analyze: load neurons")
         return None
 
-    neurons = (read_results((hdf, group), STEP)
-               .reset_index().set_index(["circuit", "subtarget", "flat_x", "flat_y"]))
+    neurons = read_results(hdf, group), STEP).reset_index()
 
-    LOG.info("Done loading extracted neuron properties: %s", neurons.shape)
-    return neurons
+    def flat(coordinate):
+        flat_c = f"flat_{coordinate}"
+        return [flat_c] if flat_c in neurons else []
+    flat_xy_if_argued = flat('x') + flat('y') if and_flatxy else []
+
+    def argue_flatxy(into_index_names):
+    return into_index_names + (flat('x') + flat('y') if and_flatxy else [])
+
+    if not add_connectome:
+        to_names = argue_flatxy(into_index_names=["cicuit", "subtarget"])
+        result =  neurons.set_index(to_names)
+
+    with_connectome = argue_flatxy(into_index_names=["cicuit", "connectome", "subtarget"])
+    result = (pd.concat([neurons.set_index(to_namea)], keys=add_connectome, names=["connectome"])
+              .reorder_levels(with_connectome))
+    LOG.info("Done loading extracted neuron properties: %s, with index", result.shape, result.index.names)
 
 
 def load_connectivity_original(paths, dry_run=False):

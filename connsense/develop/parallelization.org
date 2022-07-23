@@ -1,0 +1,342 @@
+#+title: Parallelization
+We have a parallelization scheme in place that we used to parallelize the computations of analyses.
+With multi-population nodes and edges, and to start the support of multiple circuit variants,
+definitions of subtargets, extraction of neuron properties, and extraction of connectivity should also
+be parallelized.
+Here we develop a scheme for parallelization of computations per subtarget.
+A unit of computation will be that of a single subtarget.
+
+#+name: develop-parallelization-configure-multinode
+#+begin_src python :tangle no :comments org :noweb yes :padline no
+def _remove_link(path):
+    try:
+        return path.unlink()
+    except FileNotFoundError:
+        pass
+    return None
+
+BATCH_SUBTARGETS = ("subtargets.h5", "batch")
+
+
+def write_configs(of_computation, at_dirpath):
+    """..."""
+    raise NotImplementedError
+
+
+def configure_multinode(computation, in_config, using_runtime, for_control=None, making_subgraphs=None):
+    """..."""
+
+    workspace = get_workspace(computation, in_config, for_control, making_subgraphs)
+    proj_dir, computation_base = workspace
+
+    def write_configs(at_dirpath):
+     return write_configs_of(computation, in_config, at_dirpath, with_random_shuffle=for_control,
+                             and_in_the_subtarget=making_subgraphs)
+
+    write_configs(at_dirpath=computation_base)
+    slurm_config = configure_slurm(computation, in_config, using_runtime)
+    n_compute_nodes, n_jobs = prepare_parallelization(computation, using_runtime)
+
+    master_launchscript = to_run_in / "launchscript.sh"
+
+    def configure_chunk(c, inputs):
+        """..."""
+        LOG.info("Configure chunk %s with %s inputs %s.", c, len(inputs), list(inputs.keys()))
+
+        to_run_ = to_run_in / f"compute-node-{c}"
+        rundir.mkdir(parents=False, exist_ok=True)
+        write_configs(at_dirpath=rundir)
+
+        with open(master_launchscript, 'w') as to_launch:
+            script = cmd_sbatch(slurm_config, at_path=rundir).name
+
+            def write(aline):
+                to_launch.write(aline + '\n')
+
+            write(f"########################## LAUNCH {name(computation)} for chunk {c}"
+                f" of {len(inputs)} inputs. #######################################")
+            write(f"pushd {rundir}")
+
+            sbatch = f"sbatch {script} "
+            configs = ' '.join(["--{config}={value}" for config, value in cmd_configs(computation, inputs).items()])
+            options = ' '.join(["--{option}={value}" for option, value in cmd_options(computation, inputs).items()])
+            write(f"{sbatch} {configs} {options} run")
+
+            write("popd")
+
+        return rundir
+
+    inputs = generate_inputs_of(computation, in_config)
+
+    batches = assign_batches(inputs, n_jobs)
+    write_compute(batches, at_dirpath=computation_base)
+
+    chunked = assign_compute_nodes(inputs, batches, n_compute_nodes)
+    return {c: configure_chunk(c, inputs=i) for c, i in chunked.groupyby("compute_node")}
+#+end_src
+
+
+The above distributes computations for individual subtargets over compute nodes.
+Let us implement the methods used in ~configure_multinode~.
+
+What might a ~computation~ look like? It can simply be a string read from the CLI arguments.
+Consider ~computation="analyze-connectivity/degree"~, which should run analyses of degree of subtarget nodes
+as specified in the configurcation. In general, following this convention, a computation will look like
+~<pipeline-step>/<substep>~.
+
+* Worspace for a computation
+The location where a single computation, /i.e./ a computation on a single cluster node, is nested under the
+~connsense~ pipeline's root.
+
+#+name: develop-parallelization-workspace
+#+begin_src python :tangle no :noweb yes :padline no
+def get_workspace(for_computation, in_config, for_control, making_subgraphs, in_mode='r'):
+    """..."""
+    rundir = workspace.get_rundir(in_config, step, substep, making_subgraphs, for_controls, in_mode)
+    basdir = workspace.find_base(rundir)
+    return (basedir, rundir)
+#+end_src
+
+* The different types of computations
+There are as many different types of computations in the ~connsense~ pipeline as there are steps.
+So we must provide methods used in ~configure_multinode~ for each of these steps.
+However, most of these methods are the same. Let us see what the differences are by coding them.
+
+** Write configs
+Each computation will run in it's working folder, and thus have it's own configurations.
+We write the pipeline config along with the computation's specific one's to the computation's working folder.
+
+#+name: develop-parallelization-write-configs
+#+begin_src python :tangle no :noweb yes :padline no
+def write_configs_of(computation, in_config, at_dirpath, for_control, in_the_subtarget):
+    """..."""
+    return {"configs": write_configs(of_computation, in_config, at_dirpath),
+            "controls": write_controls(algorithm=for_control, at_dirpath),
+            "subgraphs": write_subgraphs(in_the_subtarget, at_dirpath)}
+#+end_src
+
+**** The main config
+We will symplink the pipeline and runtime configs,
+
+#+name: develop-parallelization-write-configs-main
+#+begin_src python :tangle no :noweb yes :comments org :padline no
+def write_configs(of_computation, in_config, at_dirpath, controlling, subgraphing):
+    """..."""
+    basedir = find_base(rundir=at_dirpath)
+    def write(config):
+        def write_format(f):
+            filename = "{c}.{f}"
+            base_config = basedir / filename
+            if base_config.exists():
+                run_config = at_dirpath / filename
+                _remove_link(run_config)
+                run_config.symlink_to(base_config)
+                return  run_config
+            return None
+        return {f: write_format(f) for f in ["json", "yaml"]]}
+    return {c: write_config(c) for c in ["pipeline", "runtime"]}
+#+end_src
+
+**** Controls
+For analyses ~connsense~ can apply control algorihtms to the adjacency matrices that are
+entered in the config, and available to ~configure_multinode~ method as argument ~for_control~
+that should be an algorithm to shuffle the elements of a adjacency matrix.
+The value ~for_control~ should be parsed by the pipeline setup CLI tool to an ~algorithm~.
+
+#+name: develop-paralellization-write-configs-control
+#+begin_src python :tangle no :noweb ys :comments org :padline no
+def write_control(algorithm, at_dirpath):
+    """..."""
+    if not algorithm: return None
+
+    from connsense.io.read_config import write
+    from copy import deepcopy
+    control_json = at_dirpath / "control.json"
+    description = deepcopy(algorithm.description)
+    description["name"] = algorithm.name
+    return write(description, control_json)
+#+end_src
+
+**** Subgraphs
+We have nothing for subgraphs to configure. In our current setup, subgraph information is passed
+by CLI arguments, while the directory layout is determined during the execution of ~configure_multinode~ method
+by ~get_workspace~ method.
+
+#+name: develop-parallelization-write-configs-subgraphs
+#+begin_src python :tangle no :noweb yes :comments org :padline no
+def write_subgraphs(in_the_subtarget, at_dirpath):
+    """..."""
+    return None
+#+end_src
+
+* Inputs
+The inputs to a ~computation~ will also depend on the pipeline step that the ~copmutation~ is at.
+
+#+name: develop-parallelization-inputs
+#+begin_src python :tangle no :noweb yes :comments org :padline no
+def generate_inputs_of(copmutation, in_config, for_batch=None, selecting=None):
+    """..."""
+    step, substep = computation.split('/')
+
+    if step == "extract-connectivity":
+        population = substep
+        LOG.warning("Generate inputs to %s extract-connectivity for batch %s and selection %s",
+                    population, for_batch, selecting)
+        from connsense.extract_connectivity import read_results
+
+        path_subtargets = output_paths["steps"]["define-suubtargets"]
+        Load.info("Read subtargets from %s", path_subtargets)
+
+        subtargets = read_results(path_subtargets, for_step="extract-connectivity")
+        LOG.info("Read %s subtargets", len(subtargets))
+        return subtargets
+
+    if step == "analyze-connectivity":
+        LOG.warning("Generate inputs to analyze-connectivity for batch %s and selection %s", for_batch, selecting)
+        from connsense.analyze_connectivity import check_paths, load_adjacencies, load_neurons
+        toc_dispatch = load_adjacencies(input_paths, for_batch, return_batches=False, sample=selecting)
+        input_paths, output_paths = check_paths(in_config, "analyze-connectivity")
+        toc_dispatch = load_adjacencies(input_paths, for_batch, return_batches=False, sample=selecting)
+
+        if toc_dispatch is None:
+            LOG.warning("Donw, with no connectivity matrices available to analyze for batch %s and selection %s",
+                        for_batch, selecting)
+
+        neurons = load_neurons(input_paths, index_with_connectome=substep, and_flatxy=False)
+        return pd.concat([toc_dispatch, neurons.reindex(for_batch.index)], axis=1)
+#+end_src
+
+*** Parameterize the step
+Let us list these in a method that returns the parameters of a ~computation~,
+
+#+name: develop-parallelization-parameterize-step
+#+begin_src python :tangle no :noweb yes :comments org :padline no
+def parameterize(step, substep, in_config):
+    """..."""
+    parameters = in_config["parameters"][step]
+
+    key_step = {"define-subtargets": "defintions",
+                "extract-nodes": "populations",
+                "evaluate-subtargets": "metrics",
+                "extract-connectivity": "populations",
+                "randomize-connectivity": "controls",
+                "connectivity-controls", "algorithms",
+                "analyze-connectivity": "analyses"}[step]
+
+    step_params = parameters[key_step]
+    return step_params[substep]
+#+end_src
+
+* Configure runtime
+The results of ~configure_multinode~ will be written to a Slurm configuration and listed in a launchscript.
+The Slurm configuration of a computation can be read from the runtimr config.
+
+** Configure Slurm
+#+name: develop-parallelization-configure-runtime-slurm
+#+begin_src python :tangle no :noweb yes :comments org :padline no
+def configure_slurm(computation, using_runtime):
+    """..."""
+    step, substep = computation.split('/')
+    return using_runtime.get(step, {}).get("slurm", None)
+#+end_src
+
+We will submit one Slurm job per compute-node,
+
+** Parallelization
+#+name: develop-parallelization-configure-runtime-parallelization
+#+begin_src python :tangle no :noweb yes :comments org :padline no
+def prepare_parallelization(computation, using_runtime):
+    """.."""
+    step, _ = computation.split('/')
+    return using_runtime.get(step, {}).get("paralellization")
+#+end_src
+
+*** Batch assignement
+We will assign every input subtarget a batch that will be queued on a compute node,
+
+#+name: develop-parallelization-configure-runtime-batch-assignment
+#+begin_src python :tangle no :noweb yes :comments org :padline no
+def assign_batches_to(inputs, upto_number):
+    """..."""
+    def estimate_load(input):
+        return 1.
+
+    weights = inputs.apply(estimate_load).sort_values(asceinding=True)
+    computational_load = np.cumsum(weights) / weights.sum()
+    batches = ((upto_number - 1) * conmputational_load).apply(int).rename("batch")
+
+    LOG.info("Load balanced batches for %s inputs: \n %s", len(inputs))
+    return batches.loc[inputs.index]
+#+end_src
+
+*** Compute nodes
+To run a multi-compute-node copmutation we will assign compute nodes,
+
+#+name: develop-parallelization-configure-runtime-compute-nodes
+#+begin_src python :tangle no :noweb yes :comments org :padline no
+def assign_compute_nodes(inputs, batches, n_compute_nodes):
+    """..."""
+    assignment = np.linspace(0, n_compute_nodes - 1.e-6, batches.max() + 1, dtype=int)
+    return inputs.assign(compute_node=assignment[batches.values])
+#+end_src
+
+*** Batch run
+Method ~configure_multinode~ will only write the configurations each of which willl be used to
+run a single node computation. When distributed overl multiple compute nodes, each compute node will get
+only a chunk of the inputs. We will need to save the batch of inputs to be sent to a compute node in that
+compute node's rundir.
+
+#+name: develop-parallelization-save-runtime-batch-run
+#+begin_src python :tangle no :noweb yes :comments org :padline no
+def write_compute(batches, to_dirpath):
+    """..."""
+    subtargets_h5, and_hdf_group = BATCH_SUBTARGETS
+    batches.to_hdf(at_dirpath / subtargets_h5, key=and_hdf_group, format="fixed", mode='w')
+#+end_src
+
+* Putting it together
+We can now list the code that can configure a multinode computation. Excuse the double lines bettween individual entries,
+which we do to keep the output Python code clean.
+
+#+begin_src python :tangle "../pipeline/parallelization.py" :noweb yes :comments org :padline no
+from connsense.pipeline import workspace
+
+
+<<develop-parallelization-configure-multinode>>
+
+
+<<develop-parallelization-workspace>>
+
+
+<<develop-parallelization-write-configs>>
+
+
+<<develop-parallelization-write-configs-main>>
+
+
+<<develop-paralellization-write-configs-control>>
+
+
+<<develop-parallelization-write-configs-subgraphs>>
+
+
+<<develop-parallelization-inputs>>
+
+
+<<develop-parallelization-parameterize-step>>
+
+
+<<develop-parallelization-configure-runtime-slurm>>>
+
+
+<<develop-parallelization-configure-runtime-parallelization>>
+
+
+<<develop-parallelization-configure-runtime-batch-assignment>>
+
+
+<<develop-parallelization-configure-runtime-compute-nodes>>
+
+
+<<develop-parallelization-save-runtime-batch-run>>
+#+end_src

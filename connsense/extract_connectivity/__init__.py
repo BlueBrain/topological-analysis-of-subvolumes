@@ -48,7 +48,7 @@ def get_current(action, mode, config, step, substep, controls=None, with_paralle
     return current_run(config, step, substep, controls, mode, with_parallelization)
 
 
-def run(config, action, substep=None, in_mode=None, output=None, **kwargs):
+def run(config, action, substep=None, in_mode=None,  parallelize=None, output=None, **kwargs):
     """..."""
     from connsense.pipeline import workspace
 
