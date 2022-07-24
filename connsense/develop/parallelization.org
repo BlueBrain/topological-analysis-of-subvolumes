@@ -29,11 +29,11 @@ def configure_multinode(computation, in_config, using_runtime, for_control=None,
     workspace = get_workspace(computation, in_config, for_control, making_subgraphs)
     proj_dir, computation_base = workspace
 
-    def write_configs(at_dirpath):
-     return write_configs_of(computation, in_config, at_dirpath, with_random_shuffle=for_control,
-                             and_in_the_subtarget=making_subgraphs)
+    def _write_configs(at_dirpath):
+        return write_configs_of(computation, in_config, at_dirpath, with_random_shuffle=for_control,
+                                and_in_the_subtarget=making_subgraphs)
 
-    write_configs(at_dirpath=computation_base)
+    _write_configs(at_dirpath=computation_base)
     slurm_config = configure_slurm(computation, in_config, using_runtime)
     n_compute_nodes, n_jobs = prepare_parallelization(computation, using_runtime)
 
@@ -108,19 +108,19 @@ We write the pipeline config along with the computation's specific one's to the 
 
 #+name: develop-parallelization-write-configs
 #+begin_src python :tangle no :noweb yes :padline no
-def write_configs_of(computation, in_config, at_dirpath, for_control, in_the_subtarget):
+def write_configs_of(computation, in_config, at_dirpath, with_random_shuffle, and_in_the_subtarget):
     """..."""
-    return {"configs": write_configs(of_computation, in_config, at_dirpath),
-            "controls": write_controls(algorithm=for_control, at_dirpath),
+    return {"configs": write_base_configs(of_computation, in_config, at_dirpath),
+            "controls": write_controls(with_random_shuffle, at_dirpath),
             "subgraphs": write_subgraphs(in_the_subtarget, at_dirpath)}
 #+end_src
 
 **** The main config
-We will symplink the pipeline and runtime configs,
+We will symlink the pipeline and runtime configs,
 
 #+name: develop-parallelization-write-configs-main
 #+begin_src python :tangle no :noweb yes :comments org :padline no
-def write_configs(of_computation, in_config, at_dirpath, controlling, subgraphing):
+def write__base_configs(of_computation, in_config, at_dirpath, controlling, subgraphing):
     """..."""
     basedir = find_base(rundir=at_dirpath)
     def write(config):
@@ -133,7 +133,7 @@ def write_configs(of_computation, in_config, at_dirpath, controlling, subgraphin
                 run_config.symlink_to(base_config)
                 return  run_config
             return None
-        return {f: write_format(f) for f in ["json", "yaml"]]}
+        return {f: write_format(f) for f in ["json", "yaml"]}
     return {c: write_config(c) for c in ["pipeline", "runtime"]}
 #+end_src
 
@@ -211,20 +211,10 @@ Let us list these in a method that returns the parameters of a ~computation~,
 
 #+name: develop-parallelization-parameterize-step
 #+begin_src python :tangle no :noweb yes :comments org :padline no
-def parameterize(step, substep, in_config):
+def parameterize(computation_type, of_quantity, in_config):
     """..."""
-    parameters = in_config["parameters"][step]
-
-    key_step = {"define-subtargets": "defintions",
-                "extract-nodes": "populations",
-                "evaluate-subtargets": "metrics",
-                "extract-connectivity": "populations",
-                "randomize-connectivity": "controls",
-                "connectivity-controls", "algorithms",
-                "analyze-connectivity": "analyses"}[step]
-
-    step_params = parameters[key_step]
-    return step_params[substep]
+    parameters = in_config["parameters"][computation_type]
+    return parameters[PARAMKEY[computation_type]][of_quantity]
 #+end_src
 
 * Configure runtime
@@ -234,22 +224,112 @@ The Slurm configuration of a computation can be read from the runtimr config.
 ** Configure Slurm
 #+name: develop-parallelization-configure-runtime-slurm
 #+begin_src python :tangle no :noweb yes :comments org :padline no
-def configure_slurm(computation, using_runtime):
+def configure_slurm(computation, in_config, using_runtime):
     """..."""
-    step, substep = computation.split('/')
-    return using_runtime.get(step, {}).get("slurm", None)
+    from connsense.io.read_config import read as read_pipeline
+    computation_type, quantity = computation.split('/')
+    from_runtime = read_config(for_parallelization=using_runtime, of_pipeline=read_pipeline(in_config))
+    return from_runtime.get(computation_type, {}).get("slurm", None)
 #+end_src
 
 We will submit one Slurm job per compute-node,
 
 ** Parallelization
+To configure parallelization of a ~connsense-TAP~ step.
+Each ~connsense-TAP~ step should be configured in the runtime config providing the number of compute nodes,
+and the number of tasks per node.
+
 #+name: develop-parallelization-configure-runtime-parallelization
 #+begin_src python :tangle no :noweb yes :comments org :padline no
+def read_njobs(to_parallelize, computation_of):
+    """..."""
+    if not to_parallelize:
+        LOG.info("No configuration to parallelize.")
+        return (1, 1)
+
+        try:
+            q = computation_of.name
+        except AttributeError:
+            q = computation_of
+
+        try:
+            p = to_parallelize[q]
+        except KeyError:
+            LOG.info("No configuration of %s in parallelization config", q)
+            return (1, 1)
+
+        compute_nodes = p["number-compute-nodes"]
+        tasks = p["number-tasks-per-node"]
+        LOG.info("Configured %s parallelization: %s, %s", q, compute_nodes, tasks * compute_nodes)
+        return (compute_nodes, compute_nodes * tasks)
+
+
+def read_config(for_parallelization, of_pipeline=None):
+    """..."""
+    assert not of_pipeline or isinstance(of_pipeline, Mapping)
+
+    if not for_parallelization:
+        return None
+
+    try:
+        path = Path(for_parallelization)
+    except TypeError:
+        assert isinstance(for_parallelization, Mapping)
+        config = for_parallelization
+    else:
+        if path.suffix.lower() in (".yaml", ".yml"):
+            with open(path, 'r') as fid:
+                config = yaml.load(fid, Loader=yaml.FullLoader)
+        elif path.suffix.lower() == ".json":
+            with open(path, 'r') as fid:
+                config = json.load(fid)
+        else:
+            raise ValueError(f"Unknown config type {for_parallelization}")
+
+    if not of_pipeline:
+        return config
+
+    version = config["version"]
+    date = config["date"]
+    from_runtime = config["pipeline"]
+    default_sbatch = lambda: {key: value for key, value in config["slurm"]["sbatch"].items()}
+
+    def configure_slurm_for(computation_type):
+        """..."""
+        try:
+            cfg_computaiton_type = of_pipeline["parameters"][computation_type]
+        except KeyError:
+            return None
+
+        quantities_to_configure = cfg_computaiton_type[PARAMKEY[computation_type]]
+        configured = from_runtime.get(computation_type, {})
+
+        def configure_quantity(q):
+            cfg = {key: value for key, value in (configured.get(q) or {}).items()}
+            if "sbatch" not in cfg:
+                cfg["sbatch"] = default_sbatch()
+            if "number-compute-nodes" not in cfg:
+                cfg["number-compute-nodes"] = 1
+            if "number-tasks-per-node" not in cfg:
+                cfg["number-tasks-per-node"] = 1
+            return cfg
+
+        return {q: configure_quantity(q) for q in quantities_to_configure if q != "description"}
+
+    runtime_pipeline = {c: configure_slurm_for(computation_type=c) for c in of_pipeline["parameters"]}
+    return {"version": config["version"], "date": config["date"], "pipeline": runtime_pipeline}
+
+
 def prepare_parallelization(computation, using_runtime):
     """.."""
-    step, _ = computation.split('/')
-    return using_runtime.get(step, {}).get("paralellization")
+    computation_type, quantity = computation.split('/')
+    from_runtime = read_config(for_parallelization=using_runtime)
+    configured = from_runtime.get(computation_type, {})
+    return read_njobs(to_parallelize=configured, computation_of=quantity)
 #+end_src
+
+#+RESULTS: develop-parallelization-configure-runtime-parallelization
+: None
 
 *** Batch assignement
 We will assign every input subtarget a batch that will be queued on a compute node,
@@ -294,13 +374,24 @@ def write_compute(batches, to_dirpath):
     batches.to_hdf(at_dirpath / subtargets_h5, key=and_hdf_group, format="fixed", mode='w')
 #+end_src
 
+
+
 * Putting it together
 We can now list the code that can configure a multinode computation. Excuse the double lines bettween individual entries,
 which we do to keep the output Python code clean.
 
 #+begin_src python :tangle "../pipeline/parallelization.py" :noweb yes :comments org :padline no
-from connsense.pipeline import workspace
+from collections.abc import Mapping
+from pathlib import Path
 
+import yaml
+import json
+
+from connsense.pipeline import workspace
+from connsense.pipeline.pipeline import PARAMKEY
+from connsense.io import logging
+
+LOG = logging.get_logger("connsense pipeline")
 
 <<develop-parallelization-configure-multinode>>
 
@@ -326,7 +417,7 @@ from connsense.pipeline import workspace
 <<develop-parallelization-parameterize-step>>
 
 
-<<develop-parallelization-configure-runtime-slurm>>>
+<<develop-parallelization-configure-runtime-slurm>>
 
 
 <<develop-parallelization-configure-runtime-parallelization>>
@@ -339,4 +430,146 @@ from connsense.pipeline import workspace
 
 
 <<develop-parallelization-save-runtime-batch-run>>
+#+end_src
+
+
+* Runtime config
+The runtime config provides parameters for parallelization each step in the ~connsense-TAP~.
+
+#+name: runtime-config-init
+#+begin_src yaml :tangle no :noweb yes :comments org :padline no
+version: 1.0.0
+date: 20220724
+slurm:
+  description: >-
+    Configure default Slurm config.
+  sbatch:
+    account: "proj83"
+    time: "8:00:00"
+    venv: "/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/load_env.sh"
+#+end_src
+
+** Define subtargets
+Let us enter all the definitions by name, but no content to configure parallelization,
+#+name: runtime-config-define-subtargets
+#+begin_src yaml :tangle no :noweb yes :comments org :padline no
+define-subtargets:
+  description: >-
+    Configure parallelization to run ~define-subtargets~.
+  definitions:
+    hexgrid-cells: null
+    hexgrid-voxels: null
+    pre-defined: null
+#+end_src
+
+** Extract voxels
+#+name: runtime-config-extract-voxels
+#+begin_src yaml :tangle no :noweb yes :comments org :padline no
+extract-voxels:
+  description: >-
+    Configure parallelization to run ~extract-voxels~.
+  definitions:
+    layer: null
+    depth: null
+    flatmap: null
+    orientation: null
+#+end_src
+
+** Extract node types
+#+name: runtime-config-extract-node-types
+#+begin_src yaml :tangle no :noweb yes :comments org :padline no
+extract-node-types:
+  description: >-
+    Configure the extraction of node types.
+  models:
+    biophysical: null
+#+end_src
+
+** Extract node populations
+We will extract nodes for each subtarget on it's own compute-node.
+
+#+name: runtime-config-extract-node-populations
+#+begin_src yaml :tangle no :noweb yes :comments org :padline no
+extract-node-populations:
+  description: >-
+    Configure the extraction of node populations.
+  populations:
+    default:
+      number-copmute-nodes: 8
+      number-tasks-per-node: 1
+#+end_src
+
+** Extract edge populations
+We will extract nodes for each subtarget on it's own compute-node.
+
+#+name: runtime-config-extract-edge-populations
+#+begin_src yaml :tangle no :noweb yes :comments org :padline no
+extract-edge-populations:
+  description: >-
+    Configure the extraction of edge populations.
+  populations:
+    default:
+      number-copmute-nodes: 8
+      number-tasks-per-node: 1
+#+end_src
+
+** Analyze geometry
+#+name: runtime-config-analyze-geometry
+#+begin_src yaml :tangle no :noweb yes :comments org :padline no
+analyze-geometry:
+  description: >-
+    Configure the analyses of a circuit subtarget geometry.
+  analyses:
+    layer_volume: null
+    conicity: null
+#+end_src
+
+** Analyze composition
+#+name: runtime-config-analyze-composition
+#+begin_src yaml :tangle no :noweb yes :comments org :padline no
+analyze-composition:
+  description: >-
+    Configure the analyses of a circuit subtarget composition.
+  analyses:
+    cell-count-by-layer: null
+    cell-count-by-mtype: null
+#+end_src
+
+** Analyze connectivity
+Edge properties may be need a lot of memory, crashing too many parallel jobs on a single node.
+Let us try with 4 jobs in parallel on 1 node. For the 8 columnar subtargets this should be enough.
+
+#+name: runtime-config-analyze-connectivity
+#+begin_src yaml :tangle no :noweb yes :comments org :padline no
+analyze-geometry:
+  description: >-
+    Configure the analyses of a circuit subtarget connectivity.
+  analyses:
+    neuronal-convergence:
+      number-compute-nodes: 1
+      number-tasks-per-node: 4
+    neuronal-divergence:
+      number-compute-nodes: 1
+      number-tasks-per-node: 4
+    synaptic-convergence:
+      number-compute-nodes: 1
+      number-tasks-per-node: 4
+    synaptic-divergence:
+      number-compute-nodes: 1
+      number-tasks-per-node: 4
+#+end_src
+
+* Results
+
+#+begin_src yaml :tangle runtime.yaml :noweb yes :comments no :padline no
+<<runtime-config-init>>
+pipeline:
+  <<runtime-config-define-subtargets>>
+  <<runtime-config-extract-voxels>>
+  <<runtime-config-extract-node-types>>
+  <<runtime-config-extract-node-populations>>
+  <<runtime-config-extract-edge-populations>>
+  <<runtime-config-analyze-geometry>>
+  <<runtime-config-analyze-composition>>
+  <<runtime-config-analyze-connectivity>>
 #+end_src

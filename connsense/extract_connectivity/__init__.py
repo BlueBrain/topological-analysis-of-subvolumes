@@ -12,7 +12,7 @@ from ..io.slurm import SlurmConfig
 
 from connsense.pipeline import workspace
 
-STEP = "extract-connectivity"
+STEP = "extract-edge-populations"
 LOG = logging.get_logger(STEP)
 
 
@@ -69,7 +69,7 @@ def run(config, action, substep=None, in_mode=None,  parallelize=None, output=No
 
     _, hdf_group = output_paths["steps"].get(STEP, default_hdf(STEP))
 
-    configured = cfg["parameters"][STEP]["connectomes"]
+    configured = cfg["parameters"][STEP]["populations"]
 
     assert connectome in configured, (
         f"Argued connectome {connectome} was not among those configured {configured}")

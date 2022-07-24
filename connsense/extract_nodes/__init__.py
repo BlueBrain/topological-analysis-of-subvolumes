@@ -9,12 +9,12 @@ from bluepy import Circuit
 
 from ..io import read_config as read_cfg
 from ..io.read_config import check_paths
-from ..io.write_results import read as read_results, write, default_hdf
+from ..io.write_results import read as read_results, default_hdf
 from ..io import logging
 
 from ..define_subtargets.config import SubtargetsConfig
 
-STEP = "extract-nodes"
+STEP = "extract-node-populations"
 LOG = logging.get_logger(STEP)
 XYZ = ["x", "y", "z"]
 
@@ -32,7 +32,7 @@ def get_node_depths(circuit):
     return depths
 
 
-def extract(circuits, subtargets, properties):
+def extract(circuits, subtargets, properties, parallelize=None):
     """Run the extractoin for 1 circuit.
     """
     LOG.info("RUN node properties extractions")
@@ -69,6 +69,13 @@ def extract(circuits, subtargets, properties):
     LOG.info("DONE node properties extractions: %s", node_properties.shape)
 
     return node_properties
+
+
+def write(extracted, node_population, to_path):
+    """..."""
+    from connsense.io.write_results import write
+    hdf, group = to_path
+    return write(extracted, to_path=(hdf, group+'/'+node_population), format="table")
 
 
 def _resolve_hdf(location, paths):
@@ -141,7 +148,7 @@ def run(config, action, substep, in_mode=None, parallelize=None, output=None, **
         raise RuntimeError("No circuits defined in config!")
     if "define-subtargets" not in input_paths["steps"] or "define-subtargets" not in output_paths["steps"]:
         raise RuntimeError("Missing subtarget definitions in config.")
-    if "extract-nodes" not in input_paths["steps"] or "extract-nodes" not in output_paths["steps"]:
+    if STEP not in input_paths["steps"] or STEP not in output_paths["steps"]:
         raise RuntimeError("Missing neuron extraction in config!")
 
     #path_targets = cfg["paths"]["define-subtargets"]
@@ -158,13 +165,13 @@ def run(config, action, substep, in_mode=None, parallelize=None, output=None, **
         raise ValueError(f"Argued node population {node_population} not found among configured params \n{params}")
 
     LOG.info("Node properties to extract: %s", params)
-    extracted = extract(subtarget_cfg.input_circuit, subtargets, params[node_population]["properties"])
+    extracted = extract(subtarget_cfg.input_circuit, subtargets, params[node_population]["properties"], parallelize)
     LOG.info("DONE, extracting %s", params)
 
     to_output = output_specified_in(output_paths, and_argued_to_be=output)
     LOG.info("WRITE node properties to archive %s\n\t under group %s",
              to_output[0], to_output[1])
-    write(extracted, to_path=to_output, format="table")
+    write(extracted, node_population, to_path=to_output)
     LOG.info("DONE neuron properties to archive.")
 
     LOG.warning("DONE extract nodes for subtargets, with %s entries in a dataframe", extracted.shape[0])

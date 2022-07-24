@@ -80,9 +80,9 @@ def lower(argument):
 
 
 SUBSTEPS = OrderedDict([("define-subtargets", "definitions"),
-                        ("extract-nodes", "populations"),
+                        ("extract-node-populations", "populations"),
                         ("evaluate-subtargets", "metrics"),
-                        ("extract-connectivity", "connectomes"),
+                        ("extract-edge-populations", "populations"),
                         ("randomize-connectivity", "controls"),
                         ("analyze-connectivity", "analyses")])
 
@@ -173,7 +173,7 @@ def main(argued=None):
     a = argued
     c["paths"]["output"] = _read_output_in_config(c, and_argued_to_be=a.output)
 
-    p = pipeline.TopologicalAnalysis.read_parallelization(argued.parallelize)
+    p = pipeline.TopologicalAnalysis.read_parallelization(argued.parallelize, of_pipeline=c)
     s, ss = check_step(argued, against_config=c)
     m = check_mode(argued)
     current_run = get_current(action=a.action, mode=m, config=c,

@@ -146,14 +146,11 @@ def check_paths(in_config, step):
     if "define-subtargets" not in input["steps"]:
         raise RuntimeError("No method to define subtargets.")
 
-    if "extract-nodes" not in input["steps"]:
+    if "extract-node-populations" not in input["steps"]:
         raise RuntimeError("No method to extract nodes.!")
 
-    if "extract-connectivity" not in input["steps"]:
+    if "extract-edge-populations" not in input["steps"]:
         raise RuntimeError("No connection matrices in config!")
-
-    if "randomize-connectivity" not in input["steps"]:
-        raise RuntimeError("No randomized matrices in config paths: {list(paths.keys()}!")
 
     if step not in output["steps"]:
         raise RuntimeError(f"No {step} in config output!")

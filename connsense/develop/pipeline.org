@@ -2,9 +2,151 @@
 
 The brain circuit's connections are mediated via multiple-synapses, and may consitute of multiple node populations.
 Here we develop features in ~connsense~ to handle such features of a brain network.
-Instead of defining individual sections, we will develop the complete description.
 
-#+name: config-init
+We have moved beyond the simpler brain reconstructions with neurons composed of two types: the /biophyscal/
+neurons in the network and the virtual ones that represented the thalamic inputs.
+We now have circuits with multiple node-types that can be mixed to define a /node-population/.
+Each /node-type/ has a homoegenous namespace that contains the information that is necessary to build a model
+for each neuron in the circuit of that /node-type/. A single /node-population/ may consist of several /node-types/.
+In the SSCX circuit, we define the /default/ node-populattion to be that of the SSCx biophysical neurons.
+
+To track multiple  populations of nodes and edges, we will need to make changes to ~connsense~'s ~HDFstore~
+Let us decide that a given ~connsense~'s ~tap~ will run only for subtargets that belong to a single /node-population/
+in the circuit. We can enter this information in the ~config parameter~'s section ~define-subtargets~,
+and add it as an attribute to the ~HDFstore-group~ for step ~define-subtargets~.
+
+So the entire suite of analyses set up by ~connsense-tap~ will be of a single node-population.
+However that does not mean we will leave other node-populations untouched. To compare the number of
+extrinsic /versus/ intrinsic inputs to a node in the circuit we will need extact the edges from the
+extrinsic /node-population/. While this requires us to implement multiple-edge populations, we might
+as well implement multiple population for the extraction of node properties.
+
+So if the ~connsense~'s ~HDFstore~ does not need a new index level or a datagroup for ~node-population~,
+it will do so for storing the extraction of nodes and edges. We will put this data in ~HDFstore~ data grooups
+named by the ~node-population~ or ~edge-population~ that are read from the configuration.
+
+This will need a rewrite of ~extract-nodes~ and ~extract-connectivity~ steps. While we do that, we will use
+an option for parallelization configured in ~runtime~ config file.
+We will also work towards extracting ~edge-properties~ that could be done either during the extraction
+of connections or as a separate step. Each subtarget's edge properties will be saved in the ~HDFstore~
+as a ~pandas.DataFrame~. The benefit of extracting edge properties in the ~extract-connectivity~ run
+is that we can extract the edges (/i.e./ synapses) from the circuit and then convert that into a weighted
+adjacency matrix and save both to the ~HDFstore~ under seperate groups ~adjmat~ and ~edges~, thus saving
+compute time. This cannot be
+
+However this does not fit intuitively with how we deal with the extraction of node properties that happens
+after the defintiion of subtargets. Extraction of neurons as a separate step would make sense if all the circuit's
+node's properties were extracted at once instead of by subtarget. We could then rely on the ~HDFstore-TAP~ to provide
+us properly indexed data frames and series for the subtarget nodes.
+
+We cannot extract edge-properties for all the edges in the circuit. Extraction of edge properties nested inside
+extraction of connectivity will also reduce the amount of configuration. As a separation step, we will need to add
+a section to the config. The pipeline ~connsense-TAP~ works by running a step for each subtarget, with data input from
+those of previous pipeline steps. We will have several edge-populations in the circuit,  We could configure
+only the properties in ~extract-edge-properties~ assuming that these properties will apply to all the edge-populations
+listed in ~extract-connectivity~. However this assumption may not generalize. While the subtargets are in the same
+node-population, the edges are allowed to be to or from an /extrinsic/ node-population and in principal could have
+different namespaces that will need separate config sections. This will double the amount configuration required.
+Thus we have decided to extract edge properties for an edge-population if a list of properties are entered in it's
+config section.
+
+We will also work towards implementing an extraction of morphological properties of neurons.
+Extraction of morphological properties requires special treatment compared to the other cell properties.
+We will load the morphology database and compute the configured metrics as a dataframe, saving it to the
+~connsense-HDFstore~ indexed by the morphology. Each morphological property such as axon-length will be computted
+and included in ~node-properties~ data-frame as a column.
+
+** TODO Refactor ~extract-nodes~ to extract all the nodes at once,
+and update ~connsense-TAP~ to return per subtarget nodes
+
+* Of types and populations
+A brain circuit reconstruction is a model that is composed of elements that are themselves models.
+Each neuron in the circuit is an instance of a /node-type/. that is defined as a union of types of cell features.
+
+** Nodes
+
+*** Node type
+Each neuron in the circuit is an instance a /node-type/, The ~node-type~ of a cell placed in the circuit
+has information on cell-properties that is shared by more than one cell in the cirucit.
+For example a cell will share it's layer with all other cells of node types of that layer.
+Cell property /layer/ is then part of the cell's ~node-type~.'s defintion, though we do not have to
+expand on it's meaning in the ~nodet-type~ data. We will implement a ~connsense-TAP~ step to extract
+~node-type~ data. For now We will configure the extraction of morphology data for ~node-type~ /biophysical/.
+The benefit of extracting and computing the ~node-type~ data for morphologies is that we can then use
+to compute the configure node-properties that ask for the measurement of a cell's morphology.
+
+*** Node models
+Each cell in the circuit models a node. If the cell is of ~node-type~ biophysical, it will be modeled as
+as /biophysical/ neuron using properties that specified in the node-properties and node-type sections of
+the circuit's config. The set of cell-properties that fully parameterize the /biophysical/ model of the cell
+will be compute by joining the cell's properties with the node-type data.
+For our analyses we will need the cell properties that will be extracted and computed in ~connsense-TAP~ using
+the configured extraction method and the ~node-type~ data computed in ~extract-node-types~.
+Each population in ~extract-node-populations~ section of the config should specify ~node-types~ that the
+extraction method will need.
+
+In the ~connsense-HDFstore~ we will have the following datasets for nodes
+
+#+begin_src yaml :tangle no
+nodes:
+  types:
+    biophysical:
+      morphologies: Dataset(pandas.DataFrame)
+      electrophysiologies: Dataset(pandas.DataFrame)
+    virtual_vpm:
+      electrophysiologies: Dataset(pandas.DataFrame)
+    virtual_pom:
+      electrophysiologies: Dataset(pandas.DataFrame)
+
+  populations:
+    default:
+      biophysical: Dataset(pandas.DataFrame)
+      virtual_vpm: Dataset(pandas.DataFrame)
+      virtual_pom: Dataset(pandas.DataFrame)
+#+end_src
+
+** Edges
+
+*** Edge type
+We do have a type for the circuit's symapses --- these could be extracted from the circuit's conenctivity recipes,
+and provided to the ~extract-edge-population~ step.
+
+*** Edge models
+Each edge in the circuit can also be thought of as a model. Together all the edges in population are a population of
+edge models. In the context of ~connsesnse-TAP~ we think of ~extract-edge-populations~ as an extraction of
+/model-parameters/ of edges that will be relevant to our analyses. The edges' /model-parameters/ will be extracted
+to the ~connsense-HDFstore~ under the group ~edges/populations~, one dataset per edge-population.
+So for the configuration we develop in later sections, we will have the following datasets
+
+#+begin_src yaml :tangle no
+edges:
+  types:
+    biophysical:
+      edge_property_1s: Dataset(pandas.DataFrame / pandas.Series)
+      edge_property_2s: Dataset(pandas.DataFrame / pandas.Series)
+    projections:
+      edge_property_1s: Dataset(pandas.DataFrame / pandas.Series)
+      edge_property_2s: Dataset(pandas.DataFrame / pandas.Series)
+  populations:
+    local:
+      adjacency: Dataset(numpy.ndarray)
+      properties: Dataset(pandas.Dataframe)
+    long-range:
+      adjacency: Dataset(numpy.ndarray)
+      properties: Dataset(pandas.Dataframe)
+    thalamic_vpm:
+      adjacency: Dataset(numpy.ndarray)
+      properties: Dataset(pandas.DataFrame)
+#+end_src
+
+Let us see how to implement these ideas by developing a ~connsense-TAP~ config.
+
+* Pipeline Config
+Let us configure a suite of analyses of the circuit's structure, the results of which we will use
+as a reference database for assembling a factology of the SSCX circuit. In the next section we will go discuss
+and implement the changes that each pipeline stepp will need.
+
+#+name: pipeline-config-init
 #+begin_src yaml :tangle no :noweb yes :padline no
 description: >-
   Configure a `connsense` pipeline
@@ -14,61 +156,90 @@ date: 20220720
 
 There will be two sections in the /pipeline/ config.
 
-* Paths
+** Paths
 The section ~paths~ configures the locations of the circuit to analyze, and HDF5 paths for the ~TAP-store~~.
+Let us review the paths for each pipeline step.
 
-#+name: config-paths
-#+begin_src yaml :tangle no :noweb yes :padline no
+#+name: pipeline-config-paths
+#+begin_src yaml :tangle no :noweb yes :comments no :padline no
 paths:
   description: >-
     The ~connsense~ pipeline needs paths to the input data to load from, and output paths to store data.
     Paths to the circuit must be provided along with paths to the HDF5 archive that will store the pipeline's
     results.
   format: relative
-  circuit:
-    root: "/gpfs/bbp.cscs.ch/project/proj83/circuits"
-    files:
-      Bio_M: "Bio_M/20200805/CircuitConfig_TC_WM"
-  pipeline:
-    root: "/gpfs/bbp.cscs.ch/project/proj83/home/sood/portal/develop/factology-v2/analyses/connsense/"
-    steps:
-      define-subtargets: "subtargets"
-      extract-nodes: "nodes"
-      evaluate-subtargets: "subtarget_quality"
-      extract-connectivity: "edges/original"
-      randomize-connectivity: "edges/randomized"
-      analyze-connevtivity: "analysis"
-    input:
-      store: "connsense.h5"
-    output:
-      store: "connsense.h5"
 #+end_src
 
-* Parameters
-We can configure ~connsense~ to use methods provided in the ~parameters~ section.
-The parameters section will be a mapping of pipeline step to it's parameters.
+** Parameters
+Parameters for ~connsense-TAP~ steps are entered in the config section ~parameters~.
 
-#+name: config-parameters
+#+name: pipeline-config-parameters
 #+begin_src yaml :tangle no :noweb yes :padline no
-
 parameters:
   description: >-
     Configure parameters for each pipeline step as a mapping.
 #+end_src
 
-** Define subtargets
+Let us configure the paths and parameters for the circuits and the ~connsense-TAP~ steps to /tap/.
+
+** Circuits
+We can configure more than one circuit,
+
+#+name: pipeline-config-paths-circuits
+#+begin_src yaml :tangle no :noweb yes :comments no :padline no
+circuit:
+  root: "/gpfs/bbp.cscs.ch/project/proj83/circuits"
+  files:
+    Bio_M: "Bio_M/20200805/CircuitConfig_TC_WM"
+#+end_src
+
+The circuit does not need any parameters, thought we could add a stub in the config,
+
+#+name: pipeline-config-parameters-circuits
+#+begin_src yaml :tangle no :noweb yes :comments no :padline no
+circuit:
+  Bio_M: null
+#+end_src
+
+
+** Pipeline steps
+Paths are set for each step of the pipeline in config section ~paths~.
+Let us configure the location of the ~connsense-HDFstore~'s HDF5 file. We need path to the folder where ~connsense-TAP~
+will run, and the name of the files to input from and output to --- which will be the same in our config.
+
+#+name: pipeline-config-paths-pipeline
+#+begin_src yaml :tangle no :noweb yes :comments no :padline no
+pipeline:
+  root: "/gpfs/bbp.cscs.ch/project/proj83/home/sood/portal/develop/factology-v2/analyses/connsense/"
+  input:
+    store: "connsense.h5"
+  output:
+    store: "connsense.h5"
+#+end_src
+
+Parameters are set for each step in config section ~parameters~
+
+*** Define subtargets
+Needs no change, we will save the results to the ~HDFstore~ group /subtargets/, adding an attribute ~node_population~
+to the group.
+
+#+name: pipeline-config-paths-pipeline-step-define-subtargets
+#+begin_src yaml :tangle no :noweb yes :comments no :padline no
+define-subtargets: "subtargets"
+#+end_src
+
+The parameters to ~define-subtargets~ will be ~definitions~.
 We can analyze several groups of subtargets, each defined by an entry in the configuration.
 A definition of subtargets will have it's own parameters that makes sense to the code that implements the definition.
 However, each defintiion must apply to a specified node population. The same value for attribute ~node-population~
 must be used to extract it's node-properties. Ideally this value should be the same as entered in the circuit's
 SONATA files.
 
-#+name: config-parameters-define-subtargets
+#+name: pipeline-config-parameters-define-subtargets
 #+begin_src yaml :tangle no :noweb yes :comments org :padline no
 define-subtargets:
   description: >-
     Configure how subtargets are defined.
-
   definitions:
     hexgrid-cells:
       description: >-
@@ -90,7 +261,7 @@ define-subtargets:
       node_population: "default"
       nrrd: "/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/column_identities.nrrd"
       info: "/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/voxel-based-hex-grid-info.h5"
-    pre-defined:
+    pre-defined-columns:
       description: >-
         The pre-defined subtargets' node-ids  must be available in the circuit's data.
         The entries should be of the form `<group>/<member>` such that the entry can be used the subtarget's
@@ -106,86 +277,102 @@ define-subtargets:
         - "central_columns/S1Sh_Column"
         - "central_columns/S1Tr_Column"
         - "central_columns/S1ULp_Column"
-#+end_src
-
-
-** Extract nodes
-To configure the extraction of nodes, we must specify node populations in the circuit.
-
-All nodes will be saved in the HDF5 group /nodes/,
-and parameterized by listing individual populations as mappings of population name to a mapping to configure
-the node extraction. Each population's configuration must include a reference to the source code to extract it's nodes.
-For the SSCx dissemination circuit we specify the population to be named /default/, and use the extractor provided
-packaged in ~connsense~ that uses ~bluepy~. The properties to extract must also be provided.
-
-#+name: config-parameters-extract-nodes
-#+begin_src yaml :tangle no :noweb yes :comments no :padline no
-extract-nodes:
-  description: >-
-    Specify the populations to extract from a circuit.
-  populations:
-    default:
+    pre-defined-regions:
       description: >-
-        The default population will be that of neurons in the SSCx.
-        To extract the neurons we will use a `connsense` method that uses ~bluepy~.
+        The pre-defined subtargets' node-ids  must be available in the circuit's data.
+        The entries should be of the form `<group>/<member>` such that the entry can be used the subtarget's
+        NRRD mask from `circuit.atlas`. Subtargets will be defined using a `connsense` method that uses `bluepy`
+        to extract each subtarget's GIDs from the circuit.
+      node_population: "default"
+      subtargets:
+        - "regions/S1DZO_Column"
+        - "regions/S1DZ_Column"
+        - "regions/S1FL_Column"
+        - "regions/S1HL_Column"
+        - "regions/S1J_Column"
+        - "regions/S1Sh_Column"
+        - "regions/S1Tr_Column"
+        - "regions/S1ULp_Column"
+
+#+end_src
+
+
+*** Extact voxels
+We will need to extract data from the circuit's atlas to copmute volumes of each subtarget and it's layers.
+
+#+name: pipeline-config-paths-pipeline-step-extract-voxels
+#+begin_src yaml :tangle no :noweb yes :comments no :padline no
+extract-voxels: "atlas"
+#+end_src
+
+What do we need to extract from the atlas?
+To copmute portal facts for the circuit, we need volumes of each subtarget, and those of each layer in the subtarget
+
+For the /flatmap/ subtargets, we will want to compute metrics such as the subtarget's conicity.
+We will compute atlas properties in a ~analyze-geometry~ step of ~connsense-TAP~.
+These analyses of the circuit gemmtry will be volumes of subtargets, the volumes if subtarget layers.
+voxel depths in the circuit's /flatmap-space/ or the circuit's /physical-space/,
+The ~connsense-TAP~ step ~extract-voxels\~ will extract atlas data needed for thexe analyses.
+To compute volumes we will need masks. To copmute depths we will need orientations.
+
+To characterize a circuit subtarget's geometry we can the subtarget's mask, or just its voxel indices.
+We can configure several ~annotations~ to extract, each as a ~pandas.Series~ indexed by voxel indices ~(i, j, k)~,
+and contain values for the annotation of each voxel.
+
+We can extract masks from the atlas for cells in the circuit by properties. For example layers masks can be
+used to compute volumes for each layer in the subtarget, while the subtarget mask will mask the entire subtarget.
+We will implement the extractors in ~connsense.extract_voxels.bluepy~.
+
+#+name: pipeline-config-parameters-extract-voxels
+#+begin_src yaml :tangle no :noweb yes :comments no
+extract-voxels:
+  description: >-
+    Configure the extraction of atlas data for each circuit subtarget.
+  annotations:
+    layer:
+      description: >-
+        Extract a `pandas.Series` indexed by voxel indices, valued by the layers of each voxel.
       extractor:
-        source: connsense
-        method: bluepy
-      properties:
-        - region
-        - layer
-        - x
-        - y
-        - z
-        - depth
-        - synapse_class
-        - mtype
-        - etype
-        - morphology
+        source: connsense.extract_voxels.bluepy
+        method: locate_layers
+    depth:
+      description: >-
+        Extract a `pandas.Series` indexed by voxel indices, valued by the position of each voxel.
+      extractor:
+        source: connsense.extract_voxels.bluepy
+        method: get_voxel_depths
+    flatmap:
+      description: >-
+        Flatmap position of each voxel: flat_x, flat_y, and depth.
+      extractor:
+        source: connsense.extract_voxels.flatmap
+        method: locate_flatmap_coordinates
+    orientation:
+      description: >-
+        Extract the orientations as a pandas.DataFrame indexed by voxel indices, columned the (x, y, z) coordinates
+        of the voxel's principal-axis along the layers.
+      extractor:
+        source: connsense.extract_voxels.bluepy
+        method: orient_voxels
 #+end_src
 
-Let us now implement a ~Python~ method to handle the configuration above.
-We can multiple circuit's for the ~connsense.pipeline~ to compute. The methods below will work on a single
-circuit.
+Each configured ~annotation~ extraction method will return a ~pandas.Series~ or ~pandas.DataFrame~ indexed
+by voxel indices. We can concat the results into a single ~pandas.DataFrame~ with simple columns, or multi-indexed
+and save the result as a single dataset as ~atlas/annotations~.
 
-#+name: method-extract-nodes
-#+begin_src python :tangle no :noweb yes :comments org :padline no
+Each ~annotation~ can be extracted to it's subgroup ~atlas/<annotation>~ and saved as a TOC of references to
+the HDF location of it's payload. Thus for each ~subtarget~ the ~connsense-HDFstore~ will contain a ~pandas.DataFrame~
+indexed by voxels, and columned by the listed ~annotations~. We will have to use ~pandas.DataFrame~ to hold
+the ~orientation~, or save the ~orientation~ annotation as a tuple in a simply indexed column dataframe.
 
-def check_populations(in_config):
-    """Check parameters to extract nodes in a config.\
-    """
-    extract_neurons = in_config["extract-nodes"]
-    return extract_neurons["populations"]
-
-
-def check_paths(in_config):
-    """Check paths to extract nodes in a config.
-    """
-    return read_config.check_paths(in_config)
-
-
-def extract_population(params, subtargets, from_circuit):
-    """..."""
-    _, extract = plugins.import_module(params["extractor"]["source"], params["extractor"]["method"])
-    return extract(from_circuit, subtargets, params["properties"])
-
-
-def extract_nodes(in_circuit, as_configured):
-    """Extract nodes configured in a YAML / JSON file.
-    """
-    in_config = read(as_configured)
-    populations = check_populations(in_config)
-
-    input_paths, output_paths = check_paths(in_config)
-    path_targets = output_paths["steps"]["define-subtargets"]
-    subtargets = read_results(path_targets, for_step="define-subtargets")
-
-    return {p: extract_population(params, subtargets[p], in_circuit) for p, params in populations.items()}
-#+end_src
-
-
-** Evaluate subtargets
+*** Evaluate subtargets
 How good are the subtargets we have defined in the previous sections?
+
+#+name: pipeline-config-paths-pipeline-step-evaluate-subtargets
+#+begin_src yaml :tangle no :noweb yes :comments no :padline no
+evaluate-subtargets: "subtarget_quality"
+#+end_src
+
 Consider the flatmap subtargets we have developed for the SSCx. We expect these subtargets to be conical in shape,
 the radius increasing along its principal axis oriented from the white-matter to pia.
 We would add a computation among the metrics that evaluate the subtargets.
@@ -239,29 +426,177 @@ evaluate-subtargets:
       methods: target_composition
 #+end_src
 
+*** Extract node-types
+We will extract ~node-types~ to the dataset ~nodes/types~ for each cvonfigured ~node-type~ as a dataset,
 
-** Extract connectivity / edges
+#+name: pipeline-config-paths-pipeline-step-extract-node-types
+#+begin_src yaml :tangle no :noweb yes :comments no :padline no
+extract-node-types: "nodes/types"
+#+end_src
+
+#+name: pipeline-config-parameters-extract-node-types
+#+begin_src yaml :tangle no :noweb yes :comments no :padline no
+extract-node-types:
+  description: >-
+    Extract node-type data
+  models:
+    biophysical:
+      description: >-
+        The biophysical nodes...
+      morphology:
+        node_property: "morphology"
+        extractor:
+          source: connsense.extract_node_types.morphologies
+          method: measure_morphologies
+        properties:
+          - "axon_length"
+          - "axon_volume"
+          - "branch-order"
+          - "complete this list."
+      electrophysiology:
+        node_property: "memodel"
+        extractor:
+          source: connsense.extract_node_types.electrophysiologies
+          method: measure_electrophysiology
+        properties:
+          - "thimk-of-some"
+          - 'properties to extract'
+#+end_src
+
+*** Extract nodes
+Results will go to the configured group's subgroup by population.
+In the example below this will be ~nodes/populations~  that will save data on each configured ~node-population~
+as a ~pandas.Series~ containing a ~pandas.DataFrame~ per defined ~subtarget~.
+
+We have decided that all the configured subtargets in a single instance of ~connsense-TAP~ should be of the same
+~node-population~. So the pipeline must extract node-properties of at least that node-population.
+
+Additionally, when we are there, we will save the morphological properties of each morphology in a separate data-group
+under nodes, ~nodes/types/morphologies~ in the example configuration below. The dataset will be a `pandas.DataFrame` with
+the configured metrics for each morphology type used in the circuit.
+
+Nodes for each population will be extracted to a dataset under the group ~nodes/populations~.
+
+#+name: pipeline-config-paths-pipeline-step-extract-node-populations
+#+begin_src yaml :tangle no :noweb yes :comments no :padline no
+extract-node-populations: "nodes/populations"
+#+end_src
+
+To configure the extraction of nodes, we must specify node populations in the circuit.
+
+All nodes will be saved in the HDF5 group /nodes/,
+and parameterized by listing individual populations as mappings of population name to a mapping to configure
+the node extraction. Each population's configuration must include a reference to the source code to extract it's nodes.
+For the SSCx dissemination circuit we specify the population to be named /default/, and use the extractor provided
+packaged in ~connsense~ that uses ~bluepy~. The properties to extract must also be provided.
+
+#+name: pipeline-config-parameters-extract-node-populations
+#+begin_src yaml :tangle no :noweb yes :comments no :padline no
+extract-node-populations:
+  description: >-
+    Specify the populations to extract from a circuit.
+  populations:
+    default:
+      description: >-
+        The default population will be that of neurons in the SSCx.
+        To extract the neurons we will use a `connsense` method that uses ~bluepy~.
+      extractor:
+        source: connsense
+        method: bluepy
+      properties:
+        - region
+        - layer
+        - x
+        - y
+        - z
+        - depth
+        - synapse_class
+        - mtype
+        - etype
+        - morphology
+#+end_src
+
+Let us now implement a ~Python~ method to handle the configuration above.
+We can have multiple circuit's for the ~connsense.pipeline~ to compute. The methods below will work on a single
+circuit.
+
+#+name: method-extract-nodes
+#+begin_src python :tangle no :noweb yes :comments org :padline no
+
+def check_populations(in_config):
+    """Check parameters to extract nodes in a config.\
+    """
+    extract_neurons = in_config["extract-nodes"]
+    return extract_neurons["populations"]
+
+
+def check_paths(in_config):
+    """Check paths to extract nodes in a config.
+    """
+    return read_config.check_paths(in_config)
+
+
+def extract_population(params, subtargets, from_circuit):
+    """..."""
+    _, extract = plugins.import_module(params["extractor"]["source"], params["extractor"]["method"])
+    return extract(from_circuit, subtargets, params["properties"])
+
+
+def extract_nodes(in_circuit, as_configured):
+    """Extract nodes configured in a YAML / JSON file.
+    """
+    in_config = read(as_configured)
+    populations = check_populations(in_config)
+
+    input_paths, output_paths = check_paths(in_config)
+    path_targets = output_paths["steps"]["define-subtargets"]
+    subtargets = read_results(path_targets, for_step="define-subtargets")
+
+    return {p: extract_population(params, subtargets[p], in_circuit) for p, params in populations.items()}
+#+end_src
+
+*** Extract edge types
+We could define edge types in the circuit. For now we just configure the step without providing any code
+to implement it. It is just a place-holder that configures a step to extract edge-types from the circuit.
+The data could be loaded from the connectivity XML configs as tables for the configured synapse properties.
+
+#+name: pipeline-config-paths-pipeline-step-extract-edge-types
+#+begin_src yaml :tangle no :noweb yes :comments no :padline no
+extract-edge-types: "edges/types"
+#+end_src
+
+*** Extract edges
+The data for ~extract-connectivity~ will be saved under the configured path's groups ~adjacency~ for the adjacency matrices,
+and group ~properties~ for the edge-properties. Edge properties are not defined for the edges in the adjacency matrices
+output by ~randomize-connectivity~ input algorithms. So the group ~edges/randomized~ will contain only the adjacency
+matrices.
+
+#+name: pipeline-config-paths-pipeline-step-extract-edge-populations
+#+begin_src yaml :tangle no :noweb yes :comments no :padline no
+extract-edge-populations: "edges/populations"
+#+end_src
+
 To extract the circuit's edges, we will list the circuit's /connectomes/. If we want to extract edge-properties
 (/i.e./ synapse properties), we will list them.
 
-#+name: synapse-properties-to-extract
+#+name: edge-properties-to-extract
 #+begin_src yaml :tangle no :noweb yes :comments no :padline no
- - "type"
- - "g_synx"
- - "u_syn"
- - "d_syn"
- - "f_syn"
- - "axonal_delay"
- - "dtc"
- - "nrrp"
- - "touch_distance"
- - "conductance_ratio"
- - "u_hill_coefficient"
+- "type"
+- "g_synx"
+- "u_syn"
+- "d_syn"
+- "f_syn"
+- "axonal_delay"
+- "dtc"
+- "nrrp"
+- "touch_distance"
+- "conductance_ratio"
+- "u_hill_coefficient"
 #+end_src
 
-#+name: config-parameters-extract-connectivity
+#+name: pipeline-config-parameters-extract-edge-populations
 #+begin_src yaml :tangle no :noweb yes :comments no :padline no
-extract-connectivity:
+extract-edge-populations:
   description: >-
     Specify the connectomes to extract from.
     Connections will be extracted for each subtarget as an adjacency matrix, with or without connection-strengths.
@@ -276,8 +611,7 @@ extract-connectivity:
         source: connsense.extract_connectivity.bluepy
         method: extract_connectivity
       properties:
-        <<synapse-properties-to-extract>>
-
+        <<edge-properties-to-extract>>
     long-range:
       source_node_population: "default"
       target_node_population: "default"
@@ -286,7 +620,7 @@ extract-connectivity:
         source: connsense.extract_connectivity.bluepy
         method: extract_connectivity
       properties:
-        <<synapse-properties-to-extract>>
+        <<edge-properties-to-extract>>
     cortico-cortical:
       source_node_population: "default"
       target_node_population: "default"
@@ -295,7 +629,7 @@ extract-connectivity:
         source: connsense.extract_connectivity.bluepy
         method: extract_connectivity
       properties:
-        <<synapse-properties-to-extract>>
+        <<edge-properties-to-extract>>
     thalamic-vpm:
       source_node_population: null
       target_node_population: "default"
@@ -304,7 +638,7 @@ extract-connectivity:
         source: connsense.extract_connectivity.bluepy
         method: extract_connectivity
       properties:
-        <<synapse-properties-to-extract>>
+        <<edge-properties-to-extract>>
     thalamic-pom:
       source_node_population: null
       target_node_population: "default"
@@ -313,24 +647,89 @@ extract-connectivity:
         source: connsense.extract_connectivity.bluepy
         method: extract_connectivity
       properties:
-        <<synapse-properties-to-extract>>
+        <<edge-properties-to-extract>>
 #+end_src
 
-** Analyze connectivity
-Parameters for analyses will be a mapping from analyses to it's parameters.
+*** Randomize connectivity
+Randomization of connectivity shuffles the circuit subtarget's network edges. We will not save the edge-properties, only
+the adjacency matrices under the group ~edges/randomizations~.
 
-#+name: config-parameters-analyze-connectivity
+#+name: pipeline-config-paths-pipeline-step-randomize-connectivity
 #+begin_src yaml :tangle no :noweb yes :comments no :padline no
-analyze-connectivity:
-  description:
-    Configure each analyses' parameters, as a mapping under section `analyses`.
+randomize-connectivity: "edges/randomizations"
+#+end_src
+
+*** Analyze geometry
+The pipeline will extract the configured voxel data that can be used to analyze the cirucit's geometry.
+
+Here is a glimpse of analyses of a circuit subtarget geometry that can be run with the extracted ~annotation~ data.
+
+#+name: pipeline-config-parameters-analyze-geometry
+#+begin_src yaml :tangle no :noweb yes :comments no
+analyze-geometry:
+  description: >-
+    Analyxe the circuit subtarget's geometry.
   analyses:
+    layer_volumes:
+        description: >-
+          Analyze circuit subtarget volume of each layer. Total volume can be computed as their sum.
+        source: connsense.analyze_geometry
+        method: measure_volume
+        output: "pandas.Series"
+    conicity:
+        description: >-
+          How conical is a circuit subtarget? This analysis makes sense for /flatmap/ subtargets,
+          but could be computed for any columnar subtarget. The inputs to the analysis will the subtarget's mask
+          orientations, and flatmap.
+        source: connsense.analyze_geometry
+        method: measure_conicity
+        output: "pandas.DataFrame"
+#+end_src
+
+
+*** Analyze composition
+We started working on ~connense~ to run analyses of the circuit's network topology. Thus all the analyses were
+those of the adjacency matrix. We would want ~connsense-TAP~ to run analyses on just nodes. These analyses will not
+use the circuit's connectivity (i.e. adjacency data), and extracted to the ~connsend-HDFstore~ subgroup ~analyses/composition~.
+A circuit composition analysis could compute distributions of cells or synapses by their types. Thus the methods
+
+#+name: pipeline-config-paths-pipeline-step-analyze-composition
+#+begin_src yaml :tangle no :noweb yes :comments no :padline no
+analyze-composition: "analysis/composition"
+#+end_src
+
+
+#+name: pipeline-config-parameters-analyze-composition
+#+begin_src yaml :tangle no :noweb yes :comments no :padline no
+analyze-composition:
+  description: >-
+    Analyze the cellular and synaptic composition of a circuit subtarget.
+  analyses:
+    cell-counts-by-layer:
+        description: >-
+          Number of cells in each layer of the circuit.
+        source: connsense.analyze_composition.bluepy
+        method: cell_density_by_layer
+        output: pandas.DataFrame
+#+end_src
+
+*** Analyze connectivity
+Each analysis' results will be saved under the group ~analyses~ as a dataset returned by the method used to run the analysis.
+Analyses data was straightforward to track for a single node and edge population.
+Our analyses will be only for the nodes in the subtargets, which will belong to only one ~node-population~.
+However the edges will belong to several populations. Each configured analysis must apply to a specific edge-population.
+The ~edge-population~ to apply an analysis must then be specified in the config's ~paraneters~ section, with results
+extracted as a dataset to the  ~connsense-HDFstore~ group ~analyses~.
+
+#+name: pipeline-config-paths-pipeline-step-analyze-connectivity
+#+begin_src yaml :tangle no :noweb yes :comments no :padline no
+analyze-connectivity: "analyses"
 #+end_src
 
 Let us configure an analyses of synaptic convergence. The analysis method will not have access to the circuit.
 Instead it will be passed the adjacency matrix, and node and edge properties.
 
-#+name: config-parameters-analyze-connectivity-synaptic-convergence
+#+name: analyze-connectivity-synaptic-convergence-divergence
 #+begin_src yaml :tangle no :noweb yes :comments no :padline no
 synaptic-convergence:
   description:
@@ -338,14 +737,23 @@ synaptic-convergence:
   edge_population: "local"
   computation:
     args: ["adjacency_matrix", "node_properties", "edge_properties"]
-    source: "sscx_dissemination.v2.circuit.factology.helper.connectome"
+    source: "sscx_dissemination.v2.circuit.factology.helper.connsense.connectivity"
     method: "get_synaptic_convergence"
+    output: "pandas.DataFrame"
+synaptic-divergence:
+  description:
+    Compute synaptic convergence in a circuit for each mtype--> mtype pathway among edges in the local population.
+  edge_population: "local"
+  computation:
+    args: ["adjacency_matrix", "node_properties", "edge_properties"]
+    source: "sscx_dissemination.v2.circuit.factology.helper.connsense.connectivity"
+    method: "get_synaptic_divergence"
     output: "pandas.DataFrame"
 #+end_src
 
-Next, consider an analysis to compute the neuronal divergence. Such a method does not need edge-properties.
+Next, consider an analysis to compute the neuronal convergence / divergence. Such a method does not need edge-properties.
 
-#+name: config-parameters-analyze-connectivity-intrinsic-extrinsic-connections
+#+name: analyze-connectivity-neuronal-convergence-divergence
 #+begin_src yaml :tangle no :noweb yes :comments no :padline no
 neuronal-convergence:
   description:
@@ -353,30 +761,75 @@ neuronal-convergence:
   edge_population: "local"
   computation:
     args: ["adjacency_matrix", "node_properties"]
-    source: "sscx_dissemination.v2.circuit.factology.helper.connectome.connectome"
+    source: "sscx_dissemination.v2.circuit.factology.helper.connsense.connectivity"
     method: "get_neuronal_convergence"
+    output: "pandas.DataFrame"
+neuronal-divergence:
+  description:
+    Compute neuronal convergence in a circuit for each mtype--> mtype pathway among edges in the local population.
+  edge_population: "local"
+  computation:
+    args: ["adjacency_matrix", "node_properties"]
+    source: "sscx_dissemination.v2.circuit.factology.helper.connsense.connectivity"
+    method: "get_neuronal_divergence"
     output: "pandas.DataFrame"
 #+end_src
 
-Thats' it. We can enter analyses one by one. However before we will have to refactor ~connsense~ to define subtargers,
+Parameters for analyses will be a mapping from analyses to it's parameters.
+We can enter analyses one by one.
+
+#+name: pipeline-config-parameters-analyze-connectivity
+#+begin_src yaml :tangle no :noweb yes :comments no :padline no
+analyze-connectivity:
+  description:
+    Configure each analyses' parameters, as a mapping under section `analyses`.
+  analyses:
+    <<analyze-connectivity-neuronal-convergence-divergence>>
+    <<analyze-connectivity-synaptic-convergence-divergence>>
+#+end_src
+
+However before we will have to refactor ~connsense~ to define subtargers,
 extract neurons, and connectivity using the configs defined above.
 
+** Read the config
+Let us reimplement the ~connsense-TAP~ config reader.
+
+#+name: read-pipeline-config
+#+begin_src python :tangle no :noweb yes :comments org :padline no
+def read_config(for_pipeline):
+    """..."""
+    from connsense.io.read_config import read
+    return read(for_pipeline)
+#+end_src
+
+
 * Results
-The result of our discussion is the YAML configuration:
+The result of our discussion are the YAML configurations.
+
 
 #+begin_src yaml :tangle pipeline.yaml :noweb yes :comments no :padline no
-<<config-init>>
-
-<<config-paths>>
-
-<<config-parameters>>
-  <<config-parameters-define-subtargets>>
-
-  <<config-parameters-extract-nodes>>
-
-  <<config-parameters-evaluate-subtargets>>
-
-  <<config-parameters-extract-connectivity>>
-
-  <<config-parameters-anlyze-connectivity>>
+<<pipeline-config-init>>
+<<pipeline-config-paths>>
+  <<pipeline-config-paths-circuits>>
+  <<pipeline-config-paths-pipeline>>
+    steps:
+      <<pipeline-config-paths-pipeline-step-define-subtargets>>
+      <<pipeline-config-paths-pipeline-step-extract-voxels>>
+      <<pipeline-config-paths-pipeline-extract-node-types>>
+      <<pipeline-config-paths-pipeline-step-extract-node-populations>>
+      <<pipeline-config-paths-pipeline-step-evaluate-subtargets>>
+      <<pipeline-config-paths-pipeline-step-extract-edge-types>>
+      <<pipeline-config-paths-pipeline-step-extract-edge-populations>>
+      <<pipeline-config-paths-pipeline-step-randomize-connectivity>>
+      <<pipeline-config-paths-pipeline-step-analyze-composition>>
+      <<pipeline-config-paths-pipeline-step-analyze-connectivity>>
+parameters:
+  <<pipeline-config-parameters-define-subtargets>>
+  <<pipeline-config-parameters-extract-voxels>>
+  <<pipeline-config-parameters-extract-node-types>>
+  <<pipeline-config-parameters-extract-node-populations>>
+  <<pipeline-config-parameters-extract-edge-populations>>
+  <<pipeline-config-parameters-analyze-geometry>>
+  <<pipeline-config-parameters-analyze-composition>>
+  <<pipeline-config-parameters-analyze-connectivity>>
 #+end_src

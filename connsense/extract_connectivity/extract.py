@@ -16,6 +16,10 @@ from ..io import logging
 from ..define_subtargets.config import SubtargetsConfig
 from ..analyze_connectivity.matrices import get_store
 
+STEP = "extract-edge-populations"
+
+LOG = logging.get_logger("connsense " + STEP)
+
 def output_specified_in(configured_paths, and_argued_to_be):
     """..."""
     steps = configured_paths["steps"]
@@ -38,10 +42,12 @@ def resolve_connectomes(in_argued):
 
 def write(edges, to_output):
     """..."""
-    adj = write_toc_plus_payload(edges["adj"], to_output, format="table")
-
+    LOG.info("Write adjacencies like %s", edges["adj"].head())
     hdf, group = to_output
-    store = get_store(hdf, group, for_matrix_type="pandas.DataFrame", in_mode='a')
+    adj = write_toc_plus_payload(edges["adj"], (hdf, group+"/adj"), format="table")
+
+    LOG.info("Write edge-properties like %s", edges["props"].head())
+    store = get_store(hdf, group+"/props", for_matrix_type="pandas.DataFrame", in_mode='a')
     contents = edges["props"].apply(store.write)
     update = store.prepare_toc(of_paths=contents)
     store.append_toc(update)
@@ -62,7 +68,7 @@ def extract_subtargets(in_config, population, for_batch=None, output=None):
     subtargets = read_results(path_subtargets, for_step="extract-connectivity")
     LOG.info("Done reading subtargets %s", len(subtargets))
 
-    parameters = in_config["parameters"]["extract-connectivity"]
+    parameters = in_config["parameters"][STEP]
     cfgpops = parameters["populations"]
 
     population = population or "local"
@@ -74,7 +80,8 @@ def extract_subtargets(in_config, population, for_batch=None, output=None):
     connectivity = extract(subtarget_cfg.input_circuit, cfgpops[population], subtargets)
 
     to_output = output_specified_in(output_paths, and_argued_to_be=output)
-    write(connectivity, to_output)
+    hdf, group = to_output
+    write(connectivity, to_output=(hdf, group+'/'+population))
 
-    LOG.warning("DONE, exctracting %s subtarget connectivity", len(extracted))
+    LOG.warning("DONE, exctracting %s subtarget connectivity", len(connectivity))
     return to_output

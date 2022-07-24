@@ -32,30 +32,45 @@ class ApplicableFromSource(ABC):
         raise NotImplementedError(f"Provide what this {self.__class__.__name__} will do to inputs.\n",
                                   "For example: analysis, randomization, control, subgraph...")
 
+
+    @staticmethod
+    def read_computation(description):
+        """..."""
+        try:
+            computation = description["computation"]
+        except KeyError:
+            computation = description
+        return computation
+
     @staticmethod
     def read_method(description):
         """..."""
-        return description.get("method", "shuffle")
+        computation = ApplicableFromSource.read_computation(description)
+        return computation.get("method", "shuffle")
 
     @staticmethod
     def read_source(description):
         """..."""
-        return description["source"]
+        computation = ApplicableFromSource.read_computation(description)
+        return computation["source"]
 
     @staticmethod
     def read_args(description):
         """..."""
-        return description.get("args", [])
+        computation = ApplicableFromSource.read_computation(description)
+        return computation.get("args", [])
 
     @staticmethod
     def read_kwargs(description):
         """..."""
-        return description.get("kwargs", {})
+        computation = ApplicableFromSource.read_computation(description)
+        return computation.get("kwargs", {})
 
     @staticmethod
     def read_output_type(description):
         """..."""
-        return description["output"]
+        computation = ApplicableFromSource.read_computation(description)
+        return computation["output"]
 
     @staticmethod
     def read_collection(description):

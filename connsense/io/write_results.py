@@ -31,8 +31,7 @@ def write(extracted, to_path, format=None, metadata=None):
         extracted.to_pickle(to_path)
         return to_path
 
-    extracted.to_hdf(path_hdf_store, key=group_identifier,
-                     mode="a", format=(format or "fixed"))
+    extracted.to_hdf(path_hdf_store, key=group_identifier, mode="a", format=(format or "fixed"))
 
     return (path_hdf_store, group_identifier)
 

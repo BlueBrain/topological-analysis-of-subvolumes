@@ -2,7 +2,6 @@ description: >-
   Configure a `connsense` pipeline
 version: 2.0.0
 date: 20220720
-
 paths:
   description: >-
     The ~connsense~ pipeline needs paths to the input data to load from, and output paths to store data.
@@ -15,26 +14,25 @@ paths:
       Bio_M: "Bio_M/20200805/CircuitConfig_TC_WM"
   pipeline:
     root: "/gpfs/bbp.cscs.ch/project/proj83/home/sood/portal/develop/factology-v2/analyses/connsense/"
-    steps:
-      define-subtargets: "subtargets"
-      extract-nodes: "nodes"
-      evaluate-subtargets: "subtarget_quality"
-      extract-connectivity: "edges/original"
-      randomize-connectivity: "edges/randomized"
-      analyze-connevtivity: "analysis"
     input:
       store: "connsense.h5"
     output:
       store: "connsense.h5"
-
-
+    steps:
+      define-subtargets: "subtargets"
+      extract-voxels: "atlas"
+      
+      extract-node-populations: "nodes/populations"
+      evaluate-subtargets: "subtarget_quality"
+      extract-edge-types: "edges/types"
+      extract-edge-populations: "edges/populations"
+      randomize-connectivity: "edges/randomizations"
+      analyze-composition: "analysis/composition"
+      analyze-connectivity: "analyses"
 parameters:
-  description: >-
-    Configure parameters for each pipeline step as a mapping.
   define-subtargets:
     description: >-
       Configure how subtargets are defined.
-  
     definitions:
       hexgrid-cells:
         description: >-
@@ -56,7 +54,7 @@ parameters:
         node_population: "default"
         nrrd: "/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/column_identities.nrrd"
         info: "/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/voxel-based-hex-grid-info.h5"
-      pre-defined:
+      pre-defined-columns:
         description: >-
           The pre-defined subtargets' node-ids  must be available in the circuit's data.
           The entries should be of the form `<group>/<member>` such that the entry can be used the subtarget's
@@ -72,8 +70,78 @@ parameters:
           - "central_columns/S1Sh_Column"
           - "central_columns/S1Tr_Column"
           - "central_columns/S1ULp_Column"
-
-  extract-nodes:
+      pre-defined-regions:
+        description: >-
+          The pre-defined subtargets' node-ids  must be available in the circuit's data.
+          The entries should be of the form `<group>/<member>` such that the entry can be used the subtarget's
+          NRRD mask from `circuit.atlas`. Subtargets will be defined using a `connsense` method that uses `bluepy`
+          to extract each subtarget's GIDs from the circuit.
+        node_population: "default"
+        subtargets:
+          - "regions/S1DZO_Column"
+          - "regions/S1DZ_Column"
+          - "regions/S1FL_Column"
+          - "regions/S1HL_Column"
+          - "regions/S1J_Column"
+          - "regions/S1Sh_Column"
+          - "regions/S1Tr_Column"
+          - "regions/S1ULp_Column"
+  
+  extract-voxels:
+    description: >-
+      Configure the extraction of atlas data for each circuit subtarget.
+    annotations:
+      layer:
+        description: >-
+          Extract a `pandas.Series` indexed by voxel indices, valued by the layers of each voxel.
+        extractor:
+          source: connsense.extract_voxels.bluepy
+          method: locate_layers
+      depth:
+        description: >-
+          Extract a `pandas.Series` indexed by voxel indices, valued by the position of each voxel.
+        extractor:
+          source: connsense.extract_voxels.bluepy
+          method: get_voxel_depths
+      flatmap:
+        description: >-
+          Flatmap position of each voxel: flat_x, flat_y, and depth.
+        extractor:
+          source: connsense.extract_voxels.flatmap
+          method: locate_flatmap_coordinates
+      orientation:
+        description: >-
+          Extract the orientations as a pandas.DataFrame indexed by voxel indices, columned the (x, y, z) coordinates
+          of the voxel's principal-axis along the layers.
+        extractor:
+          source: connsense.extract_voxels.bluepy
+          method: orient_voxels
+  extract-node-types:
+    description: >-
+      Extract node-type data
+    models:
+      biophysical:
+        description: >-
+          The biophysical nodes...
+        morphology:
+          node_property: "morphology"
+          extractor:
+            source: connsense.extract_node_types.morphologies
+            method: measure_morphologies
+          properties:
+            - "axon_length"
+            - "axon_volume"
+            - "branch-order"
+            - "complete this list."
+        electrophysiology:
+          node_property: "memodel"
+          extractor:
+            source: connsense.extract_node_types.electrophysiologies
+            method: measure_electrophysiology
+          properties:
+            - "thimk-of-some"
+            - 'properties to extract'
+  extract-node-populations:
     description: >-
       Specify the populations to extract from a circuit.
     populations:
@@ -95,52 +163,7 @@ parameters:
           - mtype
           - etype
           - morphology
-
-  evaluate-subtargets:
-    description: >-
-      To evaluate the subtargets defined in the previous step, we define the metrics to be provided by connsense.
-    metrics:
-      orthogonality:
-        description: >-
-          Subtargets must be non-overlapping. How orthogonal / non-overlapping are the subtargets?
-        apply-to-subtargets:
-          - hexgrid-cells
-          - hexgrid-voxels
-          - pre-defined
-        source: connsense.evaulate_subtargets.metrics
-        method: orthogonality
-  
-      conicality:
-        description: >-
-          How conical are the flatmap subtargets?
-        apply-to-subtargets:
-          - hexgrid-cells
-          - hexgrid-voxels
-        source: connsense.evaluate_subtargets.metrics
-        method: conicality
-  
-      neuron_counts:
-        description: >-
-          Number of neurons in a subtarget. The number can be used to indicate outliers. Too small may be removed.
-        apply-to-subtargets:
-          - hexgrid-cells
-          - hexgrid-voxels
-          - pre-defined
-        source: connsense.evaulate_subtargets.metrics
-        methods: neuron_counts
-  
-      target_composition:
-        description: >-
-          Composition of the subtargets by layer, and mtype using a method in `connsense`.
-          A custom method may be provided.
-        apply-to-subtargets:
-          - hexgrid-cells
-          - hexgrid-voxels
-          - pre-defined
-        source: connsense.evaulate_subtargets.metrics
-        methods: target_composition
-
-  extract-connectivity:
+  extract-edge-populations:
     description: >-
       Specify the connectomes to extract from.
       Connections will be extracted for each subtarget as an adjacency matrix, with or without connection-strengths.
@@ -155,18 +178,17 @@ parameters:
           source: connsense.extract_connectivity.bluepy
           method: extract_connectivity
         properties:
-           - "type"
-           - "g_synx"
-           - "u_syn"
-           - "d_syn"
-           - "f_syn"
-           - "axonal_delay"
-           - "dtc"
-           - "nrrp"
-           - "touch_distance"
-           - "conductance_ratio"
-           - "u_hill_coefficient"
-  
+          - "type"
+          - "g_synx"
+          - "u_syn"
+          - "d_syn"
+          - "f_syn"
+          - "axonal_delay"
+          - "dtc"
+          - "nrrp"
+          - "touch_distance"
+          - "conductance_ratio"
+          - "u_hill_coefficient"
       long-range:
         source_node_population: "default"
         target_node_population: "default"
@@ -175,17 +197,17 @@ parameters:
           source: connsense.extract_connectivity.bluepy
           method: extract_connectivity
         properties:
-           - "type"
-           - "g_synx"
-           - "u_syn"
-           - "d_syn"
-           - "f_syn"
-           - "axonal_delay"
-           - "dtc"
-           - "nrrp"
-           - "touch_distance"
-           - "conductance_ratio"
-           - "u_hill_coefficient"
+          - "type"
+          - "g_synx"
+          - "u_syn"
+          - "d_syn"
+          - "f_syn"
+          - "axonal_delay"
+          - "dtc"
+          - "nrrp"
+          - "touch_distance"
+          - "conductance_ratio"
+          - "u_hill_coefficient"
       cortico-cortical:
         source_node_population: "default"
         target_node_population: "default"
@@ -194,17 +216,17 @@ parameters:
           source: connsense.extract_connectivity.bluepy
           method: extract_connectivity
         properties:
-           - "type"
-           - "g_synx"
-           - "u_syn"
-           - "d_syn"
-           - "f_syn"
-           - "axonal_delay"
-           - "dtc"
-           - "nrrp"
-           - "touch_distance"
-           - "conductance_ratio"
-           - "u_hill_coefficient"
+          - "type"
+          - "g_synx"
+          - "u_syn"
+          - "d_syn"
+          - "f_syn"
+          - "axonal_delay"
+          - "dtc"
+          - "nrrp"
+          - "touch_distance"
+          - "conductance_ratio"
+          - "u_hill_coefficient"
       thalamic-vpm:
         source_node_population: null
         target_node_population: "default"
@@ -213,17 +235,17 @@ parameters:
           source: connsense.extract_connectivity.bluepy
           method: extract_connectivity
         properties:
-           - "type"
-           - "g_synx"
-           - "u_syn"
-           - "d_syn"
-           - "f_syn"
-           - "axonal_delay"
-           - "dtc"
-           - "nrrp"
-           - "touch_distance"
-           - "conductance_ratio"
-           - "u_hill_coefficient"
+          - "type"
+          - "g_synx"
+          - "u_syn"
+          - "d_syn"
+          - "f_syn"
+          - "axonal_delay"
+          - "dtc"
+          - "nrrp"
+          - "touch_distance"
+          - "conductance_ratio"
+          - "u_hill_coefficient"
       thalamic-pom:
         source_node_population: null
         target_node_population: "default"
@@ -232,14 +254,82 @@ parameters:
           source: connsense.extract_connectivity.bluepy
           method: extract_connectivity
         properties:
-           - "type"
-           - "g_synx"
-           - "u_syn"
-           - "d_syn"
-           - "f_syn"
-           - "axonal_delay"
-           - "dtc"
-           - "nrrp"
-           - "touch_distance"
-           - "conductance_ratio"
-           - "u_hill_coefficient"
+          - "type"
+          - "g_synx"
+          - "u_syn"
+          - "d_syn"
+          - "f_syn"
+          - "axonal_delay"
+          - "dtc"
+          - "nrrp"
+          - "touch_distance"
+          - "conductance_ratio"
+          - "u_hill_coefficient"
+  analyze-geometry:
+    description: >-
+      Analyxe the circuit subtarget's geometry.
+    analyses:
+      layer_volumes:
+          description: >-
+            Analyze circuit subtarget volume of each layer. Total volume can be computed as their sum.
+          source: connsense.analyze_geometry
+          method: measure_volume
+          output: "pandas.Series"
+      conicity:
+          description: >-
+            How conical is a circuit subtarget? This analysis makes sense for /flatmap/ subtargets,
+            but could be computed for any columnar subtarget. The inputs to the analysis will the subtarget's mask
+            orientations, and flatmap.
+          source: connsense.analyze_geometry
+          method: measure_conicity
+          output: "pandas.DataFrame"
+  analyze-composition:
+    description: >-
+      Analyze the cellular and synaptic composition of a circuit subtarget.
+    analyses:
+      cell-counts-by-layer:
+          description: >-
+            Number of cells in each layer of the circuit.
+          source: connsense.analyze_composition.bluepy
+          method: cell_density_by_layer
+          output: pandas.DataFrame
+  analyze-connectivity:
+    description:
+      Configure each analyses' parameters, as a mapping under section `analyses`.
+    analyses:
+      neuronal-convergence:
+        description:
+          Compute neuronal convergence in a circuit for each mtype--> mtype pathway among edges in the local population.
+        edge_population: "local"
+        computation:
+          args: ["adjacency_matrix", "node_properties"]
+          source: "sscx_dissemination.v2.circuit.factology.helper.connsense.connectivity"
+          method: "get_neuronal_convergence"
+          output: "pandas.DataFrame"
+      neuronal-divergence:
+        description:
+          Compute neuronal convergence in a circuit for each mtype--> mtype pathway among edges in the local population.
+        edge_population: "local"
+        computation:
+          args: ["adjacency_matrix", "node_properties"]
+          source: "sscx_dissemination.v2.circuit.factology.helper.connsense.connectivity"
+          method: "get_neuronal_divergence"
+          output: "pandas.DataFrame"
+      synaptic-convergence:
+        description:
+          Compute synaptic convergence in a circuit for each mtype--> mtype pathway among edges in the local population.
+        edge_population: "local"
+        computation:
+          args: ["adjacency_matrix", "node_properties", "edge_properties"]
+          source: "sscx_dissemination.v2.circuit.factology.helper.connsense.connectivity"
+          method: "get_synaptic_convergence"
+          output: "pandas.DataFrame"
+      synaptic-divergence:
+        description:
+          Compute synaptic convergence in a circuit for each mtype--> mtype pathway among edges in the local population.
+        edge_population: "local"
+        computation:
+          args: ["adjacency_matrix", "node_properties", "edge_properties"]
+          source: "sscx_dissemination.v2.circuit.factology.helper.connsense.connectivity"
+          method: "get_synaptic_divergence"
+          output: "pandas.DataFrame"

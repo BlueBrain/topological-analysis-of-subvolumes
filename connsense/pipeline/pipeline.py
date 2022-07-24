@@ -15,11 +15,22 @@ from .step import Step
 from .store import HDFStore
 from ..io import logging
 
-
 LOG = logging.get_logger("pipeline.")
 
 PipelineState = namedtuple("PipelineState", ["complete", "running", "queue"],
                            defaults=[None, None, None])
+
+
+PARAMKEY = {"define-subtargets": "definitions",
+            "extract-voxels": "annotations",
+            "extract-node-types": "models",
+            "extract-node-populations": "populations",
+            "extract-edge-types": "models",
+            "extract-edge-populations": "populations",
+            "randomize-connectivity": "algorithms",
+            "analyze-geometry": "analyses",
+            "analyze-composition": "analyses",
+            "analyze-connectivity": "analyses"}
 
 
 class TopologicalAnalysis:
@@ -32,9 +43,9 @@ class TopologicalAnalysis:
     from connsense import analyze_connectivity
 
     __steps__ = OrderedDict([("define-subtargets", Step(define_subtargets)),
-                             ("extract-nodes", Step(extract_nodes)),
+                             ("extract-node-populations", Step(extract_nodes)),
                              ("evaluate-subtargets", Step(evaluate_subtargets)),
-                             ("extract_connectivity", Step(extract_connectivity)),
+                             ("extract-edge-populations", Step(extract_connectivity)),
                              ("randomize_connectivity", Step(randomize_connectivity)),
                              ("analyze_connectivity", Step(analyze_connectivity))])
 
@@ -67,7 +78,7 @@ class TopologicalAnalysis:
         return read_config.read(path, raw=raw)
 
     @classmethod
-    def read_parallelization(cls, config):
+    def read_parallelization_0(cls, config):
         """..."""
         if not config:
             return None
@@ -78,9 +89,19 @@ class TopologicalAnalysis:
             assert isinstance(config, Mapping)
             return config
 
-        with open(path, 'r') as fptr:
-            parallelization = json.load(fptr)
-        return parallelization
+        if path.suffix.lower() in (".yaml", "yml"):
+            with open(path, "r") as fid:
+                return yaml.load(fid, Loader=yaml.FullLoader)
+
+        if path.suffix.lower() == ".json":
+            with open(path, "r") as fid:
+                return json.load(fid)
+        raise ValueError(f"Unknown file format {path.suffix}")
+
+    @classmethod
+    def read_parallelization(cls, config, of_pipeline=None):
+        from .parallelization import read_config as read_runtime
+        return read_runtime(config, of_pipeline)
 
     @classmethod
     def read_steps(cls, config):
@@ -94,13 +115,14 @@ class TopologicalAnalysis:
     def __init__(self, config, parallelize=None, mode="inspect", workspace=None):
         """Read the pipeline steps to run from the config.
         """
+        from .parallelization import read_config as read_runtime
         assert mode in ("inspect", "run"), mode
 
         c = config
         p = parallelize
 
         self._config = self.read_config(c)
-        self._parallelize = self.read_parallelization(p) if parallelize else None
+        self._parallelize = self.read_parallelization(p, of_pipeline=c) if parallelize else None
 
         self._data = HDFStore(self._config)
 

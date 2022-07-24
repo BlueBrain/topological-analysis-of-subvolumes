@@ -3,8 +3,17 @@
 # which we do to keep the output Python code clean.
 
 
-from connsense.pipeline import workspace
+from collections.abc import Mapping
+from pathlib import Path
 
+import yaml
+import json
+
+from connsense.pipeline import workspace
+from connsense.pipeline.pipeline import PARAMKEY
+from connsense.io import logging
+
+LOG = logging.get_logger("connsense pipeline")
 
 def _remove_link(path):
     try:
@@ -27,11 +36,11 @@ def configure_multinode(computation, in_config, using_runtime, for_control=None,
     workspace = get_workspace(computation, in_config, for_control, making_subgraphs)
     proj_dir, computation_base = workspace
 
-    def write_configs(at_dirpath):
-     return write_configs_of(computation, in_config, at_dirpath, with_random_shuffle=for_control,
-                             and_in_the_subtarget=making_subgraphs)
+    def _write_configs(at_dirpath):
+        return write_configs_of(computation, in_config, at_dirpath, with_random_shuffle=for_control,
+                                and_in_the_subtarget=making_subgraphs)
 
-    write_configs(at_dirpath=computation_base)
+    _write_configs(at_dirpath=computation_base)
     slurm_config = configure_slurm(computation, in_config, using_runtime)
     n_compute_nodes, n_jobs = prepare_parallelization(computation, using_runtime)
 
@@ -80,14 +89,14 @@ def get_workspace(for_computation, in_config, for_control, making_subgraphs, in_
     return (basedir, rundir)
 
 
-def write_configs_of(computation, in_config, at_dirpath, for_control, in_the_subtarget):
+def write_configs_of(computation, in_config, at_dirpath, with_random_shuffle, and_in_the_subtarget):
     """..."""
-    return {"configs": write_configs(of_computation, in_config, at_dirpath),
-            "controls": write_controls(algorithm=for_control, at_dirpath),
+    return {"configs": write_base_configs(of_computation, in_config, at_dirpath),
+            "controls": write_controls(with_random_shuffle, at_dirpath),
             "subgraphs": write_subgraphs(in_the_subtarget, at_dirpath)}
 
 
-def write_configs(of_computation, in_config, at_dirpath, controlling, subgraphing):
+def write__base_configs(of_computation, in_config, at_dirpath, controlling, subgraphing):
     """..."""
     basedir = find_base(rundir=at_dirpath)
     def write(config):
@@ -100,7 +109,7 @@ def write_configs(of_computation, in_config, at_dirpath, controlling, subgraphin
                 run_config.symlink_to(base_config)
                 return  run_config
             return None
-        return {f: write_format(f) for f in ["json", "yaml"]]}
+        return {f: write_format(f) for f in ["json", "yaml"]}
     return {c: write_config(c) for c in ["pipeline", "runtime"]}
 
 
@@ -153,32 +162,105 @@ def generate_inputs_of(copmutation, in_config, for_batch=None, selecting=None):
         return pd.concat([toc_dispatch, neurons.reindex(for_batch.index)], axis=1)
 
 
-def parameterize(step, substep, in_config):
+def parameterize(computation_type, of_quantity, in_config):
     """..."""
-    parameters = in_config["parameters"][step]
-
-    key_step = {"define-subtargets": "defintions",
-                "extract-nodes": "populations",
-                "evaluate-subtargets": "metrics",
-                "extract-connectivity": "populations",
-                "randomize-connectivity": "controls",
-                "connectivity-controls", "algorithms",
-                "analyze-connectivity": "analyses"}[step]
-
-    step_params = parameters[key_step]
-    return step_params[substep]
+    parameters = in_config["parameters"][computation_type]
+    return parameters[PARAMKEY[computation_type]][of_quantity]
 
 
-def configure_slurm(computation, using_runtime):
+def configure_slurm(computation, in_config, using_runtime):
     """..."""
-    step, substep = computation.split('/')
-    return using_runtime.get(step, {}).get("slurm", None)>
+    from connsense.io.read_config import read as read_pipeline
+    computation_type, quantity = computation.split('/')
+    from_runtime = read_config(for_parallelization=using_runtime, of_pipeline=read_pipeline(in_config))
+    return from_runtime.get(computation_type, {}).get("slurm", None)
+
+
+def read_njobs(to_parallelize, computation_of):
+    """..."""
+    if not to_parallelize:
+        LOG.info("No configuration to parallelize.")
+        return (1, 1)
+
+        try:
+            q = computation_of.name
+        except AttributeError:
+            q = computation_of
+
+        try:
+            p = to_parallelize[q]
+        except KeyError:
+            LOG.info("No configuration of %s in parallelization config", q)
+            return (1, 1)
+
+        compute_nodes = p["number-compute-nodes"]
+        tasks = p["number-tasks-per-node"]
+        LOG.info("Configured %s parallelization: %s, %s", q, compute_nodes, tasks * compute_nodes)
+        return (compute_nodes, compute_nodes * tasks)
+
+
+def read_config(for_parallelization, of_pipeline=None):
+    """..."""
+    assert not of_pipeline or isinstance(of_pipeline, Mapping)
+
+    if not for_parallelization:
+        return None
+
+    try:
+        path = Path(for_parallelization)
+    except TypeError:
+        assert isinstance(for_parallelization, Mapping)
+        config = for_parallelization
+    else:
+        if path.suffix.lower() in (".yaml", ".yml"):
+            with open(path, 'r') as fid:
+                config = yaml.load(fid, Loader=yaml.FullLoader)
+        elif path.suffix.lower() == ".json":
+            with open(path, 'r') as fid:
+                config = json.load(fid)
+        else:
+            raise ValueError(f"Unknown config type {for_parallelization}")
+
+    if not of_pipeline:
+        return config
+
+    version = config["version"]
+    date = config["date"]
+    from_runtime = config["pipeline"]
+    default_sbatch = lambda: {key: value for key, value in config["slurm"]["sbatch"].items()}
+
+    def configure_slurm_for(computation_type):
+        """..."""
+        try:
+            cfg_computaiton_type = of_pipeline["parameters"][computation_type]
+        except KeyError:
+            return None
+
+        quantities_to_configure = cfg_computaiton_type[PARAMKEY[computation_type]]
+        configured = from_runtime.get(computation_type, {})
+
+        def configure_quantity(q):
+            cfg = {key: value for key, value in (configured.get(q) or {}).items()}
+            if "sbatch" not in cfg:
+                cfg["sbatch"] = default_sbatch()
+            if "number-compute-nodes" not in cfg:
+                cfg["number-compute-nodes"] = 1
+            if "number-tasks-per-node" not in cfg:
+                cfg["number-tasks-per-node"] = 1
+            return cfg
+
+        return {q: configure_quantity(q) for q in quantities_to_configure if q != "description"}
+
+    runtime_pipeline = {c: configure_slurm_for(computation_type=c) for c in of_pipeline["parameters"]}
+    return {"version": config["version"], "date": config["date"], "pipeline": runtime_pipeline}
 
 
 def prepare_parallelization(computation, using_runtime):
     """.."""
-    step, _ = computation.split('/')
-    return using_runtime.get(step, {}).get("paralellization")
+    computation_type, quantity = computation.split('/')
+    from_runtime = read_config(for_parallelization=using_runtime)
+    configured = from_runtime.get(computation_type, {})
+    return read_njobs(to_parallelize=configured, computation_of=quantity)
 
 
 def assign_batches_to(inputs, upto_number):

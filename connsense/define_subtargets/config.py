@@ -164,7 +164,7 @@ class SubtargetsConfig:
         if group == "central-columns": #TO REMOVE, central-columns will be entered as pre-defined
             return define_predefined_group(using_spec["members"])
 
-        if group == "pre-defined":
+        if group.startswith("pre-defined"):
             return define_predefined_group(using_spec)
 
 
