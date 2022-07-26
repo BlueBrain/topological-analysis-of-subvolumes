@@ -42,8 +42,23 @@ def get_parser():
                               "The config should specify the input and output paths,"
                               "  and parameters  for each of the pipeline steps."))
 
+    parser.add_argument("-p", "--parallelize", required=False,
+                        help=("Path to the (JSON) configuration that describes how to compute.\n"
+                              "The entries in this configuration will provide parameters such as\n"
+                              "paralellization parameters, whether to parallilize on a single node or multiple.\n"
+                              "This configuraiton must be provided for parallilization of the tasks\n"
+                              "Each pipeline step missing in the config will be run serially on a single node.\n"
+                              "If the config itself is missing, all steps will be run serially."))
+
     parser.add_argument("-x", "--connectome", required=True,
                         help=("Type of the connectome to extract, that should appear in the config."))
+
+    parser.add_argument("-b", "--batch", required=False,
+                        help=("Batch of input subtargets of a parallel process to run on a single compute nodes.\n"
+                              "The batches will be run from a location read from the config."))
+
+    parser.add_argument("-o", "--output", required=False,
+                        help=("store the results at this path instead of the configured root."))
 
     parser.set_defaults(test=False)
 
@@ -62,7 +77,8 @@ def main(argued=None):
     cfg = pipeline.TopologicalAnalysis.read_config(at_path)
 
     if argued.action == "run":
-        output = extract_connectivity(cfg, argued.connectome)
+        output = extract_connectivity(cfg, argued.connectome, for_batch=Path(argued.batch) if argued.batch else None,
+                                      output=argued.output)
         LOG.info("Extracted connectivity at %s", output)
         return output
 

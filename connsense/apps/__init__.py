@@ -2,3 +2,5 @@
 """
 
 from .import topological_analysis, run_analysis
+
+APPS = {"extract-edge-populations": "tap-connectivity"}

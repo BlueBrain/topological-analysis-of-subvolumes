@@ -50,10 +50,15 @@ def get_current(action, mode, config, step, substep, controls=None, with_paralle
 
 def run(config, action, substep=None, in_mode=None,  parallelize=None, output=None, **kwargs):
     """..."""
-    from connsense.pipeline import workspace
+    connectome = substep or "local"
+    LOG.warning("Extract %s connectivity of subtargets", connectome)
 
-    connectome = substep
-    LOG.warning("Extract connectivity of subtargets")
+    if parallelize:
+        from connsense.pipeline.parallelization import configure_multinode
+        return configure_multinode(computation=f"extract-edge-populations/{connectome}", in_config=config,
+                                   using_runtime=parallelize)
+
+    from connsense.pipeline import workspace
 
     cfg = read(config)
     input_paths, output_paths = read_config.check_paths(cfg, STEP)
@@ -75,6 +80,8 @@ def run(config, action, substep=None, in_mode=None,  parallelize=None, output=No
         f"Argued connectome {connectome} was not among those configured {configured}")
 
     assert stage_dir.exists()
+
+
 
     slurm_config = {
         "name": "extract-connectivity",

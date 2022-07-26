@@ -122,7 +122,7 @@ class TopologicalAnalysis:
         p = parallelize
 
         self._config = self.read_config(c)
-        self._parallelize = self.read_parallelization(p, of_pipeline=c) if parallelize else None
+        self._parallelize = self.read_parallelization(p, of_pipeline=self._config) if parallelize else None
 
         self._data = HDFStore(self._config)
 
@@ -139,6 +139,11 @@ class TopologicalAnalysis:
     def workspace(self):
         """..."""
         return self._workspace
+
+    def set_workspace(self, to_dirpath):
+        """..."""
+        self._workspace = to_dirpath
+        return self
 
     @property
     def data(self):

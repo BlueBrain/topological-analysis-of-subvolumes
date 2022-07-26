@@ -90,16 +90,21 @@ def check_configs(c, and_to_parallelize, at_location, mode=None, must_exist=Fals
     """
     p = and_to_parallelize
     check_location = at_location if not mode else at_location / mode
-    pc = check_location / "config.json"
-    pp = check_location / "parallel.json" if and_to_parallelize else None
+
+    pc = {"json": check_location / "config.json", "yaml": check_location / "pipeline.yaml"}
+    pc_exists = pc["json"].exists() or pc["yaml"].exists()
+
+    pp = ({"json": check_location / "parallel.json", "yaml": check_location / "runtime.yaml"}
+          if and_to_parallelize else None)
+    pp_exists = pp and (pp["json"].exists() or pp["yaml"].exists())
 
     if strict and must_exist:
-        if not pc.exists():
+        if not pc_exists:
             raise FileNotFoundError(f"Location {at_location} must have a config but does not."
                                     "\n\tInitialize the parent folders first. Start at the base.\n"
                                     "`tap --config=<JSON> --parallelize=<JSON>  init`\n"
                                     "before setting up run modes or steps and substeps.")
-        if pp and not pp.exists():
+        if pp and not pp_exists:
             raise FileNotFoundError(f"Location {at_location} must have a parallization config"
                                     " but does not.\n"
                                     "You may need to initialize the pipeline workspace.\n"
@@ -113,8 +118,11 @@ def check_configs(c, and_to_parallelize, at_location, mode=None, must_exist=Fals
     if strict and pc.exists() and pp and pp.exists():
         raise FileExistsError(f"Location {l} seems to already have run configs")
 
-    check_config = True if pc.exists() or not create else read_config.write(c, to_json=pc)
-    check_parall = ((True if pp.exists() or not create else read_config.write(p, to_json=pp))
+    if not create:
+        return (pc_exists, pp_exists)
+
+    check_config = pc_exists  or read_config.write(c, to_json=pc["json"], and_yaml=pc["yaml"])
+    check_parall = (pp_exists or read_config.write(p, to_json=pp["json"], and_yaml=pp["yaml"])
                     if pp else None)
     return (check_config, check_parall)
 
@@ -131,11 +139,31 @@ def timestamp(dir):
     return at_time
 
 
+def symlink(configs, at_dirpath, to_base_configs):
+    """..."""
+    pipeline_exists, runtime_exists = configs
+    base_pipeline , base_runtime = to_base_configs
+
+    return ((at_dirpath / base_pipeline.name).symlink_to(base_pipeline) if not pipeline_exists else None,
+            (at_dirpath / base_runtime.name).symlink_to(base_runtime) if base_runtime and not runtime_exists else None)
+
+
 def initialize(config, step=None, substep=None, subgraphs=None, controls=None,
                mode=None, parallelize=None, strict=False):
     """Set up a run of the pipeline.
     """
-    c = config; s = step; ss = substep; m = mode; p = parallelize
+    try:
+        c, path_config = config
+    except TypeError:
+        c = config
+        path_config  = None
+    try:
+        p, path_parallelize = parallelize
+    except TypeError:
+        p = parallelize
+        path_parallelize = None
+
+    s = step; ss = substep; m = mode;
     LOG.info("Initialize workspace for config with keys: \n %s", pformat(list(c.keys())))
 
     if p:
@@ -149,16 +177,20 @@ def initialize(config, step=None, substep=None, subgraphs=None, controls=None,
         assert not ss, f"Substep {ss} of step None maketh sense None"
 
     def _check_configs_must_exist(x, and_to_create):
-        check_configs(c, and_to_parallelize=p, at_location=to_run,
-                      must_exist=x, create=and_to_create)
+        check_configs(c, and_to_parallelize=p, at_location=to_run, must_exist=x, create=and_to_create)
 
     if_just_base = not mode and not step
     #check_configs(c, p, at_location=to_run, must_exist=not if_just_base, create=if_just_base)
-    check_configs(c, p, at_location=to_run, must_exist=not if_just_base, create=True)
-    check_configs(c, p, at_location=to_run, mode=mode, must_exist=not if_just_base, create=True)
+    base_configs = check_configs(c, p, at_location=to_run, must_exist=not if_just_base, create=False)
+    symlink(base_configs, at_dirpath=to_run, to_base_configs=(path_config, path_parallelize))
+
+    if mode:
+        rundir_configs = check_configs(c, p, at_location=to_run, mode=m, must_exist=not if_just_base, create=False)
+        symlink(rundir_configs, at_dirpath=to_run/mode, to_base_configs=(path_config, path_parallelize))
 
     if mode or step:
-        check_configs(c, p, at_location=stage, must_exist=False, create=True)
+        stage_configs = check_configs(c, p, at_location=stage, must_exist=True, create=False)
+        symlink(stage_configs, at_dirpath=stage, to_base_configs=(path_config, path_parallelize))
 
     return stage
 
@@ -171,7 +203,12 @@ def cleanup(config, **kwargs):
 
 def current(config, step, substep, subgraphs, controls, mode, to_parallelize):
     """..."""
-    run, stage = get_rundir(config, step, substep, subgraphs, controls, mode, with_base=True)
+    try:
+        c, path_config  = config
+    except TypeError:
+        c = config
+
+    run, stage = get_rundir(c, step, substep, subgraphs, controls, mode, with_base=True)
 
     if not stage.exists():
         stage = initialize(config, step, substep, subgraphs, controls, mode, to_parallelize)

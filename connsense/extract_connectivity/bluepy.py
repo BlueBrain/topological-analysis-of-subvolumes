@@ -106,7 +106,7 @@ def extract_adj(circuit, edge_population, subtargets):
 
     def extract_subtarget(gids):
         gids = pd.Series(gids, name="gid")
-        connections = get_connections(to_subtarget=gids, in_edge_population=e, of_circuit=c)
+        connections = get_connections(to_subtarget=gids, in_edge_population=p, of_circuit=c)
         return as_adjmat(connections, gids, edge_population=p)
 
     connectivity = subtargets.apply(extract_subtarget)

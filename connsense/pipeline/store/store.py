@@ -68,10 +68,16 @@ class HDFStore:
     @lazy
     def nodes(self):
         """Subtarget nodes that have been saved to the HDf store."""
-        try:
-            return read_node_properties(self.get_path("extract-nodes"))
-        except (KeyError, FileNotFoundError):
-            return None
+        populations = list(self._config["parameters"]["extract-node-populations"]["populations"])
+        hdf, grp = self.get_path("extract-node-populations")
+        nodes = {p: read_node_properties((hdf, grp+'/'+p)) for p in populations}
+        if len(nodes) == 1:
+            return nodes[populations[0]]
+        return nodes
+        #try:
+            #return read_node_properties(self.get_path("extract-node-populations"))
+        #except (KeyError, FileNotFoundError):
+            #return None
 
     def _read_matrix_toc(self, step, dset=None):
         """Only for the steps that store connectivity matrices."""

@@ -168,24 +168,31 @@ def main(argued=None):
 
     LOG.info("Initialize the topological analysis pipeline: \n%s", pformat(argued))
 
-    at_path = Path(argued.configure)
-    c = pipeline.TopologicalAnalysis.read_config(at_path)
+    at_pipeline = Path(argued.configure)
+    if not at_pipeline.is_absolute():
+        at_pipeline = Path.cwd() / argued.configure
+
+    at_runtime = Path(argued.parallelize) if argued.parallelize else None
+    if at_runtime and not at_runtime.is_absolute():
+        at_runtime = Path.cwd() / argued.parallelize
+
+    topaz = pipeline.TopologicalAnalysis(config=at_pipeline, parallelize=argued.parallelize, mode="run")
+    c = topaz._config
     a = argued
     c["paths"]["output"] = _read_output_in_config(c, and_argued_to_be=a.output)
 
-    p = pipeline.TopologicalAnalysis.read_parallelization(argued.parallelize, of_pipeline=c)
+    p = topaz._parallelize
     s, ss = check_step(argued, against_config=c)
     m = check_mode(argued)
-    current_run = get_current(action=a.action, mode=m, config=c,
+    current_run = get_current(action=a.action, mode=m, config=(c, at_pipeline),
                               step=s, substep=ss, subgraphs=a.subgraphs, controls=a.controls,
-                              with_parallelization=p)
+                              with_parallelization=(p, at_runtime))
     LOG.info("Workspace initialized at %s", current_run)
 
     if is_to_init(argued.action):
         return current_run
 
-    w = current_run
-    topaz = pipeline.TopologicalAnalysis(config=c, parallelize=p, mode="run", workspace=w)
+    topaz.set_workspace(current_run)
 
     LOG.info("Initialized a run of the TAP pipelein configration %s parallelization %s",
              argued.configure, argued.parallelize)

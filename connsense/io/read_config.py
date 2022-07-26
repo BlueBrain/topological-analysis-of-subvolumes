@@ -80,7 +80,6 @@ def read(fn, raw=False):
     except TypeError as terror:
         raise TypeError(f"Unexpected type of config file reference{type(fn)}.") from terror
 
-
     def read_raw():
         if path.suffix.lower() in (".yaml", "yml"):
             with open(path, "r") as fid:
@@ -126,10 +125,15 @@ def serialize_json(paths):
     return paths
 
 
-def write(config, to_json):
+def write(config, to_json, and_yaml=None):
     """..."""
     with open(to_json, 'w') as to_file:
         to_file.write(json.dumps(serialize_json(config)))
+
+    if and_yaml:
+        with open(and_yaml, 'w') as to_file:
+            yaml.dump({key: str(value) if isinstance(value, Path) else value for key, value in config.items()},
+                      to_file, allow_unicode=True)
     return to_json
 
 
