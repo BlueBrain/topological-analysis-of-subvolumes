@@ -1,10 +1,11 @@
 """Connectivity in subtargets."""
 import pandas as pd
+from pathlib import Path
 
 from .. import plugins
 from ..io.write_results import read as read_results, write_toc_plus_payload, default_hdf
 
-from ..io.read_config import check_paths
+from ..io.read_config import check_paths, write as write_config
 from ..io import logging
 
 from ..define_subtargets.config import SubtargetsConfig
@@ -37,27 +38,31 @@ def resolve_connectomes(in_argued):
 
 def write(edges, to_output):
     """..."""
+    hdf, group = to_output
+
+    output_config = {}
     adj = edges["adj"]
-    if adj:
+    if adj is not None:
         LOG.info("Write adjacencies like %s", adj.head())
-        hdf, group = to_output
-        astore = write_toc_plus_payload(edges["adj"], (hdf, group+"/adj"), format="table")
+        hdf_adj = (hdf, group+"/adj")
+        write_toc_plus_payload(edges["adj"], hdf_adj , format="table")
+        output_config["adj"] = hdf_adj
     else:
         LOG.warning("No adjacency matrices to write.")
-        astore = None
 
     props = edges["props"]
-    if props:
+    if props is not None:
         LOG.info("Write edge-properties like %s", props.head())
-        pstore = get_store(hdf, group+"/props", for_matrix_type="pandas.DataFrame", in_mode='a')
+        hdf_props = (hdf, group+"/props")
+        pstore = get_store(*hdf_props, for_matrix_type="pandas.DataFrame", in_mode='a')
         contents = edges["props"].apply(pstore.write)
         update = pstore.prepare_toc(of_paths=contents)
         pstore.append_toc(update)
+        output_config["props"] = hdf_props
     else:
         LOG.warning("No edge properties to write.")
-        pstore = None
 
-    return {"adj": astore, "props": pstore}
+    return write_config(output_config, to_json=Path(hdf).parent/"output.json")
 
 
 def filter_parallel(batches, at_path):
@@ -103,7 +108,8 @@ def extract_subtargets(in_config, population, for_batch=None, output=None):
     hdf, group = to_output
     write(connectivity, to_output=(hdf, group+'/'+population))
 
+    count_subtargets = lambda dset: 0 if dset is None else len(dset)
     LOG.warning("DONE, extracting %s subtarget connectivity: adj: %s, props: %s", len(subtargets),
-                len(connectivity["adj"]), len(connectivity["props"]))
+                count_subtargets(connectivity["adj"]), count_subtargets(connectivity["props"]))
 
     return to_output

@@ -9,20 +9,24 @@ import h5py
 import numpy
 import pandas as pd
 
+from connsense.io import logging
+
+LOG = logging.get_logger("Write Results")
+
 
 def default_hdf(step):
     """Default HDF5 path for a pipeline step's output."""
     return (os.path.join(os.curdir, "topological_analysis.h5"), step)
 
 
-def write(extracted, to_path, format=None, metadata=None):
+def write(extracted, to_path, append=False, format=None, metadata=None):
     """Expecting the path to output be that to a `*.h5` archive.
 
     extracted : A pandas DataFrame / Series
     path : a string or a tuple of strings
     metadata : A dict whose key, values will be added to the HDF-groups' attributes
     """
-    print("WRITE EXTRACTION", extracted)
+    LOG.info("What is the format to write to HDF pandas, %s", format)
     metadata = metadata or {}
     try:
         path_hdf_store, group_identifier = to_path
@@ -31,12 +35,16 @@ def write(extracted, to_path, format=None, metadata=None):
         extracted.to_pickle(to_path)
         return to_path
 
-    extracted.to_hdf(path_hdf_store, key=group_identifier, mode="a", format=(format or "fixed"))
+    extracted.to_hdf(path_hdf_store, key=group_identifier, mode="a", append=append,
+                     min_itemsize={"subtarget": 128}, format=(format or "table"))
 
     return (path_hdf_store, group_identifier)
 
 
 def write_sparse_matrix_payload(hdf_group, dset_pattern="matrix_{0}"):
+    """..."""
+    LOG.info("Write sparse matrix payload of %s", hdf_group)
+
     def write_dset(mat):
         """..."""
         try:
@@ -45,6 +53,7 @@ def write_sparse_matrix_payload(hdf_group, dset_pattern="matrix_{0}"):
             pass
 
         dset_name = dset_pattern.format(len(hdf_group.keys()))
+
         from scipy import sparse
         bio = io.BytesIO()
         sparse.save_npz(bio, mat)
@@ -63,7 +72,7 @@ def read_sparse_matrix_payload(hdf_dset):
     return mat
 
 
-def write_toc_plus_payload(extracted, to_path, payload_type=None, format=None):
+def write_toc_plus_payload(extracted, to_path, append=False, payload_type=None, format=None):
     """..."""
     path_hdf_store, group_identifier = to_path
     group_identifier_toc = group_identifier + "/toc"
@@ -74,7 +83,37 @@ def write_toc_plus_payload(extracted, to_path, payload_type=None, format=None):
     toc = extracted.apply(write_sparse_matrix_payload(h5_grp_mat))
     h5_file.close()
 
-    return write(toc, (path_hdf_store, group_identifier_toc), format=format)
+    return write(toc, (path_hdf_store, group_identifier_toc), append=append, format=format)
+
+
+def append_toc_plus_payload(extracted, to_path, payload_type=None):
+    """..."""
+    path_hdf_store, group_identifier = to_path
+    group_identifier_toc = group_identifier + "/toc"
+    group_identifier_mat = group_identifier + "/payload"
+    dset_pattern = "matrix_{0}"
+
+    def save_matrix(m, in_group, of_store):
+        """..."""
+        try:
+            value = m.get_value()
+        except AttributeError:
+            value = m
+
+        dset_name = dset_pattern.format(len(in_group.keys()))
+        from scipy import sparse
+        bio = io.BytesIO()
+        sparse.save_npz(bio, value)
+        bio.seek(0)
+        matrix_bytes = list(bio.read())
+        in_group.create_dataset(dset_name, data=matrix_bytes)
+        return in_group.name + "/" + dset_name
+
+    with h5py.File(path_hdf_store, 'a') as hdf_store:
+        matrices = hdf_store.require_group(group_identifier_mat)
+        toc = extracted.apply(lambda m: save_matrix(m, in_group=matrices, of_store=hdf_store))
+
+    return write(toc, (path_hdf_store, group_identifier_toc), append=True, format="table")
 
 
 class LazyMatrix:

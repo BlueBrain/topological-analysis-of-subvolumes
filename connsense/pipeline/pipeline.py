@@ -100,7 +100,7 @@ class TopologicalAnalysis:
 
     @classmethod
     def read_parallelization(cls, config, of_pipeline=None):
-        from .parallelization import read_config as read_runtime
+        from .parallelization import read_runtime_config as read_runtime
         return read_runtime(config, of_pipeline)
 
     @classmethod
@@ -115,7 +115,6 @@ class TopologicalAnalysis:
     def __init__(self, config, parallelize=None, mode="inspect", workspace=None):
         """Read the pipeline steps to run from the config.
         """
-        from .parallelization import read_config as read_runtime
         assert mode in ("inspect", "run"), mode
 
         c = config

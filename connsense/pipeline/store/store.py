@@ -7,6 +7,7 @@ import h5py
 import pandas as pd
 
 from connsense import analyze_connectivity as anzconn
+from connsense.analyze_connectivity import matrices
 from connsense import randomize_connectivity as ranconn
 from connsense.io.write_results import (read_subtargets,
                                         read_node_properties,
@@ -89,10 +90,34 @@ class HDFStore:
     @lazy
     def adjacency(self):
         """Original connectivity of subtargets that have been saved to the HDF store."""
-        try:
-            return self._read_matrix_toc("extract-connectivity")
-        except (KeyError, FileNotFoundError):
-            return None
+        def get_population(p):
+            LOG.info("Look for extracted edges in population %s", p)
+            try:
+                return self._read_matrix_toc("extract-edge-populations", p+"/adj")
+            except (KeyError, FileNotFoundError):
+                LOG.warning("Nothing found for extract-edge-populations %s", p+"/adj")
+                return None
+        populations = list(self._config["parameters"]["extract-edge-populations"]["populations"])
+        return {p: get_population(p) for p in populations}
+
+    def _read_edge_properties(self, population):
+        """..."""
+        root, edges = self.get_path("extract-edge-populations")
+        store = matrices.get_store(root, edges+"/"+population+"/props",  "pandas.DataFrame")
+        return store.toc
+
+    @lazy
+    def edge_properties(self):
+        """..."""
+        def get_population(p):
+            LOG.info("Look for extracted edge properties in population %s", p)
+            try:
+                return self._read_edge_properties(p)
+            except (KeyError, FileNotFoundError):
+                LOG.warning("Nothing found for extract-edge-populations %s", p+"/props")
+                return None
+        populations = list(self._config["parameters"]["extract-edge-populations"]["populations"])
+        return {p: get_population(p) for p in populations}
 
     @lazy
     def randomizations(self):

@@ -153,7 +153,7 @@ def extract_connectivity(circuits, edge_population, subtargets):
         properties = edge_population["properties"]
     except KeyError:
         edge_adjs = apply(extract_adj).rename("matrix")
-        edge_props = None
+        edge_props = pd.Series()
     else:
         edge_props = apply(extract_edge(properties)).rename("edge_properties")
 

@@ -134,6 +134,8 @@ def write(config, to_json, and_yaml=None):
         with open(and_yaml, 'w') as to_file:
             yaml.dump({key: str(value) if isinstance(value, Path) else value for key, value in config.items()},
                       to_file, allow_unicode=True)
+        return (to_json, and_yaml)
+
     return to_json
 
 

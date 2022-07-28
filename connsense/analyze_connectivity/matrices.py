@@ -336,7 +336,7 @@ class SparseMatrixStore(MatrixStore):
     """..."""
     def __init__(self, *args, **kwargs):
         """..."""
-        super().__init(*args, using_handler=SparseMatrixHelper, **kwargs)
+        super().__init__(*args, using_handler=SparseMatrixHelper, **kwargs)
 
 
 class DenseMatrixStore(MatrixStore):

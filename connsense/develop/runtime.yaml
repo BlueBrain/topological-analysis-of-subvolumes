@@ -1,0 +1,72 @@
+version: 1.0.0
+date: 20220724
+slurm:
+  description: >-
+    Configure default Slurm config.
+  sbatch:
+    account: "proj83"
+    time: "8:00:00"
+    venv: "/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/load_env.sh"
+pipeline:
+  define-subtargets:
+    description: >-
+      Configure parallelization to run ~define-subtargets~.
+    definitions:
+      hexgrid-cells: null
+      hexgrid-voxels: null
+      pre-defined: null
+  extract-voxels:
+    description: >-
+      Configure parallelization to run ~extract-voxels~.
+    annotations:
+      layer: null
+      depth: null
+      flatmap: null
+      orientation: null
+  extract-node-types:
+    description: >-
+      Configure the extraction of node types.
+    models:
+      biophysical: null
+  extract-node-populations:
+    description: >-
+      Configure the extraction of node populations.
+    populations:
+      default:
+        number-compute-nodes: 8
+        number-tasks-per-node: 1
+  extract-edge-populations:
+    description: >-
+      Configure the extraction of edge populations.
+    populations:
+      local:
+        number-compute-nodes: 8
+        number-tasks-per-node: 1
+  analyze-geometry:
+    description: >-
+      Configure the analyses of a circuit subtarget geometry.
+    analyses:
+      layer_volume: null
+      conicity: null
+  analyze-composition:
+    description: >-
+      Configure the analyses of a circuit subtarget composition.
+    analyses:
+      cell-count-by-layer: null
+      cell-count-by-mtype: null
+  analyze-connectivity:
+    description: >-
+      Configure the analyses of a circuit subtarget connectivity.
+    analyses:
+      neuronal-convergence:
+        number-compute-nodes: 1
+        number-tasks-per-node: 4
+      neuronal-divergence:
+        number-compute-nodes: 1
+        number-tasks-per-node: 4
+      synaptic-convergence:
+        number-compute-nodes: 1
+        number-tasks-per-node: 4
+      synaptic-divergence:
+        number-compute-nodes: 1
+        number-tasks-per-node: 4
