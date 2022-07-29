@@ -201,7 +201,6 @@ circuit:
   Bio_M: null
 #+end_src
 
-
 ** Pipeline steps
 Paths are set for each step of the pipeline in config section ~paths~.
 Let us configure the location of the ~connsense-HDFstore~'s HDF5 file. We need path to the folder where ~connsense-TAP~
@@ -427,41 +426,85 @@ evaluate-subtargets:
 #+end_src
 
 *** Extract node-types
-We will extract ~node-types~ to the dataset ~nodes/types~ for each cvonfigured ~node-type~ as a dataset,
+A circuit's node-population may be modeleled using different /model-types/.
+For example we may have /biophysical/ nodes with morphological structures with associated electrical behavior,
+along with /point-neuron/ models, or even /virtual/ ones to model projections from other regions of the brain.
+
+We will extract ~node-types~ to the dataset ~nodes/modeltypes~ for each cvonfigured ~node-type~ as a dataset,
 
 #+name: pipeline-config-paths-pipeline-step-extract-node-types
 #+begin_src yaml :tangle no :noweb yes :comments no :padline no
-extract-node-types: "nodes/types"
+extract-node-types: "nodes/modeltypes"
 #+end_src
 
+Each
 #+name: pipeline-config-parameters-extract-node-types
 #+begin_src yaml :tangle no :noweb yes :comments no :padline no
 extract-node-types:
   description: >-
     Extract node-type data
-  models:
+  modeltypes:
     biophysical:
       description: >-
         The biophysical nodes...
-      morphology:
-        node_property: "morphology"
-        extractor:
-          source: connsense.extract_node_types.morphologies
-          method: measure_morphologies
-        properties:
-          - "axon_length"
-          - "axon_volume"
-          - "branch-order"
-          - "complete this list."
-      electrophysiology:
-        node_property: "memodel"
-        extractor:
-          source: connsense.extract_node_types.electrophysiologies
-          method: measure_electrophysiology
-        properties:
-          - "thimk-of-some"
-          - 'properties to extract'
+      components:
+        morphology:
+          node_property: "morphology"
+          extractor:
+            source: connsense.extract_node_types.morpholmetricsogies
+            method: measure_morphologies
+          metrics:
+            - axonal:
+                - "length"
+                - "volume"
+                - "branch-order"
+            - dendritic:
+                - "length"
+                - "volume"
+                - "branch-order"
+            - somatic:
+                - "volume"
+        electrophysiology:
+          node_property: "memodel"
+          extractor:
+            source: connsense.extract_node_types.electrophysiologies
+            method: measure_electrophysiology
+           properties:
+             - "thimk-of-some"
+             - 'properties to extract'
 #+end_src
+
+
+What can we extract for a given /node-type/, particularly for the biophysical /node-type/ that we have in these SSCx
+circuit?
+The morphologcy itself is a shape represendted by a dataframe, and sits somwhere on the disc.
+We don't want to extract the entire dataframe.
+
+For edges we extracted the adjacency matrix, and some edge-properties.
+We can get the model-components for a biuphysical model as some kind of properties ---
+/morphological metrics/.
+
+While a /node-population/ or an /edge-population/ has /properties/,  for a /node-type/ we have a /copmonensts/.
+Each component expands into several properities of a node instantiated with a model of that particular /node-type/.
+We can think of analyses that control for aconal or dendritic cloud densities.
+So we can list some metrics to extract for each /model-component/ of a /node-type/.
+The /morphometrics/ will need implementation beyond what ~bluepy~ has to offer.
+The form of the ~netrics~ can be a list, that will require long strings, or dict that further dissects the
+actually extracrted properties by a morphology's /neurite-type/ axonal, somatic/, or /dendritic/.
+The entry must makes sense to the extractor methods.
+
+The node properties are mostly tags that key into a database of models, morphological or electrophysical.
+
+We can trick the ~subtarget~ oriented parallelization scheme in ~connsense~ by pretending that a ~node~'s
+morphology is a ~subtargetr~ and batch them into parallel runs.
+
+In a future refactor we may consider expanding the notion of ~subtarget~ from just spatially defined ones
+to other type of phenomena such as morphological shapes.
+Nodes in spatial defined subtarget share physical space, and nodes in a /morphologcally/ or shape defined
+subtarget will share morphological shape.
+We have some pyramidal cell shapes, and several interneurons shapes.
+We can consider the shapes without the layer information.
+Each /morphological-type/ shape will comprise several morphologies.
 
 *** Extract nodes
 Results will go to the configured group's subgroup by population.
@@ -500,6 +543,8 @@ extract-node-populations:
       description: >-
         The default population will be that of neurons in the SSCx.
         To extract the neurons we will use a `connsense` method that uses ~bluepy~.
+      node-types:
+        - "biophysical"
       extractor:
         source: connsense
         method: bluepy

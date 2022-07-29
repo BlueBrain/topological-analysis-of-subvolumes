@@ -29,7 +29,26 @@ from connsense.extract_connectivity import read_results
 
 LOG = logging.get_logger("connsense pipeline")
 
-def run_multinode(process_of, *, computation, in_config, using_runtime, for_control=None, making_subgraphs=None):
+
+def _remove_link(path):
+    try:
+        return path.unlink()
+    except FileNotFoundError:
+        pass
+    return None
+
+
+BATCH_SUBTARGETS = ("subtargets.h5", "batch")
+COMPUTE_NODE_SUBTARGETS = ("batches.h5", "compute_node")
+
+
+def describe(computation):
+    """..."""
+    computation_type, quantity = computation.split('/')
+    return (computation_type, quantity)
+
+
+def run_parallel(process_of, *, computation, in_config, using_runtime, for_control=None, making_subgraphs=None):
     """..."""
     _, to_stage = get_workspace(computation, in_config, for_control, making_subgraphs)
 
@@ -39,10 +58,10 @@ def run_multinode(process_of, *, computation, in_config, using_runtime, for_cont
 
     computation_type, _ = describe(computation)
 
-    batched_inputs = run_multinode_inputs(process_of, computation, in_config, to_stage, with_number_jobs=n_jobs)
+    batched_inputs = batch_multinode_inputs(process_of, computation, in_config, to_stage, with_number_jobs=n_jobs)
 
-    chunked = run_multinode_compute_nodes(process_of, batched_inputs, numbering_upto=n_compute_nodes,
-                                          at_dirpath=to_stage)
+    chunked = assign_multinode_compute_nodes(process_of, batched_inputs, numbering_upto=n_compute_nodes,
+                                             at_dirpath=to_stage)
 
     if process_of == setup_compute_node:
         using_configs["slurm_params"] = configure_slurm(computation, in_config, using_runtime)
@@ -73,7 +92,7 @@ def run_multinode_configs(process_of, computation, in_config, for_control, makin
     raise ValueError(f"Unknown {process_of} multinode")
 
 
-def run_multinode_inputs(process_of, computation, in_config, to_stage, with_number_jobs):
+def batch_multinode_inputs(process_of, computation, in_config, to_stage, with_number_jobs):
     """..."""
     if process_of == setup_compute_node:
         inputs = generate_inputs_of(computation, in_config)
@@ -93,7 +112,7 @@ def run_multinode_inputs(process_of, computation, in_config, to_stage, with_numb
     raise ValueError(f"Unknown {process_of} multinode")
 
 
-def run_multinode_compute_nodes(process_of, batched_inputs, numbering_upto, at_dirpath):
+def assign_multinode_compute_nodes(process_of, batched_inputs, numbering_upto, at_dirpath):
     """..."""
     if process_of == setup_compute_node:
         return assign_compute_nodes(batched_inputs, numbering_upto, at_dirpath)
@@ -292,101 +311,6 @@ def read_setup(at_dirpath, compute_node):
         return json.load(f)
 
     raise RuntimeError("Python execution must not have reached here.")
-
-
-def _remove_link(path):
-    try:
-        return path.unlink()
-    except FileNotFoundError:
-        pass
-    return None
-
-
-BATCH_SUBTARGETS = ("subtargets.h5", "batch")
-COMPUTE_NODE_SUBTARGETS = ("batches.h5", "compute_node")
-
-
-def describe(computation):
-    """..."""
-    computation_type, quantity = computation.split('/')
-    return (computation_type, quantity)
-
-
-def configure_multinode(computation, in_config, using_runtime, for_control=None, making_subgraphs=None):
-    """..."""
-    _, to_run_quantity = get_workspace(computation, in_config, for_control, making_subgraphs)
-
-    def _write_configs(at_dirpath):
-        return write_configs_of(computation, in_config, at_dirpath, with_random_shuffle=for_control,
-                                in_the_subtarget=making_subgraphs)
-
-    _write_configs(at_dirpath=to_run_quantity)
-    n_compute_nodes, n_jobs = prepare_parallelization(computation, in_config, using_runtime)
-
-    computation_type, quantity = describe(computation)
-
-
-    def cmd_sbatch(at_path):
-        """..."""
-        slurm_params = configure_slurm(computation, in_config, using_runtime)
-        slurm_params.update({"name": computation_type, "executable": APPS[computation_type]})
-        slurm_config = SlurmConfig(slurm_params)
-        return slurm_config.save(to_filepath=at_path/f"{computation_type}.sbatch")
-
-    def cmd_configs():
-        """..."""
-        if computation_type == "extract-edge-populations":
-            return {"configure": "pipeline.yaml", "parallelize": "runtime.yaml"}
-        raise NotImplementedError("Will do when the need arises a.k.a when we get there.")
-
-    def cmd_options():
-        """..."""
-        if computation_type == "extract-edge-populations":
-            return {"connectome": quantity}
-        raise NotImplementedError("Will do when the need arises a.k.a when we get there.")
-
-    master_launchscript = to_run_quantity / "launchscript.sh"
-
-    inputs = generate_inputs_of(computation, in_config)
-
-    def configure_chunk(c, _inputs):
-        """..."""
-        LOG.info("Configure chunk %s with %s inputs %s.", c, len(_inputs), list(_inputs.keys()))
-
-        for_compute_node = to_run_quantity / f"compute-node-{c}"
-        for_compute_node.mkdir(parents=False, exist_ok=True)
-        _write_configs(at_dirpath=for_compute_node)
-
-        read_input_batches = write_compute(_inputs, to_hdf=COMPUTE_NODE_SUBTARGETS, at_dirpath=for_compute_node)
-
-        with open(master_launchscript, 'a') as to_launch:
-            script = cmd_sbatch(at_path=for_compute_node).name
-
-            def write(aline):
-                to_launch.write(aline + '\n')
-
-            write("#!/bin/bash")
-
-            write(f"########################## LAUNCH {computation_type} for chunk {c}"
-                f" of {len(_inputs)} _inputs. #######################################")
-            write(f"pushd {for_compute_node}")
-
-            sbatch = f"sbatch {script} run \\"
-            configs = ' '.join([f"--{config}={value}" for config, value in cmd_configs().items()]) + " \\"
-            options = ' '.join([f"--{option}={value}" for option, value in cmd_options().items()]) + " \\"
-            batches = f"--batch={for_compute_node/read_input_batches} \\"
-            output = f"--output={for_compute_node}/compute_node_connsense.h5"
-            write(f"{sbatch}\n {configs}\n {options}\n {batches}\n {output}")
-
-            write("popd")
-
-        return to_run_quantity
-
-    batched_inputs = assign_batches_to(inputs, n_jobs)
-    write_compute(batched_inputs, to_hdf=BATCH_SUBTARGETS, at_dirpath=to_run_quantity)
-
-    chunked = assign_compute_nodes(batched_inputs, n_compute_nodes, at_dirpath=to_run_quantity)
-    return {c: configure_chunk(c, inputs) for c, inputs in chunked.groupby("compute_node")}
 
 
 def get_workspace(for_computation, in_config, for_control=None, making_subgraphs=None, in_mode='r'):
