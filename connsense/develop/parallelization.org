@@ -9,6 +9,35 @@ A unit of computation will be that of a single subtarget, and batches will be ru
 Each parallel compute node will produce results on it's path that must be collected into the ~connsense-TAP~ store.
 So we have to implement two separate parallel processes: 1. distribute, and 2. collect
 
+* Describe the computation
+Computations are entered as sections in the config.
+We will refer to a computation as ~computation-type, quantity~ --- the ~quantity~ is also in the config.
+Each ~computation-type~ section in the config will have a sub-section providing parameters for each ~quantity~
+of that ~computation-type~ to process.
+Normally a process of ~(computation-type, quantity)~ should produce a frame or series that will be saved
+as a HDF dataset. In some cases there may be multiple datasets, each saved under their own dataset under the group
+~<computation-type>/<quantity>~.  The names of these datasets will be read from the config.
+
+This will apply to computations of ~extract-node-types~, which configures ~modeltypes~ to extract.
+Each ~modeltype~ will have components configured as dict mapping the component-name to a dict of applicable parameters,
+and a reference to the method to use for extraction.
+
+We repressent a ~computation~ as a string (read from the CLI).
+We can /sub/-configure the computation as a YAML/JSON and pass it's location as a CLI argument.
+Or we can just extend the input string to ~<computation-type>/<of_quantity>/<component-if-any>~.
+Such a representation will need a method to read it,
+
+#+name: develop-parallelization-describe-computation
+#+begin_src python
+def describe(computation):
+    """..."""
+    description = computation.split('/')
+    computation_type = description[0]
+    quantity = '/'.join(description[1:])
+
+    return (computation_type, quantity)
+#+end_src
+
 * Run a parallel process
 A parallel process can be modeled as a ~map~ of a function over chunks of a collection, and then putting individual
 computation results back using a ~collect~ step.
@@ -119,7 +148,7 @@ def setup_compute_node(c, inputs, for_computation, using_configs):
     """..."""
     LOG.info("Configure chunk %s with %s inputs to compute %s.", c, len(inputs), for_computation)
 
-    computation_type, for_quantity = for_computation
+    computation_type, for_quantity = describe(for_computation)
 
     for_compute_node = for_quantity / f"compute-node-{c}"
     for_compute_node.mkdir(parents=False, exist_ok=True)
@@ -349,7 +378,7 @@ The location where a single computation, /i.e./ a computation on a single cluste
 def get_workspace(for_computation, in_config, for_control=None, making_subgraphs=None, in_mode='r'):
     """..."""
     m = {'r': "test", 'w': "prod", 'a': "develop"}[in_mode]
-    computation_type, of_quantity = for_computation.split('/')
+    computation_type, of_quantity = describe(for_quantity)
     rundir = workspace.get_rundir(in_config, computation_type, of_quantity, making_subgraphs, for_control, in_mode=m)
     basedir = workspace.find_base(rundir)
     return (basedir, rundir)
@@ -883,11 +912,7 @@ BATCH_SUBTARGETS = ("subtargets.h5", "batch")
 COMPUTE_NODE_SUBTARGETS = ("batches.h5", "compute_node")
 
 
-def describe(computation):
-    """..."""
-    computation_type, quantity = computation.split('/')
-    return (computation_type, quantity)
-
+<<develop-parallelization-describe-computation>>
 
 <<develop-parallelization-process-multinode>>
 

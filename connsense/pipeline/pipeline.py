@@ -23,7 +23,7 @@ PipelineState = namedtuple("PipelineState", ["complete", "running", "queue"],
 
 PARAMKEY = {"define-subtargets": "definitions",
             "extract-voxels": "annotations",
-            "extract-node-types": "models",
+            "extract-node-types": "modeltypes",
             "extract-node-populations": "populations",
             "extract-edge-types": "models",
             "extract-edge-populations": "populations",
@@ -164,22 +164,8 @@ class TopologicalAnalysis:
         """..."""
         return self._data_groups.get(step)
 
-    def collect(self, step, substep, in_mode, subgraphs, controls, **kwargs):
-        """Collect the batched results generated in a single step.
-        """
-        runner = self.__steps__[step]
-        try:
-            gather = runner.collect
-        except AttributeError as aerror:
-            raise NotImplementedError(f"A method to collect in {step}") from aerror
-        else:
-            LOG.info("Use to gather results: %s", gather)
-
-        return gather(self._config, in_mode=in_mode, parallelize=self._parallelize, substep=substep,
-                      subgraphs=subgraphs, controls=controls, **kwargs)
-
-    def run(self, step, substep=None, action=None, in_mode=None, subgraphs=None, controls=None,
-            **kwargs):
+    def setup(self, step, substep=None, action=None, in_mode=None, subgraphs=None, controls=None,
+              **kwargs):
         """Run the pipeline, one step and if defined one substep at a time.
         We can chain all the steps together later.
         """
@@ -203,3 +189,17 @@ class TopologicalAnalysis:
         LOG.warning("DONE run action %s for pipeline step %s %s", action, step, substep)
         LOG.info("RESULT %s %s: %s", step, substep, result)
         return result
+
+    def collect(self, step, substep, in_mode, subgraphs, controls, **kwargs):
+        """Collect the batched results generated in a single step.
+        """
+        runner = self.__steps__[step]
+        try:
+            gather = runner.collect
+        except AttributeError as aerror:
+            raise NotImplementedError(f"A method to collect in {step}") from aerror
+        else:
+            LOG.info("Use to gather results: %s", gather)
+
+        return gather(self._config, in_mode=in_mode, parallelize=self._parallelize, substep=substep,
+                      subgraphs=subgraphs, controls=controls, **kwargs)

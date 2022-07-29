@@ -17,11 +17,14 @@ STEP = "setup-pipeline"
 LOG = logging.get_logger(STEP)
 
 
-def get_rundir(config, step=None, substep=None, subgraphs=None, controls=None, mode=None,
-                with_base=False, *args, **kwargs):
-    """..
-    """
+def is_analysis(step):
+    """How is each analyses step configured?"""
+    return step.startswith("analyze-")
 
+
+def get_rundir(config, step=None, substep=None, subgraphs=None, controls=None, mode=None, with_base=False,
+               **kwargs):
+    """..."""
     def apply_controls(rundir):
         """Check of a control method has been argued, and if so
         create a specific folder.
@@ -57,24 +60,27 @@ def get_rundir(config, step=None, substep=None, subgraphs=None, controls=None, m
     modir = rundir / mode if mode else rundir
     modir.mkdir(parents=False, exist_ok=True)
 
+    def setup(subdir, at_dirpath):
+        """..."""
+        subdirpath = at_dirpath / subdir
+        subdirpath.mkdir(parents=False, exist_ok=True)
+        return subdirpath
+
     if step:
-        stepdir = modir / step
-        stepdir.mkdir(parents=False, exist_ok=True)
-
-        if substep and substep != "_":
-            substepdir = stepdir / substep
-            substepdir.mkdir(parents=False, exist_ok=True)
-
+        stepdir = setup(step, at_dirpath=modir)
+        if substep and substep != '_':
+            substep_at = substep.split('/')
+            parent = stepdir
+            for substep in substep_at:
+                substepdir = setup(substep, at_dirpath=parent)
+                parent = substepdir
             if subgraphs:
-                subgraphsdir = substepdir / subgraphs
-                subgraphsdir.mkdir(parents=False, exist_ok=True)
+                subgraphsdir = setup(subgraphs, at_dirpath=parent)
                 result = apply_controls((rundir, subgraphsdir) if with_base else subgraphsdir)
             else:
-                result = apply_controls((rundir, substepdir) if with_base else substepdir)
-
+                result = apply_controls((rundir, parent) if with_base else parent)
         else:
-            result = apply_controls((rundir, stepdir) if with_base else stepdir)
-
+            result = apply_controls((rundir, stepdir) if with_base else modir)
     else:
         assert not substep, f"Substep {substep} of step None maketh sense None"
         result = apply_controls((rundir, modir) if with_base else modir)

@@ -1,28 +1,24 @@
 #!/usr/bin/env python3
 
-"""Extract subtargets' connectivity.
+"""Extract node types from the CLI.
 """
-
 from argparse import ArgumentParser, RawTextHelpFormatter
 from pathlib import Path
 from pprint import pformat
-import json
-
-import pandas as pd
 
 from connsense import pipeline
 from connsense.io import logging
-from connsense.extract_connectivity.extract import extract_subtargets as extract_connectivity
+from connsense.extract_node_types.extract import extract_node_types
 
 
-STEP = "extract-connectivity"
-LOG = logging.get_logger("Toplogical analysis of flatmapped subtargets.")
+STEP = "extract-node-types"
+
+LOG = logging.get_logger(STEP)
 
 
 def get_parser():
     """..."""
-    parser = ArgumentParser(description="Topological analysis of flatmapped subtargets.",
-                            formatter_class=RawTextHelpFormatter)
+    parser = ArgumentParser(description="Extract node types", formatter_class=RawTextHelpFormatter)
 
     parser.add_argument("action",
                         help=("A pipeline (step) action to do."
@@ -45,8 +41,9 @@ def get_parser():
                               "Each pipeline step missing in the config will be run serially on a single node.\n"
                               "If the config itself is missing, all steps will be run serially."))
 
-    parser.add_argument("-x", "--connectome", required=True,
-                        help=("Type of the connectome to extract, that should appear in the config."))
+    parser.add_argument("-x", "--modeltype", required=True,
+                        help=("A tag to name the class of models used to define a node-type"
+                              " to extract, that should appear in the config."))
 
     parser.add_argument("-b", "--batch", required=False,
                         help=("Batch of input subtargets of a parallel process to run on a single compute nodes.\n"
@@ -72,16 +69,16 @@ def main(argued=None):
     cfg = pipeline.TopologicalAnalysis.read_config(at_path)
 
     if argued.action == "run":
-        output = extract_connectivity(cfg, argued.connectome, for_batch=Path(argued.batch) if argued.batch else None,
-                                      output=argued.output)
-        LOG.info("Extracted connectivity at %s", output)
+        output = extract_node_types(cfg, substep=argued.modeltype,
+                                    for_batch=Path(argued.batch) if argued.batch else None, output=argued.output)
+        LOG.info("Extracted node-type at %s", output)
         return output
 
     raise NotImplementedError(f"action {argued.action}")
 
 
 if __name__ == "__main__":
-    LOG.warning("Extract TAP subtargets connectivity.")
+    LOG.warning("Extract node-types.")
 
     parser = get_parser()
     args = parser.parse_args()

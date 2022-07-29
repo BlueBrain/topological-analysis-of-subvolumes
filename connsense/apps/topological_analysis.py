@@ -80,6 +80,7 @@ def lower(argument):
 
 
 SUBSTEPS = OrderedDict([("define-subtargets", "definitions"),
+                        ("extract-node-types", "modeltypes"),
                         ("extract-node-populations", "populations"),
                         ("evaluate-subtargets", "metrics"),
                         ("extract-edge-populations", "populations"),
@@ -100,18 +101,6 @@ def parameterize_substeps(s, in_config):
     return step[param]
 
 
-def _parameterize_substeps_0(s, in_config):
-    """..."""
-    LOG.info("parameterize substeps for step %s in config \n %s", s,
-             pformat(in_config["parameters"][s]))
-
-    param = SUBSTEPS[s]
-    if not param:
-        return None
-
-    return in_config["parameters"][s][param]
-
-
 def check_step(as_argued, against_config):
     """Check the argued step and substep against what is possible with a config.
     The value of checking the argued pipeline step will be a tuple that can be used
@@ -123,7 +112,8 @@ def check_step(as_argued, against_config):
     the workspace folder of a step is to be initialized, but none of its substep in particular.
     """
     c = against_config
-    s = lower(as_argued.step); ss = lower(as_argued.substep)
+    s = lower(as_argued.step)
+    ss = lower(as_argued.substep).split('/') if as_argued.substep else None
 
     if not s:
         assert not ss, f"Substep {ss} of step None maketh sense None"
@@ -138,11 +128,11 @@ def check_step(as_argued, against_config):
     if not ss:
         return (s, None)
 
-    if ss not in parameters:
-        configured = parameters if isinstance(parameters, list) else list(parameters.keys())
-        raise AssertionError(f"substep {ss} is not a substep of step {s}."
-                             f" Provide one of {pformat(configured)}")
-    return (s, ss)
+    if ss[0] not in parameters:
+        configured = list(parameters) #parameters if isinstance(parameters, list) else list(parameters.keys())
+        raise RuntimeError(f"substep {ss} is not a substep of step {s}. Provide one of {pformat(configured)}")
+
+    return (s, '/'.join(ss))
 
 
 def check_mode(argued):
@@ -204,8 +194,8 @@ def main(argued=None):
 
     a = argued.action; b = argued.batch; g = argued.subgraphs; c = argued.controls
     p = argued.sample; o = argued.output; t = argued.test
-    result = topaz.run(step=s, substep=ss, action=a, in_mode=m, subgraphs=g, controls=c, batch=b,
-                       sample=p, output=o, dry_run=t)
+    result = topaz.setup(step=s, substep=ss, action=a, in_mode=m, subgraphs=g, controls=c, batch=b,
+                         sample=p, output=o, dry_run=t)
 
 
     LOG.info("DONE running pipeline")
