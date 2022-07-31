@@ -56,9 +56,9 @@ class Step(Runnable):
         """A pipeline step."""
         self._runner = prepare_runner(obj)
 
-    def run(self, config, **kwargs):
+    def setup(self, config, **kwargs):
         """..."""
-        return self._runner.run(config, **kwargs)
+        return self._runner.setup(config, **kwargs)
 
     def collect(self, config, **kwargs):
         """Allow collection of results produced by parallel runs.
@@ -69,6 +69,11 @@ class Step(Runnable):
         a collect method.
         """
         return self._runner.collect(config, **kwargs)
+
+    def run(computation, in_config, using_runtime, on_compute_node, inputs):
+        """..."""
+        from .parallelization import run_multiprocess
+        return run_multprocess(computation, in_config, using_runtime, on_compute_node, inputs)
 
     def check_state(self, pipeline):
         """TODO: Check where a pipeline is along the sequence of steps that define it."""

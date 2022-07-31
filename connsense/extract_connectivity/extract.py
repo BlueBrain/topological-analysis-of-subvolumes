@@ -36,7 +36,7 @@ def resolve_connectomes(in_argued):
                               " To do when ready to analyze local + mid-range.")
 
 
-def write(edges, to_output):
+def write(edges, to_output, return_config=False):
     """..."""
     hdf, group = to_output
 
@@ -62,6 +62,8 @@ def write(edges, to_output):
     else:
         LOG.warning("No edge properties to write.")
 
+    if not return_config:
+        return output_config
     return write_config(output_config, to_json=Path(hdf).parent/"output.json")
 
 
@@ -81,7 +83,7 @@ def filter_parallel(batches, at_path):
     return subtargets
 
 
-def extract_subtargets(in_config, population, for_batch=None, output=None):
+def extract_subtargets(in_config, population, for_input=None, output=None):
     """Extract connectivity of a population of edges among subtargets.
     """
     LOG.warning("Extract conectivity of subtargets")
@@ -90,8 +92,7 @@ def extract_subtargets(in_config, population, for_batch=None, output=None):
 
     subtarget_cfg = SubtargetsConfig(in_config)
 
-    at_path = output_paths["steps"]["define-subtargets"]
-    subtargets = filter_parallel(for_batch, at_path)
+    subtargets = filter_parallel(batches=for_input, at_path=output_paths["steps"]["define-subtargets"])
 
     parameters = in_config["parameters"][STEP]
     cfgpops = parameters["populations"]

@@ -324,8 +324,8 @@ def output_specified_in(configured_paths, and_argued_to_be):
     return (to_hdf_at_path, under_group)
 
 
-def run(config, action, substep=None, in_mode=None, parallelize=None,
-        output=None, batch=None, sample=None, tap=None, **kwargs):
+def run(config, substep=None, in_mode=None, parallelize=None,
+          output=None, batch=None, sample=None, tap=None, **kwargs):
     """Run the definition(s) of subtargets.
     We will implement multiple definitions, just like analyze-connectivity...
     The definition can be passed as the substep.
@@ -357,8 +357,9 @@ def run(config, action, substep=None, in_mode=None, parallelize=None,
 
     LOG.info("Defined %s %s-subtargets.", len(subtargets), substep)
     to_output = output_specified_in(output_paths, and_argued_to_be=output)
-    output = write(subtargets, to_path=to_output)
-    LOG.warning("DONE: define_subtargets %s %s in mode %s", action, substep, in_mode)
+    LOG.info("...write them to %s", to_output)
+    output = write(subtargets, to_path=to_output, format="fixed")
+    LOG.warning("DONE: define_subtargets %s %s in mode %s", substep)
     return output
 
 def run_0(config, in_mode=None, parallelize=None, *args,

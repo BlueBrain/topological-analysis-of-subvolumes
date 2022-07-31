@@ -245,10 +245,10 @@ def get_analyses(config, names=False, as_dict=False):
     if names:
         return list(configured.keys())
 
-    def generate_analyses(items, OfType, **kwargs):
+    def generate_analyses_wtf(items, OfType, **kwargs):
         """..."""
         return dict((n, OfType(name=n, description=d, **kwargs)) for n, d in items
-                    if n!= "COMMENT" and n!= "common")
+                    if n != "COMMENT" and n != "common" and n != "description")
 
     try:
         connectivity_subgraphs = all_parameters["connectivity-subgraphs"]
@@ -278,7 +278,14 @@ def get_analyses(config, names=False, as_dict=False):
 
         return {"fullgraph": fullanalysis, "subgraphs": subanalyses}
 
-    analyses = {name: generate_analyses(name, description) for name, description in configured.items()}
+    def describe(analysis):
+        """..."""
+        return {"input": analysis["input"],
+                "source": analysis["computation"]["source"], "method": analysis["computation"]["method"],
+                "args": analysis["computation"].get("args", []), "kwargs": analysis["computation"].get("kwargs", {}),
+                "output": analysis["output"]}
+
+    analyses = {name: generate_analyses(name, describe(analysis)) for name, analysis in configured.items()}
 
     return analyses if as_dict else list(analyses.values())
 

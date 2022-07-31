@@ -8,6 +8,7 @@ from pprint import pformat
 from connsense import pipeline
 from connsense.io import logging, read_config
 from connsense.pipeline import workspace
+from connsense import define_subtargets
 
 LOG = logging.get_logger("Toplogical analysis of flatmapped subtargets.")
 
@@ -72,6 +73,16 @@ def _read_output_in_config(c, and_argued_to_be):
 def is_to_init(action):
     """..."""
     return action.lower() in ("init", "initialize")
+
+
+def is_to_setup(action):
+    """..."""
+    return action.lower() == "setup"
+
+
+def is_to_run(action):
+    """..."""
+    return action.lower() == "run"
 
 
 def lower(argument):
@@ -152,8 +163,8 @@ def get_current(action, mode, config, step, substep, subgraphs=None, controls=No
 
 def main(argued=None):
     """..."""
+    parser = get_parser()
     if not argued:
-        parser = get_parser()
         argued = parser.parse_args()
 
     LOG.info("Initialize the topological analysis pipeline: \n%s", pformat(argued))
@@ -182,25 +193,70 @@ def main(argued=None):
     if is_to_init(argued.action):
         return current_run
 
-    topaz.set_workspace(current_run)
+    if is_to_setup(argued.action):
+        if argued.step == "define-subtargets":
+            raise RuntimeError("Cannot setup the step of define-subtargets. It can be run directly...")
+        topaz.set_workspace(current_run)
 
-    LOG.info("Initialized a run of the TAP pipelein configration %s parallelization %s",
-             argued.configure, argued.parallelize)
+        LOG.info("Initialized a run of the TAP pipelein configration %s parallelization %s",
+                argued.configure, argued.parallelize)
 
-    LOG.info("Run the pipeline.")
+        LOG.info("Run the pipeline.")
 
-    if not s:
-        raise ValueError("Provide a step to run: ")
+        if not s:
+            raise ValueError("Provide a step to run: ")
 
-    a = argued.action; b = argued.batch; g = argued.subgraphs; c = argued.controls
-    p = argued.sample; o = argued.output; t = argued.test
-    result = topaz.setup(step=s, substep=ss, action=a, in_mode=m, subgraphs=g, controls=c, batch=b,
-                         sample=p, output=o, dry_run=t)
+        a = argued.action; i = argued.input; g = argued.subgraphs; c = argued.controls
+        p = argued.sample; o = argued.output; t = argued.test
+        result = topaz.setup(step=s, substep=ss, in_mode=m, subgraphs=g, controls=c, batch=b,
+                            sample=p, output=o, dry_run=t)
 
+        LOG.info("DONE running pipeline")
 
-    LOG.info("DONE running pipeline")
+        return result
 
-    return result
+    if is_to_run(argued.action):
+        if argued.substep:
+            parser.print_help()
+            raise parser.error(f"tap run {argued.step} does not accept a substep.\n"
+                               f"Please provide the {argued.step}'s substep explicitly as a CLI option.\n"
+                               "If in doubt Read the help above, or `tap --help`")
+
+        if argued.step == "define-subtargets":
+
+            if not argued.definition:
+                raise parser.error(f"MISSING subtarget definition. Pass this as option `--definition=<...>`")
+
+            if (argued.modeltype or argued.annotation or argued.population or argued.analysis):
+                raise parser.error("Only --definition=<...>` is valid for `step=define-subtargets`")
+
+            return define_subtargets.run(argued.configure, substep=argued.definition, parallelize=argued.parallelize)
+
+        substeps = {"extract-node-types": argued.modeltype,
+                    "extract-voxels": argued.annotation,
+                    "extract-node-populations": argued.population,
+                    "extract-edge-population": argued.population,
+                    "analyze-geometry": argued.analysis,
+                    "analyze-composition": argued.analysis,
+                    "analyze-node-types": argued.analysis,
+                    "analyze-connectivity": argued.analysis,
+                    "analyze-edges": argued.analysis}
+        arg_substep = substeps[arg.step]
+
+        if not arg_substep:
+            parser.print_help()
+            raise ArgumentParser.error(f"MISSING {SUBSTEPS[argued.step][:-1]}")
+
+        if any([substep for step, substep in substeps.items() if step != arg.step]):
+            raise ArgumentParser.error(f"Only --{SUBSTEPS[argued.step]}==<...>`is valid for `step={argued.step}`")
+
+        result = topaz.run(argued.step, substep, in_mode=m, subgraphs=g, controls=c, inputs=i,
+                           sample=p, output=o, dry_run=t)
+
+        LOG.info("DONE running pipeline")
+
+        return result
+
 
 
 def get_parser():
@@ -212,7 +268,8 @@ def get_parser():
     parser.add_argument("action",
                         help=("A pipeline action to run. Following TAP actions have been defined.\n"
                               "\t(1) init: to setup and intiialize.\n"
-                              "\t(2) run: to run..., initializing if not already done\n"
+                              "\t(2) setup: to setup a launch on Slurm"
+                              "\t(3) run: to run..., initializing if not already done\n"
                               "\t(3) resume: resume from the current state\n"
                               "\t(4) collect: collect the results into a single store.\n"
                               "The action may be expected to apply to all the pipeline steps unless\n"
@@ -236,6 +293,25 @@ def get_parser():
                               "python tap <action> analyze-connectivity simplices\n"
                               "to run an action that analyzes simplices"))
 
+    parser.add_argument("-d", "--definition", required=False,
+                        help=("Pass the definition to `define-subtargets`\n"
+                              "This option will work only for step=define-subtargets"
+                              "Otherwise it must be omitted"))
+
+    parser.add_argument("-t", "--modeltype", required=False,
+                        help=("Pass the modeltype to steps that use it. Omit for other steps."))
+
+    parser.add_argument("-a", "--annotation", required=False,
+                        help=("Pass the annotations to extract voxels. Omit for other steps."))
+
+    parser.add_argument("-k", "--population", required=False,
+                        help=("Pass the node population or edge population to extract their properties.\n"
+                              "This option will work only for steps that admit a population.\n"
+                              "Otherwise it must be omitted"))
+
+    parser.add_argument("-n", "--analysis", required=False,
+                        help=("Pass the analysis to run, for the analyses steps. Omit for other steps."))
+
     parser.add_argument("-c", "--configure", required=True,
                         help=("Path to the (JSON) configuration that describes what to run.\n"
                               "The config should specify the input and output paths,"
@@ -255,15 +331,13 @@ def get_parser():
                               "tap --configure=config.json --parallelize=parallel.json --mode=prod run\n"
                               "to run in production mode."))
 
-    parser.add_argument("-b", "--batch", required=False,
-                        help=("Path to a dir that contains a `batches.h5` file that maps subtargets to int\n"
+    parser.add_argument("-i", "--input", required=False,
+                        help=("Path to a dir that contains a `inputs.h5` file that maps subtargets to int\n"
                               "The dataframe should contain the input to run the pipeline stage computation\n"
                               "For example, analyses can be run on a selection of subtarget adjacency matrices\n"
                               "that can be saved in this data for a later run.\n"
                               "This option will be useful to programmatically produce shell scripts to launch\n"
-                              "multiple single-node computations.\n"
-                              "This will allow use to configure a multi-node parallel computation for analyses\n"
-                              "that require more than a single compute node."))
+                              "multiple single-node computations.\n"))
 
     parser.add_argument("-g", "--subgraphs", required=False, default=None,
                         help=("Apply a configured algorithm that will generate subgraphs of an adjacency matrix\n"
@@ -313,8 +387,4 @@ if __name__ == "__main__":
     LOG.warning("Analyze circuit subtarget topology.")
 
     parser = get_parser()
-
-    args = parser.parse_args()
-
-    LOG.warning(str(args))
-    main(args)
+    main(parser.parse_args())

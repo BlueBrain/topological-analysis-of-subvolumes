@@ -14,7 +14,6 @@ from ..io.write_results import (read_toc_plus_payload, read_node_properties,
 from .step import Step
 from .store import HDFStore
 from ..io import logging
-
 LOG = logging.get_logger("pipeline.")
 
 PipelineState = namedtuple("PipelineState", ["complete", "running", "queue"],
@@ -29,6 +28,7 @@ PARAMKEY = {"define-subtargets": "definitions",
             "extract-edge-populations": "populations",
             "randomize-connectivity": "algorithms",
             "analyze-geometry": "analyses",
+            "analyze-node-types": "analyses",
             "analyze-composition": "analyses",
             "analyze-connectivity": "analyses"}
 
@@ -149,27 +149,15 @@ class TopologicalAnalysis:
         """..."""
         return self._data
 
-    def dispatch(self, step, substep, action, subgraphs, controls, in_mode, **kwargs):
-        """..."""
-        LOG.info("Pipeline dispatch %s %s %s", step, substep, action)
-        result = (self.__steps__[step]
-                  .run(self._config, action=action, substep=substep,
-                       subgraphs=subgraphs, controls=controls,
-                       in_mode=in_mode, parallelize=self._parallelize,
-                       tap=self.data, **kwargs))
-
-        return result
-
     def get_h5group(self, step):
         """..."""
         return self._data_groups.get(step)
 
-    def setup(self, step, substep=None, action=None, in_mode=None, subgraphs=None, controls=None,
-              **kwargs):
-        """Run the pipeline, one step and if defined one substep at a time.
+    def setup(self, step, substep=None, subgraphs=None, controls=None, **kwargs):
+        """Setup the pipeline, one step and if defined one substep at a time.
         We can chain all the steps together later.
         """
-        LOG.warning("RUN pipeline action %s for step %s %s ", action, step, substep)
+        LOG.warning("SETUP pipeline action %s for step %s %s ", step, substep)
 
         if self._mode == "inspect":
             if not in_mode == "inspect":
@@ -184,11 +172,24 @@ class TopologicalAnalysis:
         if action.lower() in ("collect", "merge"):
             return self.collect(step, substep, in_mode, subgraphs, controls, **kwargs)
 
-        result = self.dispatch(step, substep, action, subgraphs, controls, in_mode, **kwargs)
+
+        result = (self.__steps__[step]
+                  .setup(self._config, substep=substep, subgraphs=subgraphs, controls=controls,
+                         in_mode=in_mode, parallelize=self._parallelize,
+                         tap=self.data, **kwargs))
 
         LOG.warning("DONE run action %s for pipeline step %s %s", action, step, substep)
         LOG.info("RESULT %s %s: %s", step, substep, result)
         return result
+
+    def run(self, step, substep=None, in_mode=None, subgraphs=None, controls=None, inputs=None, **kwargs):
+        """Run the pipeline, one (computation_type, of_quantity) at a time.
+        """
+        LOG.warning("RUN pipeline action %s for step %s %s ", step, substep)
+
+        return self.__steps__[step](computation='/'.join([step, substep] if substep else [step]),
+                                    in_config=self._config, using_runtime=self._parallelize,
+                                    on_compute_node=inputs.parent, inputs=inputs)
 
     def collect(self, step, substep, in_mode, subgraphs, controls, **kwargs):
         """Collect the batched results generated in a single step.

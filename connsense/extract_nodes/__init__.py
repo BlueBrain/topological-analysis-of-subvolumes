@@ -119,9 +119,9 @@ def output_specified_in(configured_paths, and_argued_to_be):
     return (to_hdf_at_path, under_group)
 
 
-#def run0(config, in_mode=None, parallelize=None, output=None, **kwargs):
+#def run(config, in_mode=None, parallelize=None, output=None, **kwargs):
 #
-def run(config, action, substep, in_mode=None, parallelize=None, output=None, **kwargs):
+def setup(config, substep, in_mode=None, parallelize=None, output=None, **kwargs):
     """Launch extraction of  neurons.
 
     TODO

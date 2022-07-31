@@ -35,8 +35,8 @@ def write(extracted, to_path, append=False, format=None, metadata=None):
         extracted.to_pickle(to_path)
         return to_path
 
-    extracted.to_hdf(path_hdf_store, key=group_identifier, mode="a", append=append,
-                     min_itemsize={"subtarget": 128}, format=(format or "table"))
+    extracted.to_hdf(path_hdf_store, key=group_identifier, mode="a", append=append, format=(format or "table"),
+                     **metadata)
 
     return (path_hdf_store, group_identifier)
 

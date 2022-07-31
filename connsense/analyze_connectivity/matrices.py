@@ -10,7 +10,6 @@ from scipy import sparse
 
 from ..io import logging
 
-
 STEP = "analyze-connectivity"
 
 LOG = logging.get_logger(STEP+"/matrices")
