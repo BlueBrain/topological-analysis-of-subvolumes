@@ -19,15 +19,15 @@ def default_hdf(step):
     return (os.path.join(os.curdir, "topological_analysis.h5"), step)
 
 
-def write(extracted, to_path, append=False, format=None, metadata=None):
+def write(extracted, to_path, append=False, format=None, metadata=None, min_itemsize=None):
     """Expecting the path to output be that to a `*.h5` archive.
 
     extracted : A pandas DataFrame / Series
     path : a string or a tuple of strings
     metadata : A dict whose key, values will be added to the HDF-groups' attributes
     """
-    LOG.info("What is the format to write to HDF pandas, %s", format)
     metadata = metadata or {}
+    min_itemsize = min_itemsize or {}
     try:
         path_hdf_store, group_identifier = to_path
     except TypeError:
@@ -35,8 +35,10 @@ def write(extracted, to_path, append=False, format=None, metadata=None):
         extracted.to_pickle(to_path)
         return to_path
 
+    LOG.info("Write %s extracted data to path %s with format %s", len(extracted), to_path, format)
+
     extracted.to_hdf(path_hdf_store, key=group_identifier, mode="a", append=append, format=(format or "table"),
-                     **metadata)
+                     min_itemsize=min_itemsize)
 
     return (path_hdf_store, group_identifier)
 

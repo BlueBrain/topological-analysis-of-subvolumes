@@ -130,14 +130,12 @@ def setup(config, substep, in_mode=None, parallelize=None, output=None, **kwargs
     """
     LOG.warning("Extract neurons for subtargets.")
 
-    if action != "run":
-        raise ValueError(f"extract-nodes will only run, not {action}")
+    population = substep
 
-    node_population = substep
-
-    if parallelize and STEP in parallelize and parallelize[STEP]:
-        LOG.error("NotImplemented yet, parallilization of %s", STEP)
-        raise NotImplementedError(f"Parallilization of {STEP}")
+    if parallelize:
+        from connsense.pipeline.parallelization import run_multinode, setup_compute_node
+        return run_multinode(setup_compute_node, computation=f"extract-node-populations/{population}",
+                            in_config=config, using_runtime=parallelize)
 
     cfg = read(config)
     input_paths, output_paths = check_paths(cfg, STEP)

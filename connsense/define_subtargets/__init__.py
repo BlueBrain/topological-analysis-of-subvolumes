@@ -359,7 +359,7 @@ def run(config, substep=None, in_mode=None, parallelize=None,
     to_output = output_specified_in(output_paths, and_argued_to_be=output)
     LOG.info("...write them to %s", to_output)
     output = write(subtargets, to_path=to_output, format="fixed")
-    LOG.warning("DONE: define_subtargets %s %s in mode %s", substep)
+    LOG.warning("DONE: define_subtargets %s %s", substep, output)
     return output
 
 def run_0(config, in_mode=None, parallelize=None, *args,

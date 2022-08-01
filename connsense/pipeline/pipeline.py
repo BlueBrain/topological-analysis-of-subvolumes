@@ -159,6 +159,8 @@ class TopologicalAnalysis:
         """
         LOG.warning("SETUP pipeline action %s for step %s %s ", step, substep)
 
+        in_mode = kwargs.get("in_mode", None)
+
         if self._mode == "inspect":
             if not in_mode == "inspect":
                 raise RuntimeError("Cannot run a read-only pipeline."
@@ -169,29 +171,25 @@ class TopologicalAnalysis:
                                    "In mode inspect, there is no action to do,\n"
                                    " so use action=None or action='inspect'")
 
-        if action.lower() in ("collect", "merge"):
-            return self.collect(step, substep, in_mode, subgraphs, controls, **kwargs)
+        result = self.__steps__[step].setup(self._config, substep=substep, subgraphs=subgraphs, controls=controls,
+                                            parallelize=self._parallelize, tap=self.data, **kwargs)
 
-
-        result = (self.__steps__[step]
-                  .setup(self._config, substep=substep, subgraphs=subgraphs, controls=controls,
-                         in_mode=in_mode, parallelize=self._parallelize,
-                         tap=self.data, **kwargs))
-
-        LOG.warning("DONE run action %s for pipeline step %s %s", action, step, substep)
+        LOG.warning("DONE setup for pipeline step %s %s", step, substep)
         LOG.info("RESULT %s %s: %s", step, substep, result)
         return result
+
 
     def run(self, step, substep=None, in_mode=None, subgraphs=None, controls=None, inputs=None, **kwargs):
         """Run the pipeline, one (computation_type, of_quantity) at a time.
         """
         LOG.warning("RUN pipeline action %s for step %s %s ", step, substep)
 
-        return self.__steps__[step](computation='/'.join([step, substep] if substep else [step]),
-                                    in_config=self._config, using_runtime=self._parallelize,
-                                    on_compute_node=inputs.parent, inputs=inputs)
+        return self.__steps__[step].run(computation='/'.join([step, substep] if substep else [step]),
+                                        in_config=self._config, using_runtime=self._parallelize,
+                                        on_compute_node=inputs.parent, inputs=inputs)
 
-    def collect(self, step, substep, in_mode, subgraphs, controls, **kwargs):
+
+    def collect(self, step, substep=None, in_mode=None, subgraphs=None, controls=None, **kwargs):
         """Collect the batched results generated in a single step.
         """
         runner = self.__steps__[step]
@@ -202,5 +200,5 @@ class TopologicalAnalysis:
         else:
             LOG.info("Use to gather results: %s", gather)
 
-        return gather(self._config, in_mode=in_mode, parallelize=self._parallelize, substep=substep,
-                      subgraphs=subgraphs, controls=controls, **kwargs)
+        return gather(computation='/'.join([step, substep] if substep else [step]),
+                      in_config=self._config, using_runtime=self._parallelize)

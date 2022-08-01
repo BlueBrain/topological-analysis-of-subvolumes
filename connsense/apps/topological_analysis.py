@@ -85,6 +85,10 @@ def is_to_run(action):
     return action.lower() == "run"
 
 
+def is_to_collect(action):
+    return action.lower() in ("collect", "merge")
+
+
 def lower(argument):
     """..."""
     return argument.lower() if argument else None
@@ -180,14 +184,15 @@ def main(argued=None):
     topaz = pipeline.TopologicalAnalysis(config=at_pipeline, parallelize=argued.parallelize, mode="run")
     c = topaz._config
     a = argued
-    c["paths"]["output"] = _read_output_in_config(c, and_argued_to_be=a.output)
+    c["paths"]["output"] = _read_output_in_config(topaz._config, and_argued_to_be=a.output)
 
     p = topaz._parallelize
-    s, ss = check_step(argued, against_config=c)
-    m = check_mode(argued)
-    current_run = get_current(action=a.action, mode=m, config=(c, at_pipeline),
-                              step=s, substep=ss, subgraphs=a.subgraphs, controls=a.controls,
-                              with_parallelization=(p, at_runtime))
+    check_step(argued, against_config=c)
+    check_mode(argued)
+    current_run = get_current(action=argued.action, mode=argued.mode, config=(topaz._config, at_pipeline),
+                              step=argued.step, substep=argued.substep,
+                              subgraphs=argued.subgraphs, controls=argued.controls,
+                              with_parallelization=(topaz._parallelize, at_runtime))
     LOG.info("Workspace initialized at %s", current_run)
 
     if is_to_init(argued.action):
@@ -203,13 +208,12 @@ def main(argued=None):
 
         LOG.info("Run the pipeline.")
 
-        if not s:
+        if not argued.step:
             raise ValueError("Provide a step to run: ")
 
-        a = argued.action; i = argued.input; g = argued.subgraphs; c = argued.controls
-        p = argued.sample; o = argued.output; t = argued.test
-        result = topaz.setup(step=s, substep=ss, in_mode=m, subgraphs=g, controls=c, batch=b,
-                            sample=p, output=o, dry_run=t)
+        result = topaz.setup(step=argued.step, substep=argued.substep, in_mode=argued.mode,
+                             subgraphs=argued.subgraphs, controls=argued.controls, input=argued.input,
+                             sample=argued.sample, output=argued.output, dry_run=argued.test)
 
         LOG.info("DONE running pipeline")
 
@@ -235,28 +239,41 @@ def main(argued=None):
         substeps = {"extract-node-types": argued.modeltype,
                     "extract-voxels": argued.annotation,
                     "extract-node-populations": argued.population,
-                    "extract-edge-population": argued.population,
+                    "extract-edge-populations": argued.population,
                     "analyze-geometry": argued.analysis,
                     "analyze-composition": argued.analysis,
                     "analyze-node-types": argued.analysis,
                     "analyze-connectivity": argued.analysis,
                     "analyze-edges": argued.analysis}
-        arg_substep = substeps[arg.step]
+        arg_substep = substeps[argued.step]
 
         if not arg_substep:
             parser.print_help()
             raise ArgumentParser.error(f"MISSING {SUBSTEPS[argued.step][:-1]}")
 
-        if any([substep for step, substep in substeps.items() if step != arg.step]):
-            raise ArgumentParser.error(f"Only --{SUBSTEPS[argued.step]}==<...>`is valid for `step={argued.step}`")
 
-        result = topaz.run(argued.step, substep, in_mode=m, subgraphs=g, controls=c, inputs=i,
-                           sample=p, output=o, dry_run=t)
+        if ((argued.step == "extract-node-types" and (argued.annotation or argued.population or argued.analysis))
+             or (argued.step == "extract-voxels" and (argued.modeltype or argued.population or argued.analysis))
+             or (argued.step in ("extract-node-populations", "extract-edge-populations") and
+                 (argued.annotation or argued.modeltype or argued.analysis))
+             or (argued.step.startswith("analyze-") and (argued.annotation or argued.modeltype or argued.population))
+            ):
+            raise parser.error(f"Only --{SUBSTEPS[argued.step][:-1]}==<...>`is valid for `step={argued.step}`\n"
+                               f"Argued : {pformat(argued)}")
+
+        path_input = Path(argued.input) if argued.input else None
+        result = topaz.run(argued.step, arg_substep, in_mode=argued.mode, subgraphs=argued.subgraphs, controls=argued.controls,
+                            inputs=path_input, sample=argued.sample, output=argued.output)
 
         LOG.info("DONE running pipeline")
 
         return result
 
+    if is_to_collect(argued.action):
+        return topaz.collect(argued.step, argued.substep, argued.mode, argued.subgraphs, argued.controls)
+
+
+    raise RuntimeError(f"Not a valid tap command {argued.action}")
 
 
 def get_parser():

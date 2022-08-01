@@ -60,7 +60,7 @@ class Step(Runnable):
         """..."""
         return self._runner.setup(config, **kwargs)
 
-    def collect(self, config, **kwargs):
+    def collect(self, computation, in_config, using_runtime, **kwargs):
         """Allow collection of results produced by parallel runs.
         To collect results both the scientific config, and the parallelization config
         will be required.
@@ -68,12 +68,14 @@ class Step(Runnable):
         Expect attribute errors if this instance's runner  does not implement
         a collect method.
         """
-        return self._runner.collect(config, **kwargs)
+        from connsense.pipeline.parallelization import run_multinode, collect_multinode
+        return run_multinode(collect_multinode, computation, in_config, using_runtime, **kwargs)
 
-    def run(computation, in_config, using_runtime, on_compute_node, inputs):
+    def run(self, computation, in_config, using_runtime, on_compute_node, inputs, **kwargs):
         """..."""
         from .parallelization import run_multiprocess
-        return run_multprocess(computation, in_config, using_runtime, on_compute_node, inputs)
+        return run_multiprocess(computation, in_config, using_runtime, on_compute_node, inputs)
+
 
     def check_state(self, pipeline):
         """TODO: Check where a pipeline is along the sequence of steps that define it."""
