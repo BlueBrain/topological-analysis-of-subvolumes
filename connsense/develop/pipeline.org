@@ -505,6 +505,8 @@ subtarget will share morphological shape.
 We have some pyramidal cell shapes, and several interneurons shapes.
 We can consider the shapes without the layer information.
 Each /morphological-type/ shape will comprise several morphologies.
+We can compare two spatial subtargets by the number of edges there are in them.
+We can compare two morphological shapes by their density clouds or branching patterns.
 
 *** Extract nodes
 Results will go to the configured group's subgroup by population.
@@ -847,7 +849,64 @@ def read_config(for_pipeline):
     return read(for_pipeline)
 #+end_src
 
+* Concepts
+The code will blow up if we were to implement the various pipeline steps described above.
+Now we begin to digest what we have learned about computational pipelines.
+We begin at the end of a computation, what does it do?
 
+To generate an output in the ~tap-store~ using parallelization, the last step will be to collect the results
+of a parallel run that computes each chunk of inputs in it's own compute node.
+#+name: what-does-a-computation-do??
+#+begin_src scheme
+(generate-output (tap-store analysis)
+                 (collect ((hdfpath=(tap-store#root analysis#output))
+                           (results=(run-parallel (analysis (generate-input (tap-store analysis))))))))
+#+end_src
+
+To collect the results
+#+name: <how-to-collect-results>
+#+begin_src scheme
+(collect (hdfpath results)
+         (write (hdfpath chunk) for chunk in results))
+#+end_src
+
+Each ~chunk~ among ~results~ correspondes to a ~compute-node~, and must point to the data produced by that
+compute node's computation. This is probably not so hard to do. In ~Python~ the results will be a ~Mapping~.
+However information about the computation appears to be missing. HDF paths will depend on the computation.
+The ~collect~ method above uses the output ~hdfpath~ that we pass to it explicitly, and must pass the input paths
+to read each compute node's result in the ~results~ argument.
+
+Let us worry about the output after figuring out the input.
+#+name: what-does-a-computation-eat?
+#+begin_src scheme
+(generate-input (tap-store analysis)
+                (batch (read (tap-store#root analysis#input))
+                       analysis#number-total-jobs
+                       analysis#number-compute-nodes))
+#+end_src
+
+The method to ~batch~ should assign to each input a batch number based on it's estimated compute-load,
+and a compute node to run it's analysis computation. We can worry about it's implementation in ~Python~, but not here.
+
+We have the inputs, and the outputs. But the computation needs shape.
+#+name: what-is-parallel-run?
+#+begin_src scheme
+(run-parallel (analysis inputs)
+              launch (setup (analysis inputs)))
+#+end_src
+
+That was simple. We remind to ourselves that the cascade of definitions above assumes that the information relevant
+to the computation is part of ~analysis~. For example, to ~launch (analysis inputs)~  we will need a path to the
+directory where the computation was setup.
+
+
+
+** Computation
+Each step in the pipeline is a computation, that we can describe with code
+
+#+name: what-is-a-computation?
+#+begin_src scheme
+#+end_src
 * Results
 The result of our discussion are the YAML configurations.
 

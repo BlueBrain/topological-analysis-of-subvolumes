@@ -10,7 +10,6 @@ from ..io import logging
 
 from ..define_subtargets.config import SubtargetsConfig
 from ..analyze_connectivity.matrices import get_store
-from ..pipeline.parallelization import COMPUTE_NODE_SUBTARGETS
 
 STEP = "extract-edge-populations"
 
@@ -36,7 +35,7 @@ def resolve_connectomes(in_argued):
                               " To do when ready to analyze local + mid-range.")
 
 
-def write(edges, to_output, return_config=False):
+def write(edges, to_output, append=False, format=True, return_config=False):
     """..."""
     hdf, group = to_output
 
@@ -45,7 +44,7 @@ def write(edges, to_output, return_config=False):
     if adj is not None:
         LOG.info("Write adjacencies like %s", adj.head())
         hdf_adj = (hdf, group+"/adj")
-        write_toc_plus_payload(edges["adj"], hdf_adj , format="table")
+        write_toc_plus_payload(edges["adj"], hdf_adj , append=append, format=format)
         output_config["adj"] = hdf_adj
     else:
         LOG.warning("No adjacency matrices to write.")
@@ -62,13 +61,14 @@ def write(edges, to_output, return_config=False):
     else:
         LOG.warning("No edge properties to write.")
 
-    if not return_config:
+    if return_config:
         return output_config
     return write_config(output_config, to_json=Path(hdf).parent/"output.json")
 
 
 def filter_parallel(batches, at_path):
     """..."""
+    from ..pipeline.parallelization import COMPUTE_NODE_SUBTARGETS
     LOG.info("Read subtargets from %s", at_path)
     among_subtargets = read_results(at_path, for_step="extract-connectivity")
 

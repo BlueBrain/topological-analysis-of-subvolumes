@@ -362,6 +362,7 @@ def run(config, substep=None, in_mode=None, parallelize=None,
     LOG.warning("DONE: define_subtargets %s %s", substep, output)
     return output
 
+
 def run_0(config, in_mode=None, parallelize=None, *args,
         output=None, sample=None, dry_run=None, **kwargs):
     """Run generation of subtargets based on a TAP config.

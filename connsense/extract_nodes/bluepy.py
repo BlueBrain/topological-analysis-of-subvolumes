@@ -40,9 +40,10 @@ def extract_node_properties(circuit, subtargets, properties):
         if circuit_depths is not None:
             depths = circuit_depths.loc[circuit_depths.index.intersection(subtarget_gids)]
             props = pd.concat([props, depths], axis=1)
-        return props.assign(gids=subtarget_gids).reset_index(drop=True)
+        return props.reset_index().rename(columns={"index": "gid"})
 
-    dataframes =  subtargets.apply(get_props)
-    node_properties = pd.concat(dataframes.values, keys=subtargets.index.values, names=subtargets.index.names)
+    dataframes = subtargets.apply(get_props)
+    node_properties = (pd.concat(dataframes.values, keys=subtargets.index.values, names=subtargets.index.names)
+                       .droplevel(None))
     LOG.info("Extracted node populations: %s, \n%s", node_properties.shape, pformat(node_properties))
     return node_properties
