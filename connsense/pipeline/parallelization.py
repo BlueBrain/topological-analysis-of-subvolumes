@@ -257,7 +257,8 @@ def collect_edge_population(setup, from_dirpath, in_connsense_store):
             raise RuntimeError(f"No adjacencies registered in compute node {of_compute_node}/output.json") from kerr
 
         adj = read_toc_plus_payload(from_connsense_h5, for_step="extract-edge-populations")
-        return write_toc_plus_payload(adj, (in_connsense_store, adj_group), append=True)
+        return write_toc_plus_payload(adj, (in_connsense_store, adj_group), append=True, format="table",
+                                      min_itemsize=64)
 
     LOG.info("Collect adjacencies")
     adjacencies = {c: collect_adjacencies(of_compute_node=c, output=o) for c, o in outputs.items()}
@@ -315,7 +316,7 @@ def collect_node_population(setup, from_dirpath, in_connsense_store):
         compute_node_result = describe_output(from_path)
         result = read_compute_node(compute_node_result, "extract-node-populations")
         return write_compute_node(result, to_path=(in_connsense_store, hdf_group), append=True, format="table",
-                                  min_itemsize={"subtarget": 128})
+                                  min_itemsize={"subtarget": 64})
 
     for compute_node, hdf_path in setup.items():
         move(compute_node, hdf_path)
@@ -975,7 +976,8 @@ def collect_batched_edge_population(p, results, on_compute_node, hdf_group):
         LOG.info("collect batch %s of adjacencies at %s ", b, on_compute_node)
 
         batch_adj = read_toc_plus_payload(from_connsense_h5_and_group, for_step="extract-edge-populations")
-        adj = write_toc_plus_payload(batch_adj, (in_connsense_h5, hdf_edges +'/adj'), append=True, format="table")
+        adj = write_toc_plus_payload(batch_adj, (in_connsense_h5, hdf_edges +'/adj'), append=True, format="table",
+                                     min_itemsize=64)
 
         get_store = matrices.get_store
 
@@ -1011,7 +1013,7 @@ def collect_batched_node_population(p, results, on_compute_node, hdf_group):
         """..."""
         LOG.info("Write batch %s read from %s", batch, from_path)
         result = read_batch(from_path, "extract-node-populations")
-        return write_batch(result, to_path=in_hdf, append=True, format="table", min_itemsize={"subtarget": 128})
+        return write_batch(result, to_path=in_hdf, append=True, format="table", min_itemsize={"subtarget": 64})
 
     for batch, hdf_path in results.items():
         move(batch, hdf_path)

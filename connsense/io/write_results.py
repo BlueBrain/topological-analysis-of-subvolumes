@@ -74,7 +74,8 @@ def read_sparse_matrix_payload(hdf_dset):
     return mat
 
 
-def write_toc_plus_payload(extracted, to_path, append=False, payload_type=None, format=None):
+def write_toc_plus_payload(extracted, to_path, append=False, payload_type=None, format=None,
+                           min_itemsize=None):
     """..."""
     path_hdf_store, group_identifier = to_path
     group_identifier_toc = group_identifier + "/toc"
@@ -85,7 +86,8 @@ def write_toc_plus_payload(extracted, to_path, append=False, payload_type=None, 
     toc = extracted.apply(write_sparse_matrix_payload(h5_grp_mat))
     h5_file.close()
 
-    return write(toc, (path_hdf_store, group_identifier_toc), append=append, format=format)
+    return write(toc, (path_hdf_store, group_identifier_toc), append=append, format=format,
+                 min_itemsize=min_itemsize)
 
 
 def append_toc_plus_payload(extracted, to_path, payload_type=None):
