@@ -1286,7 +1286,7 @@ def collect_batched_edge_population(p, results, on_compute_node, hdf_group):
         LOG.info("collect batch %s of adjacencies at %s ", b, on_compute_node)
 
         batch_adj = read_toc_plus_payload(from_connsense_h5_and_group, for_step="extract-edge-populations")
-        adj = write_toc_plus_payload(batch_adj, (in_connsense_h5, hdf_edges +'/adj'), format="table")
+        adj = write_toc_plus_payload(batch_adj, (in_connsense_h5, hdf_edges +'/adj'), append=True, format="table")
 
         get_store = matrices.get_store
 
