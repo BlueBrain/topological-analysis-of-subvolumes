@@ -1,12 +1,14 @@
 """General utilities."""
 
+from collections.abc import Mapping
 import importlib
 from pathlib import Path
 
 
-
 def import_module(from_path, with_method=None):
     """..."""
+    if isinstance(from_path, Mapping):
+        return import_module(from_path["source"], from_path["method"])
     if not from_path:
         assert not with_method, "Cannot find a method without a path."
         return (None, None)

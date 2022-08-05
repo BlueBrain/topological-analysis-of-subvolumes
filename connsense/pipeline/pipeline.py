@@ -100,7 +100,7 @@ class TopologicalAnalysis:
 
     @classmethod
     def read_parallelization(cls, config, of_pipeline=None):
-        from .parallelization import read_runtime_config as read_runtime
+        from .parallelization.parallelization import read_runtime_config as read_runtime
         return read_runtime(config, of_pipeline)
 
     @classmethod
@@ -189,7 +189,6 @@ class TopologicalAnalysis:
                                         on_compute_node=inputs.parent, inputs=inputs)
 
 
-    def collect(self, step, substep=None, in_mode=None, subgraphs=None, controls=None, **kwargs):
         """Collect the batched results generated in a single step.
         """
         runner = self.__steps__[step]
@@ -201,4 +200,5 @@ class TopologicalAnalysis:
             LOG.info("Use to gather results: %s", gather)
 
         return gather(computation='/'.join([step, substep] if substep else [step]),
-                      in_config=self._config, using_runtime=self._parallelize)
+                      in_config=self._config, using_runtime=self._parallelize,
+                      on_compute_node=inputs.parent, inputs=inputs)

@@ -1,34 +1,56 @@
-#+title: Parallelization
-We have a parallelization scheme in place that we used to parallelize the computations of analyses.
-With multi-population nodes and edges, and to start the support of multiple circuit variants,
-definitions of subtargets, extraction of neuron properties, and extraction of connectivity should also
-be parallelized.
-Here we develop a scheme for parallelization of computations per subtarget.
-A unit of computation will be that of a single subtarget, and batches will be run on separate compute nodes.
 
-Each parallel compute node will produce results on it's path that must be collected into the ~connsense-TAP~ store.
-So we have to implement two separate parallel processes: 1. distribute, and 2. collect
 
-* Describe the computation
-Computations are entered as sections in the config.
-We will refer to a computation as ~computation-type, quantity~ --- the ~quantity~ is also in the config.
-Each ~computation-type~ section in the config will have a sub-section providing parameters for each ~quantity~
-of that ~computation-type~ to process.
-Normally a process of ~(computation-type, quantity)~ should produce a frame or series that will be saved
-as a HDF dataset. In some cases there may be multiple datasets, each saved under their own dataset under the group
-~<computation-type>/<quantity>~.  The names of these datasets will be read from the config.
+# Within ~connsense.pipeline.parallelization~ we will have ~.parallelize_multinode~,
 
-This will apply to computations of ~extract-node-types~, which configures ~modeltypes~ to extract.
-Each ~modeltype~ will have components configured as dict mapping the component-name to a dict of applicable parameters,
-and a reference to the method to use for extraction.
 
-We repressent a ~computation~ as a string (read from the CLI).
-We can /sub/-configure the computation as a YAML/JSON and pass it's location as a CLI argument.
-Or we can just extend the input string to ~<computation-type>/<of_quantity>/<component-if-any>~.
-Such a representation will need a method to read it,
+from collections.abc import Mapping
+from copy import deepcopy
+from pathlib import Path
+from pprint import pformat
 
-#+name: develop-parallelization-describe-computation
-#+begin_src python
+import json
+import yaml
+
+from multiprocessing import Process, Manager
+
+import numpy as np
+import pandas as pd
+
+from connsense import extract_nodes,  plugins
+from connsense.extract_connectivity import read_results
+from connsense.extract_connectivity import extract as extract_connectivity
+from connsense.pipeline import workspace
+from connsense.pipeline.pipeline import PARAMKEY
+from connsense.io import logging, read_config as read_pipeline
+from connsense.io.slurm import SlurmConfig
+from connsense.io.write_results import read_toc_plus_payload, write_toc_plus_payload
+from connsense.pipeline.workspace import find_base
+from connsense.define_subtargets.config import SubtargetsConfig
+from connsense.analyze_connectivity import check_paths, matrices
+from connsense.analyze_connectivity.analysis import SingleMethodAnalysisFromSource
+from connsense.apps import APPS
+
+# pylint: disable=locally-disabled, multiple-statements, fixme, line-too-long, too-many-locals, comparison-with-callable, too-many-arguments, invalid-name, unspecified-encoding, unnecessary-lambda-assignment
+
+LOG = logging.get_logger("connsense pipeline")
+
+
+def _remove_link(path):
+    try:
+        return path.unlink()
+    except FileNotFoundError:
+        pass
+    return None
+
+
+EXECUTABLE = {"define": "loader", "extract": "extractor", "analyze": "computation"}
+
+BATCH_SUBTARGETS = ("subtargets.h5", "batch")
+COMPUTE_NODE_SUBTARGETS = ("inputs.h5", "subtargets")
+INPUTS = ("inputs.h5", "subtargets")
+COMPUTE_NODE_ASSIGNMENT = ("subtargets.h5", "compute_node")
+
+
 def describe(computation):
     """..."""
     if isinstance(computation, str):
@@ -42,24 +64,7 @@ def describe(computation):
 
     return (computation_type, quantity)
 
-#+end_src
 
-#+RESULTS: develop-parallelization-describe-computation
-: None
-
-* Run a parallel process
-A parallel process can be modeled as a ~map~ of a function over chunks of a collection, and then putting individual
-computation results back using a ~collect~ step.
-Parallel processes for large computations must be scheduled on the cluster, and not interactively.
-We have designed ~connsense-TAP~ parallelization to use multiple compute nodes,
-which are setup by ~connsense~, with a ~launchscript.sh~ following a scheme preoided in the ~pipeline~ config.
-
-The parallelized jobs can be launched using the script, and the results then collected with another ~tap~ command.
-The scheme can be used for any ~pipeline~ step by providing methods for each ~computation-type~.
-
-
-#+name: develop-parallelization-process-multinode
-#+begin_src python
 def run_multinode(process_of, computation, in_config, using_runtime, for_control=None, making_subgraphs=None):
     """..."""
     _, to_stage = get_workspace(computation, in_config, for_control, making_subgraphs)
@@ -90,13 +95,7 @@ def run_multinode(process_of, computation, in_config, using_runtime, for_control
 
     raise ValueError(f"Unknown {process_of} multinode")
 
-#+end_src
 
-
-Depending on the multinode process to run, we will write or read the configs.
-
-#+name: develop-parallelization-run-multinode-configs
-#+begin_src python
 def run_multinode_configs(process_of, computation, in_config, for_control, making_subgraphs, at_dirpath):
     """..."""
     if process_of == setup_compute_node:
@@ -109,12 +108,7 @@ def run_multinode_configs(process_of, computation, in_config, for_control, makin
 
     raise ValueError(f"Unknown {process_of} multinode")
 
-#+end_src
 
-The batched-inputs will be assigned compute nodes to run them,
-
-#+name: develop-parallelization-run-multinode-batched-inputs
-#+begin_src python
 def batch_multinode(process_of, inputs, computation, in_config, at_path, using_parallelization):
     """..."""
     n_compute_nodes, n_total_jobs = using_parallelization
@@ -137,14 +131,7 @@ def batch_multinode(process_of, inputs, computation, in_config, at_path, using_p
 
     raise ValueError(f"Unknown {process_of} multinode")
 
-#+end_src
 
-* Setup computation
-For setting up each compute node,
-To ~setup_compute_node(c)~, we will need to generate inputs of the computation as described in the input config.
-
-#+name: develop-parallelization-setup-compute-node
-#+begin_src python
 def setup_compute_node(c, inputs, for_computation, using_configs):
     """..."""
     LOG.info("Configure chunk %s with %s inputs to compute %s.", c, len(inputs), for_computation)
@@ -209,10 +196,7 @@ def setup_compute_node(c, inputs, for_computation, using_configs):
 
     return read_pipeline.write(setup, to_json=for_compute_node/"setup.json")
 
-#+end_src
 
-#+name: develop-parallelization-write-multinode-setup
-#+begin_src python
 def write_multinode_setup(compute_nodes, inputs, at_dirpath):
     """..."""
     inputs_h5, dataset = INPUTS
@@ -221,13 +205,7 @@ def write_multinode_setup(compute_nodes, inputs, at_dirpath):
     return read_pipeline.write({"compute_nodes": compute_nodes, "inputs": at_dirpath/inputs_h5},
                                 to_json=at_dirpath/"setup.json")
 
-#+end_src
 
-* Collect results
-The collected results must be written the ~connsense-TAP~ store,
-
-#+name: develop-parallelization-collect-multinode-setup
-#+begin_src python
 def collect_multinode(computation_type, setup, from_dirpath, in_connsense_store):
     """..."""
     if not in_connsense_store.exists():
@@ -244,59 +222,7 @@ def collect_multinode(computation_type, setup, from_dirpath, in_connsense_store)
 
     raise NotImplementedError(f"INPROGRESS: {computation_type}")
 
-#+end_src
 
-To collect extracted node populations
-
-#+name: develop-parallelization-collect-node-population
-#+begin_src python
-def collect_node_population(setup, from_dirpath, in_connsense_store):
-    """..."""
-    from connsense.io.write_results import read as read_compute_node, write as write_compute_node
-    LOG.info("Collect node population at %s using setup \n%s", from_dirpath, setup)
-
-    try:
-        with open(from_dirpath/"description.json", 'r') as f:
-            population = json.load(f)
-    except FileNotFoundError as ferr:
-        raise RuntimeError(f"NOTFOUND a description of the population extracted: {at_basedir}") from ferr
-
-    def describe_output(of_compute_node):
-        """..."""
-        try:
-            with open(Path(of_compute_node["dirpath"]) / "output.json", 'r') as f:
-                output = json.load(f)
-        except FileNotFoundError as ferr:
-            raise RuntimeError(f"No output configured for compute node {of_compute_node}") from ferr
-        return output
-
-    p = population["name"]
-    hdf_group = f"nodes/populations/{p}"
-
-    def move(compute_node, from_path):
-        """..."""
-        LOG.info("Write batch %s read from %s", compute_node, from_path)
-        compute_node_result = describe_output(from_path)
-        result = read_compute_node(compute_node_result, "extract-node-populations")
-        return write_compute_node(result, to_path=(in_connsense_store, hdf_group), append=True, format="table",
-                                  min_itemsize={"subtarget": 64})
-
-    for compute_node, hdf_path in setup.items():
-        move(compute_node, hdf_path)
-
-    return (in_connsense_store, hdf_group)
-
-#+end_src
-
-#+RESULTS: develop-parallelization-collect-node-population
-: None
-
-We store extracted edge population.
-Assuming that the each compute node's results were collected in a dict that maps ~compute-node~ to
-the path to it's HDF5 store, we can
-
-#+name: develop-parallelization-collect-edge-population
-#+begin_src python
 def collect_edge_population(setup, from_dirpath, in_connsense_store):
     """..."""
     LOG.info("Collect edge population at %s using setup \n%s", from_dirpath, setup)
@@ -362,12 +288,44 @@ def collect_edge_population(setup, from_dirpath, in_connsense_store):
     LOG.info("Properties collected \n%s", properties)
     return {"adj": adjacencies, "props": properties}
 
-#+end_src
 
-and for storing the results of analyses,
+def collect_node_population(setup, from_dirpath, in_connsense_store):
+    """..."""
+    from connsense.io.write_results import read as read_compute_node, write as write_compute_node
+    LOG.info("Collect node population at %s using setup \n%s", from_dirpath, setup)
 
-#+name: develop-parallelization-collect-analyze-connectivity
-#+begin_src python
+    try:
+        with open(from_dirpath/"description.json", 'r') as f:
+            population = json.load(f)
+    except FileNotFoundError as ferr:
+        raise RuntimeError(f"NOTFOUND a description of the population extracted: {at_basedir}") from ferr
+
+    def describe_output(of_compute_node):
+        """..."""
+        try:
+            with open(Path(of_compute_node["dirpath"]) / "output.json", 'r') as f:
+                output = json.load(f)
+        except FileNotFoundError as ferr:
+            raise RuntimeError(f"No output configured for compute node {of_compute_node}") from ferr
+        return output
+
+    p = population["name"]
+    hdf_group = f"nodes/populations/{p}"
+
+    def move(compute_node, from_path):
+        """..."""
+        LOG.info("Write batch %s read from %s", compute_node, from_path)
+        compute_node_result = describe_output(from_path)
+        result = read_compute_node(compute_node_result, "extract-node-populations")
+        return write_compute_node(result, to_path=(in_connsense_store, hdf_group), append=True, format="table",
+                                  min_itemsize={"subtarget": 64})
+
+    for compute_node, hdf_path in setup.items():
+        move(compute_node, hdf_path)
+
+    return (in_connsense_store, hdf_group)
+
+
 def collect_analyze_connectivity(setup, from_dirpath, in_connsense_store):
     """..."""
     try:
@@ -386,12 +344,7 @@ def collect_analyze_connectivity(setup, from_dirpath, in_connsense_store):
     return in_store(in_connsense_store).collect({compute_node: in_store(at_its_rundir/"connsense.h5")
                                                          for compute_node, at_its_rundir in setup.items()})
 
-#+end_src
 
-the setup is read from the disc,
-
-#+name: develop-parallelization-read-compute-node
-#+begin_src python
 def read_setup_compute_node(c, for_quantity):
     """..."""
     for_compute_node = for_quantity / f"compute-node-{c}"
@@ -414,22 +367,7 @@ def read_setup(at_dirpath, compute_node):
 
     raise RuntimeError("Python execution must not have reached here.")
 
-#+end_src
 
-The above distributes computations for individual subtargets over compute nodes.
-Let us implement the methods used in ~configure_multinode~.
-
-What might a ~computation~ look like? It can simply be a string read from the CLI arguments.
-Consider ~computation="analyze-connectivity/degree"~, which should run analyses of degree of subtarget nodes
-as specified in the configurcation. In general, following this convention, a computation will look like
-~<pipelin   e-step>/<substep>~.
-
-* Worspace for a computation
-The location where a single computation, /i.e./ a computation on a single cluster node, is nested under the
-~connsense~ pipeline's root.
-
-#+name: develop-parallelization-workspace
-#+begin_src python
 def get_workspace(for_computation, in_config, for_control=None, making_subgraphs=None, in_mode='r'):
     """..."""
     m = {'r': "test", 'w': "prod", 'a': "develop"}[in_mode]
@@ -438,17 +376,7 @@ def get_workspace(for_computation, in_config, for_control=None, making_subgraphs
     basedir = workspace.find_base(rundir)
     return (basedir, rundir)
 
-#+end_src
-* Write configs: The different types of computations
-There are as many different types of computations in the ~connsense~ pipeline as there are steps.
-So we must provide methods used in ~configure_multinode~ for each of these steps.
-However, most of these methods are the same. Let us see what the differences are by coding them.
 
-Each computation will run in it's working folder, and thus have it's own configurations.
-We write the pipeline config along with the computation's specific one's to the computation's working folder.
-
-#+name: develop-parallelization-write-configs
-#+begin_src python
 def write_configs_of(computation, in_config, at_dirpath, with_random_shuffle=None, in_the_subtarget=None):
     """..."""
     LOG.info("Write configs of %s at %s", computation, at_dirpath)
@@ -463,17 +391,7 @@ def read_configs_of(computation, in_config, at_dirpath, with_random_shuffle=None
     return {"base": read_pipeline_base_configs(computation, in_config, at_dirpath),
             "control": read_pipeline_control(with_random_shuffle, at_dirpath),
             "subgraphs": read_pipeline_subgraphs(in_the_subtarget, at_dirpath)}
-#+end_src
 
-We have grouped ~connsense-TAP~ configs into three. The /base/ config are required, while the other two are placeholders
-for features we have already implemented as part of ~connsense.analyze_connectivity~.
-We can implement writing of these configs with arguments that use the config,
-
-** The main config
-We will symlink the pipeline and runtime configs,
-
-#+name: develop-parallelization-write-configs-main
-#+begin_src python
 def write_pipeline_base_configs(in_config, at_dirpath): #pylint: disable=unused-argument
     """..."""
     basedir = find_base(rundir=at_dirpath)
@@ -516,16 +434,7 @@ def read_pipeline_base_configs(of_computation, in_config, at_dirpath): #pylint: 
     return {c: read_config(c) for c in ["pipeline", "runtime", "config", "parallel"]}
 
 
-#+end_src
 
-** Controls
-For analyses ~connsense~ can apply control algorihtms to the adjacency matrices that are
-entered in the config, and available to ~configure_multinode~ method as argument ~for_control~
-that should be an algorithm to shuffle the elements of a adjacency matrix.
-The value ~for_control~ should be parsed by the pipeline setup CLI tool to an ~algorithm~.
-
-#+name: develop-paralellization-write-configs-control
-#+begin_src python
 def write_pipeline_control(algorithm, at_dirpath): #pylint: disable=unused-argument
     """..."""
     if not algorithm: return None
@@ -548,66 +457,7 @@ def read_pipeline_control(algorithm, at_dirpath): #pylint: disable=unused-argume
     if not algorithm: return None
     raise NotImplementedError("INRPOGRESS")
 
-#+end_src
 
-
-*** TODO  Develop a general approach to control
-Adapted from ~connsense.analyze_connectivity~, the method to write a control will need testing
-My concern is the random seed used by a given instance of the random shuffler.
-The seed should be in the ~algorithm~. Test it.
-
-But what is a control? We have applied control algorithms to the connectivity matrices before analyzing them.
-This pairs an analysis and a control algorithm in the index for the results of analyzing a subtarget.
-
-What would controlling the results of extraction of a edges be?
-We do want to store randomized adjacencies of subtargets. Can we do that using controls?
-Randomization of connectivity cannot be done while extracting edges -- the controls apply to the input
-of a step.
-Controlling inputs to edge extraction does have an interesting meaning.
-Mathematically we can think of the adjacency matrix as a table of edges with a boolean value telling us if that
-edge is a member of the edge population.
-The inputs to edge detection are the node ~gids~ in the circuit, which mathematically are equivalent to a table
-indexed by the ~gids~ and valued by booleans telling us if that ~node~ is a member of the population to consider.
-Analogous to what an control algorithm does to edges, a control algorithm applied to nodes will do an equivalent thing,
-that of moving them around the table.
-The result of an analysis on a uniformly distributed a subarget-sized sample from the whole node population will
-be a statistical control for that analysis on that subtarget.
-However, within ~connsense-TAP~ we cannot sample from the whole population.
-All of our analyses must apply only to a subtarget circuit extracted fromm the whole input circuit.
-To make such controls possible, the input ~subtarget~ datatype should be a boolean 1D mask that represents a node's
-membership in the subtarget.
-That mask we can randomize.
-So is there a value of pursing this at some point?
-
-Using a 1D mask subtarget will be usefull for composition analyses.
-
-Uniform shuffle is not very meaningfull. We should not shuffle the cells out of their position, layer, or mtype.
-We should have invariants for a control.
-It will be a toy.
-We could randomize cell's positions given that they stay in the same layer.
-Then we could extract edges. What edges would we extract?
-This will show if a subtarget's nodes are less or more connected than an equivalent sample chosen randomly from
-the whole population. Condition the control to keep cells in the same depth, layer, mtype, or any combination of
-these to make a scientific case, and we can analyze the connectivity of the subtarget against a meaningful control.
-
-Spatial shuffling. Any node shuffle will replace subtarget nodes with those outside the subtarget.
-We could control for the replacement being at the same depth / layer and not too far from the subtarget's
-/principal-axis/.
-Let us say we double the thickness of a columnar subtarget. Shuffling the nodes will then give us a subtarget
-with the same number of nodes but distributed in a column twice the thickness.
-
-Consider an /in-silico/ experiment that we can do with a spatial shuffle of the sort sketched above.
-We will need subtargets of several thicknesses, and the thickness scaling control applied to each.
-There are two input parameters: subtarget thickness, and the thickness-scaling coefficient of the control.
-The analyses results can be used illustrated using two dimensional graphic, like a /heatmap/ or a /contour-plot/,
-
-** Subgraphs
-We have nothing for subgraphs to configure. In our current setup, subgraph information is passed
-by CLI arguments, while the directory layout is determined during the execution of ~configure_multinode~ method
-by ~get_workspace~ method.
-
-#+name: develop-parallelization-write-configs-subgraphs
-#+begin_src python
 def write_pipeline_subgraphs(in_the_subtarget, at_dirpath): #pylint: disable=unused-argument
     """..."""
     return None
@@ -617,11 +467,7 @@ def read_pipeline_subgraphs(algorithm, at_dirpath): #pylint: disable=unused-argu
     """..."""
     if not algorithm: return None
     raise NotImplementedError("INRPOGRESS")
-#+end_src
 
-** Description of the computation
-#+name: devekop-parallelization-describe-computation
-#+begin_src python
 def write_description(computation, in_config, at_dirpath):
     """..."""
     computation_type, of_quantity = describe(computation)
@@ -629,13 +475,7 @@ def write_description(computation, in_config, at_dirpath):
     configured = in_config["parameters"][computation_type][paramkey][of_quantity]
     configured["name"] = of_quantity
     return read_pipeline.write(configured, to_json=at_dirpath / "description.json")
-#+end_src
 
-** Symlink in the compute node directory
-Configs should be written in a ~computation~'s  ~rundir~, but ~symlinked~ to by ~compute-nodes~.
-
-#+name: develop-parallelization-symlink-configs
-#+begin_src python
 def symlink_pipeline(configs, at_dirpath):
     """..."""
     to_base = symlink_pipeline_base(configs["base"], at_dirpath)
@@ -672,146 +512,7 @@ def symlink_pipeline_subgraphs(to_config, at_dirpath):
     """..."""
     return create_symlink(at_dirpath)(to_config) if to_config else None
 
-#+end_src
 
-* Inputs
-The inputs to a ~computation~ will also depend on the pipeline step that the ~copmutation~ is at.
-If the computation is to extract an edge population, the inputs will be subtargets.
-
-#+name: develop-parallelization-inputs-subtargets
-#+begin_src python
-def input_subtargets(in_config):
-    """..."""
-    _, output_paths = read_pipeline.check_paths(in_config, "define-subtargets")
-    path_subtargets = output_paths["steps"]["define-subtargets"]
-    LOG.info("Read subtargets from %s", path_subtargets)
-
-    subtargets = read_results(path_subtargets, for_step="define-subtargets")
-    LOG.info("Read %s subtargets", len(subtargets))
-
-    #subset for testing
-    # from bluepy import Cell
-    # circuit = input_circuit("Bio_M", in_config)
-    # def filter_l1(gids):
-    #     layers = circuit.cells.get(gids, Cell.LAYER)
-    #     return list(layers[layers==1].index.values)
-    # return subtargets.apply(filter_l1)
-
-    return subtargets
-
-#+end_src
-
-If the computation is to analyze connectivity, the inputs will be the edges and nodes that apply, /i.e/ the network.
-The edge population is part of the argued ~computation~, and their source and target node populations are in
-the configuration.
-
-We can add other computation types when it is time to run them, and collect them in an interface to,
-
-#+name: develop-parallelization-inputs
-#+begin_src python
-def generate_inputs_of(computation, in_config, by_subtarget=False, on_compute_node=None):
-    """..."""
-    LOG.info("Generate inputs for  %s ", computation)
-
-    def get_subtarget(input_dataset):
-        """..."""
-        return lambda s: input_dataset.loc[s]
-
-    computation_type, of_quantity = describe(computation)
-    if computation_type == "extract-edge-populations":
-        input_dataset = input_subtargets(in_config)
-        return get_subtarget(input_dataset) if by_subtarget else input_dataset
-
-    input_paths, _ = read_pipeline.check_paths(in_config, step=computation_type)
-
-    parameters = parameterize(computation_type, of_quantity, in_config)
-
-    if computation_type == "extract-node-types":
-        circuit = input_circuit(parameters["input"], in_config)
-        if not circuit:
-            raise RuntimeError("MIssing circuit to extract-node-types")
-
-        if parameters["input"]:
-            raise RuntimeError(f"UNADMISSABLE arguments {parameters['input']} to extract-node-types")
-
-        extractor = parameters["extractor"]
-        _, extract = plugins.import_module(extractor["source"], extractor["method"])
-        input_dataset = extract(circuit)
-    else:
-        cfg_inputs = parameters["input"].items()
-        inputs = [load_connsense_input(dset, in_config, with_name=arg) for arg, dset in cfg_inputs
-                  if arg not in ("circuit", "connectome")]
-        if len(inputs) == 1:
-            input_dataset = inputs[0]
-        else:
-            input_dataset = pd.concat(inputs, axis=1)
-
-    return get_subtarget(input_dataset) if by_subtarget else input_dataset
-
-#+end_src
-
-
-What kind of inputs may a computation have? Either a circuit, or the hdf-path of dataset, or both!
-
-#+name: develop-parallelization-load-inputs
-#+begin_src python
-def load_connsense_input(computation, in_config, with_name):
-    """..."""
-    from ..io.write_results import read
-    computation_type, of_quantity = describe(computation)
-    LOG.info("Load connsense input %s %s", computation_type, of_quantity)
-
-    input_paths, _ = read_pipeline.check_paths(in_config, step=computation_type)
-    hdf_path, group = input_paths["steps"][computation_type]
-
-    if computation_type == "define-subtargets":
-        assert not of_quantity or of_quantity == ""
-        subtargets = read((hdf_path, group), for_step=computation_type)
-
-        # subset for testing
-        # from bluepy import Cell
-        # circuit = input_circuit("Bio_M", in_config)
-        # def filter_l1(gids):
-        #     layers = circuit.cells.get(gids, Cell.LAYER)
-        #     return list(layers[layers==1].index.values)
-        # return subtargets.apply(filter_l1)
-
-
-        return subtargets
-
-    key = f"{group}/{of_quantity}"
-
-    if computation_type in ("extract-node-types", "extract-node-populations"):
-        return read((hdf_path, key), for_step=computation_type)
-
-    if computation_type == "extract-edge_populations":
-
-        if dataset.endswith("/adj"):
-            return read_toc_plus_payload((hdf_path, key)).rename(with_name)
-
-        if dataset.endswith("/props"):
-            return (matrices.get_store(hdf_path, key, for_matrix_type="pandas.DataFrame", in_mode='r').toc
-                    .rename(with_name))
-
-        raise RutimeError(f"Unknown dataset for results of extract-edge-population: {dataset}")
-
-    parameters = parameterize(computation_type, of_quantity, in_config)
-
-    if computation_type.startswith("analyze-"):
-        return (matrices.get_store(hdf_path, key, for_matrix_type=parameters["output"], in_mode='r').toc.
-                rename(with_name))
-
-    raise NotImplementedError(f"computation type of {computation_type}")
-
-#+end_src
-
-** A generirc generator of inputs
-The ~generate_inputs_of(computation, in_config)~ method above may need a lot of cases for individual pipeline steps.
-Let us try to devise a more generic version that will rely on the ~connsense.pipeline.store.HDFStore~ to fetch data
-using the config.
-
-#+name: develop-parallelization-generate-inputs-of-inputs-generic
-#+begin_src python
 def generate_inputs_of(computation, in_config, on_compute_node=None, by_subtarget=False):
     """..."""
     from connsense.pipeline.store.store import HDFStore
@@ -833,12 +534,7 @@ def generate_inputs_of(computation, in_config, on_compute_node=None, by_subtarge
     return get_subtarget(input_datasets) if by_subtarget else input_datasets
 
 
-#+end_src
 
-Data for each subtarget will be poured from the ~HDFStore tap~ as follows,
-
-#+name: develop-parallelization-pour-tap-subtarget
-#+begin_src python
 def pour(tap, variables):
     """..."""
     def for_subtarget(s):
@@ -898,123 +594,37 @@ def get_group(transformation):
 def lazily(to_evaluate):
     """..."""
     return lambda subtarget: lambda: to_evaulate(subtarget)
-#+end_src
 
-To use this new method we will need to refactor ~define-subtargets~.  We will code the refactor somewhere else,
-but we introduce the configuration that the refactor will handle here:
-
-What we have realized is that  it is the subtarget index that defines a ~connsense-CRAP~,
-within which we can define several families of subtargets
-
-#+begin_src yaml
-define-subtargets:
-  members:
-    - "S1DZO"
-    - "S1DZ"
-    - "S1FL"
-    - "S1HL"
-    - "S1J"
-    - "S1Sh"
-    - "S1Tr"
-    - "S1ULp"
-  defintions:
-    mosaic:
-      description: >-
-        All the nodes as one subtarget
-      input:
-        circuit: "Bio_M"
-      loader:
-        source: connsense.define_subargets.bluepy
-        method: target_mosaic
-      output: pandas.Series
-    central-columns:
-      input:
-        circuit: "Bio_M"
-      loader:
-        source: connsense.define_subargets.bluepy
-        method: target_central_column
-      output: pandas.Series
-#+end_src
-
-then extract nodes,
-
-#+begin_src  yaml
-extract-node-populations:
-  populations:
-    default/mosaic:
-      circuit: "Bio_M"
-      properties: <<properties-to-extract>>
-      input:
-        subtargets:
-          dataset: ["define-subtargets", "mosaic"]
-      extractor:
-        source: connsense.extract_nodes.bluepy
-        method: extract_nodes
-      output: pandas.DataFrame
-    default/central-columns:
-      properties: <<properties-to-extract>>
-      input:
-        circuit: "Bio_M"
-        subtargets:
-          dataset: ["define-subtargets", "central-columns"]
-      extractor:
-        source: connsense.extract_nodes.bluepy
-        method: extract_nodes
-      output: pandas.DataFrame
-
-#+end_src
-
-and extract edges,
-
-#+begin_src yaml
-extract-edge-populations:
-  populations:
-    local/target-central-columns:
-      circuit: "Bio_M"
-      connectome: "local"
-      input:
-        source_nodes:
-          dataset: ["define-subtargets", "mosaic"]
-        target_nodes:
-          dataset: ["define-subtargets", "central-columns"]
-      extractor:
-        source: connsense.extract_connectivity.bluepy
-        method: extract_edge_population
-      output:
-        adj: scipy.sparse.spmatrix
-        props: pandas.DataFrame
-#+end_src
-
-and analyses
-#+begin_src yaml
-analyze-connectivity:
-  analyses:
-    neuron-mosaic-convergence:
-      description: >-
-        Count the number of edges coming in from the whole circuit to nodes among a central-column.
-      input:
-        adjacency:
-          dataset: ["extract-edge-populations", "local/target-central-columns"]
-        from_source:
-          dataset: ["extract-node-populations", "local/mosaic"]
-          groupy: Cell.MTYPE
-        to_target:
-          dataset: ["extract-node-populations", "local/central-columns"]
-      output: pandas.DataFrame
-#+end_src
-
-*** Parameterize the step
-Let us list these in a method that returns the parameters of a ~computation~,
-
-#+name: develop-parallelization-parameterize-step
-#+begin_src python
-def parameterize(computation_type, of_quantity, in_config):
+def input_subtargets(in_config):
     """..."""
+    _, output_paths = read_pipeline.check_paths(in_config, "define-subtargets")
+    path_subtargets = output_paths["steps"]["define-subtargets"]
+    LOG.info("Read subtargets from %s", path_subtargets)
+
+    subtargets = read_results(path_subtargets, for_step="define-subtargets")
+    LOG.info("Read %s subtargets", len(subtargets))
+
+    #subset for testing
+    # from bluepy import Cell
+    # circuit = input_circuit("Bio_M", in_config)
+    # def filter_l1(gids):
+    #     layers = circuit.cells.get(gids, Cell.LAYER)
+    #     return list(layers[layers==1].index.values)
+    # return subtargets.apply(filter_l1)
+
+    return subtargets
+
+
+def parameterize(computation_type, of_quantity, in_config):
     """..."""
     paramkey = PARAMKEY[computation_type]
 
     if not computation_type in in_config["parameters"]:
         raise RuntimeError(f"Unknown {computation_type}")
+
+    if of_quantity not in in_config["parameters"][computation_type][paramkey]:
+        raise RuntimeError(f"Unknown {paramkey[:-1]} {of_quantity} for {computation_type}")
+    return deepcopy(in_config["parameters"][computation_type][paramkey][of_quantity])
 
     if computation_type != "define-subtargets":
         if of_quantity not in in_config["parameters"][computation_type][paramkey]:
@@ -1022,15 +632,7 @@ def parameterize(computation_type, of_quantity, in_config):
         return deepcopy(in_config["parameters"][computation_type][paramkey][of_quantity])
 
     return deepcopy(in_config["parameters"]["define-subtargets"])
-#+end_src
 
-* Configure runtime
-The results of ~configure_multinode~ will be written to a Slurm configuration and listed in a launchscript.
-The Slurm configuration of a computation can be read from the runtimr config.
-
-** Configure Slurm
-#+name: develop-parallelization-configure-runtime-slurm
-#+begin_src python
 def configure_slurm(computation, in_config, using_runtime):
     """..."""
     computation_type, quantity = computation.split('/')
@@ -1039,17 +641,7 @@ def configure_slurm(computation, in_config, using_runtime):
                     if not isinstance(using_runtime, Mapping) else using_runtime)
     return from_runtime["pipeline"].get(computation_type, {}).get(quantity, None).get("sbatch", None)
 
-#+end_src
 
-We will submit one Slurm job per compute-node,
-
-** Parallelization
-To configure parallelization of a ~connsense-TAP~ step.
-Each ~connsense-TAP~ step should be configured in the runtime config providing the number of compute nodes,
-and the number of tasks per node.
-
-#+name: develop-parallelization-configure-runtime-parallelization
-#+begin_src python
 def read_njobs(to_parallelize, computation_of):
     """..."""
     if not to_parallelize:
@@ -1135,13 +727,7 @@ def prepare_parallelization(computation, in_config, using_runtime):
     LOG.info("\t Configured \n%s", configured)
     return read_njobs(to_parallelize=configured, computation_of=quantity)
 
-#+end_src
 
-*** Batch assignement
-We will assign every input subtarget a batch that will be queued on a compute node,
-
-#+name: develop-parallelization-configure-runtime-batch-assignment
-#+begin_src python
 def assign_batches_to(inputs, upto_number):
     """..."""
     def estimate_load(input_data): #pylint: disable=unused-argument
@@ -1166,13 +752,7 @@ def assign_batches_to(inputs, upto_number):
     return batches
     #return batches.loc[inputs.index]
 
-#+end_src
 
-*** Compute nodes
-To run a multi-compute-node copmutation we will assign compute nodes,
-
-#+name: develop-parallelization-configure-runtime-compute-nodes
-#+begin_src python
 def assign_compute_nodes(batches, upto_number):
     """..."""
     LOG.info("Assign compute nodes to batches \n%s", batches)
@@ -1192,34 +772,14 @@ def read_compute_nodes_assignment(at_dirpath):
 
     return pd.read_hdf(at_dirpath / assignment_h5, key=dataset)
 
-#+end_src
 
-*** Batch run
-Method ~configure_multinode~ will only write the configurations each of which willl be used to
-run a single node computation. When distributed overl multiple compute nodes, each compute node will get
-only a chunk of the inputs. We will need to save the batch of inputs to be sent to a compute node in that
-compute node's rundir.
-
-#+name: develop-parallelization-save-runtime-batch-run
-#+begin_src python
 def write_compute(batches, to_hdf, at_dirpath):
     """..."""
     batches_h5, and_hdf_group = to_hdf
     batches.to_hdf(at_dirpath / batches_h5, key=and_hdf_group, format="fixed", mode='w')
     return at_dirpath / batches_h5
 
-#+end_src
 
-
-
-* Single node parallelization
-The parallelization setup we have discussed will run several on compute nodes. For each compute node, the executable
-is loaded from ~connsense.apps.APPS~. Parallelization of each compute-node's job is expected to be implemneted in
-the executable. We can provide a wrapper that runs a ~multiprocess~ job on each compute node.
-The input stored on each ~compute-node~ contains batch index for each subtarget. We just need a loop,
-
-#+name: parallelize-single-node
-#+begin_src python
 def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node, inputs):
     """..."""
     execute, to_store_batch, to_store_one = configure_execution(of_computation, in_config, on_compute_node)
@@ -1288,20 +848,7 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node, 
     read_pipeline.write(collected, to_json=on_compute_node/"output.json")
     return collected
 
-#+end_src
 
-We may need a circuit to run on. The current ~connsense-TAP~ can be configured with multiple circuits,
-which we could support later. However for now we enforce that only one circuit is configured, and that
-all the extractors provided work on single circuits as well.
-
-The solution will be to specify the circuit at CLI. and update the pipeline's config that is passed to
-the parallelization methods developed here. This will allow configuration of more than one circuit,
-but each run will be for only one circuit that must be entered in the configuration.
-
-Another is to require inputs for each computation in it's config:
-
-#+name: parallelize-single-nodel-circuit
-#+begin_src python
 def input_circuit(labeled, in_config):
     """..."""
     if not labeled:
@@ -1316,10 +863,7 @@ def get_circuit_args_for(computation_inputs, in_config):
     connectome = computation_inputs.get("connectome", None)
     return tuple(x for x in (circuit, connectome) if x)
 
-#+end_src
-Inputs to run on a compute node are written in its work-directory during the setup,
-#+name: parallelize-single-node-load-inputs
-#+begin_src python
+
 def load_input_batches(on_compute_node, inputs=None):
     """..."""
     store_h5, dataset = COMPUTE_NODE_SUBTARGETS
@@ -1330,19 +874,7 @@ def load_input_batches(on_compute_node, inputs=None):
 
     return pd.read_hdf(on_compute_node/store_h5, key=dataset)
 
-#+end_src
 
-that assumes that the inputs were written on the compute nodes during setup.
-
-If the result of computing a single input entry is huge, the second method to compute batch that
-computes the entire batch before writing may be limited by memory. In that case we should prefer the
-first method that computes and writes the results of each entry before processing the next.
-
-For a single batch of subtargets, the computation will run either on the entire batch and its results saved together,
-or the computation will run on one subtarget at a time with results written before the next one is processed.
-
-#+name: parallelize-single-node-run-batch-get-executable
-#+begin_src python
 def configure_execution(computation, in_config, on_compute_node):
     """..."""
     computation_type, of_quantity = describe(computation)
@@ -1411,10 +943,7 @@ def store_matrix_data(computation_type, of_quantity, parameters, on_compute_node
         return (at_path, in_hdf_group)
 
     return write_hdf
-#+end_src
 
-#+name: parallelize-single-node-collect
-#+begin_src python
 def collect_batches(of_computation, results, on_compute_node, hdf_group, of_output_type):
     """..."""
     computation_type, of_quantity = describe(of_computation)
@@ -1432,41 +961,7 @@ def collect_batches(of_computation, results, on_compute_node, hdf_group, of_outp
     batched = results.items()
     return in_store.collect({batch: matrices.get_store(connsense_h5, hdf_group, for_matrix_type=of_output_type)
                              for batch, (connsense_h5, group) in batched})
-#+end_src
 
-
-For the extracting node populations we have a special case,
-
-#+name: parallelize-single-node-collect-batched-node-populations
-#+begin_src python
-def collect_batched_node_population(p, results, on_compute_node, hdf_group):
-    """..."""
-    from connsense.io.write_results import read as read_batch, write as write_batch
-
-    LOG.info("Collect batched node populations of %s %s results on compute-node %s to %s", p,
-             len(results), on_compute_node, hdf_group)
-
-    in_connsense_h5 = on_compute_node / "connsense.h5"
-    in_hdf = (in_connsense_h5, hdf_group+"/"+p)
-
-    def move(batch, from_path):
-        """..."""
-        LOG.info("Write batch %s read from %s", batch, from_path)
-        result = read_batch(from_path, "extract-node-populations")
-        return write_batch(result, to_path=in_hdf, append=True, format="table", min_itemsize={"subtarget": 64})
-
-    for batch, hdf_path in results.items():
-        move(batch, hdf_path)
-
-    return in_hdf
-
-#+end_src
-
-
-For the extracting edge populations we have a special case,
-
-#+name: parallelize-single-node-collect-batched-edge-populations
-#+begin_src python
 def collect_batched_edge_population(p, results, on_compute_node, hdf_group):
     """..."""
 
@@ -1506,284 +1001,24 @@ def collect_batched_edge_population(p, results, on_compute_node, hdf_group):
 
     return {"adj": (in_connsense_h5, hdf_edges+"/adj"), "props": (in_connsense_h5, hdf_edges+"/props")}
 
-#+end_src
 
+def collect_batched_node_population(p, results, on_compute_node, hdf_group):
+    """..."""
+    from connsense.io.write_results import read as read_batch, write as write_batch
 
-We have assumed that the stores invoked above are like the ~MatrixStore~ defined in ~connsense.analyze_connectivity.matrices~.
-We do not have working version of a sparse matrices that we use to store adjacency.
-Either we can implement such a store, or change the collection methods.
+    LOG.info("Collect batched node populations of %s %s results on compute-node %s to %s", p,
+             len(results), on_compute_node, hdf_group)
 
+    in_connsense_h5 = on_compute_node / "connsense.h5"
+    in_hdf = (in_connsense_h5, hdf_group+"/"+p)
 
-* Putting it together
-We can now list the code that can configure a multinode computation. which we do to keep the output Python code clean.
-We will output into locations under the package ~connsense.pipeline.paralelization~.
+    def move(batch, from_path):
+        """..."""
+        LOG.info("Write batch %s read from %s", batch, from_path)
+        result = read_batch(from_path, "extract-node-populations")
+        return write_batch(result, to_path=in_hdf, append=True, format="table", min_itemsize={"subtarget": 64})
 
-#+begin_src python :tangle "../pipeline/parallelization/__init__.py" :noweb yes :comments no :padline true
-"""Parallelize connsense-CRAP subtargets
-"""
-from .import parallelization
-#+end_src
+    for batch, hdf_path in results.items():
+        move(batch, hdf_path)
 
-Within ~connsense.pipeline.parallelization~ we will have ~.parallelize_multinode~,
-
-#+begin_src python :tangle "../pipeline/parallelization/parallelization.py" :noweb yes :comments org :padline true
-from collections.abc import Mapping
-from copy import deepcopy
-from pathlib import Path
-from pprint import pformat
-
-import json
-import yaml
-
-from multiprocessing import Process, Manager
-
-import numpy as np
-import pandas as pd
-
-from connsense import extract_nodes,  plugins
-from connsense.extract_connectivity import read_results
-from connsense.extract_connectivity import extract as extract_connectivity
-from connsense.pipeline import workspace
-from connsense.pipeline.pipeline import PARAMKEY
-from connsense.io import logging, read_config as read_pipeline
-from connsense.io.slurm import SlurmConfig
-from connsense.io.write_results import read_toc_plus_payload, write_toc_plus_payload
-from connsense.pipeline.workspace import find_base
-from connsense.define_subtargets.config import SubtargetsConfig
-from connsense.analyze_connectivity import check_paths, matrices
-from connsense.analyze_connectivity.analysis import SingleMethodAnalysisFromSource
-from connsense.apps import APPS
-
-# pylint: disable=locally-disabled, multiple-statements, fixme, line-too-long, too-many-locals, comparison-with-callable, too-many-arguments, invalid-name, unspecified-encoding, unnecessary-lambda-assignment
-
-LOG = logging.get_logger("connsense pipeline")
-
-
-def _remove_link(path):
-    try:
-        return path.unlink()
-    except FileNotFoundError:
-        pass
-    return None
-
-
-EXECUTABLE = {"define": "loader", "extract": "extractor", "analyze": "computation"}
-
-BATCH_SUBTARGETS = ("subtargets.h5", "batch")
-COMPUTE_NODE_SUBTARGETS = ("inputs.h5", "subtargets")
-INPUTS = ("inputs.h5", "subtargets")
-COMPUTE_NODE_ASSIGNMENT = ("subtargets.h5", "compute_node")
-
-
-<<develop-parallelization-describe-computation>>
-
-<<develop-parallelization-process-multinode>>
-
-<<develop-parallelization-run-multinode-configs>>
-
-<<develop-parallelization-run-multinode-batched-inputs>>
-
-<<develop-parallelization-setup-compute-node>>
-
-<<develop-parallelization-write-multinode-setup>>
-
-<<develop-parallelization-collect-multinode-setup>>
-
-<<develop-parallelization-collect-edge-population>>
-
-<<develop-parallelization-collect-node-population>>
-
-<<develop-parallelization-collect-analyze-connectivity>>
-
-<<develop-parallelization-read-compute-node>>
-
-<<develop-parallelization-workspace>>
-
-<<develop-parallelization-write-configs>>
-
-<<develop-parallelization-write-configs-main>>
-
-<<develop-paralellization-write-configs-control>>
-
-<<develop-parallelization-write-configs-subgraphs>>
-
-<<devekop-parallelization-describe-computation>>
-
-<<develop-parallelization-symlink-configs>>
-
-<<develop-parallelization-generate-inputs-of-inputs-generic>>
-
-<<develop-parallelization-pour-tap-subtarget>>
-
-<<develop-parallelization-inputs-subtargets>>
-
-<<develop-parallelization-parameterize-step>>
-
-<<develop-parallelization-configure-runtime-slurm>>
-
-<<develop-parallelization-configure-runtime-parallelization>>
-
-<<develop-parallelization-configure-runtime-batch-assignment>>
-
-<<develop-parallelization-configure-runtime-compute-nodes>>
-
-<<develop-parallelization-save-runtime-batch-run>>
-
-<<parallelize-single-node>>
-
-<<parallelize-single-nodel-circuit>>
-
-<<parallelize-single-node-load-inputs>>
-
-<<parallelize-single-node-run-batch-get-executable>>
-
-<<parallelize-single-node-collect>>
-
-<<parallelize-single-node-collect-batched-edge-populations>>
-
-<<parallelize-single-node-collect-batched-node-populations>>
-
-#+end_src
-
-
-
-* Runtime config
-The runtime config provides parameters for parallelization each step in the ~connsense-TAP~.
-
-#+name: runtime-config-init
-#+begin_src yaml :tangle no :noweb yes :comments org :padline no
-version: 1.0.0
-date: 20220724
-slurm:
-  description: >-
-    Configure default Slurm config.
-  sbatch:
-    account: "proj83"
-    time: "8:00:00"
-    venv: "/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/load_env.sh"
-#+end_src
-
-** Define subtargets
-Let us enter all the definitions by name, but no content to configure parallelization,
-#+name: runtime-config-define-subtargets
-#+begin_src yaml :tangle no :noweb yes :comments org :padline no
-define-subtargets:
-  description: >-
-    Configure parallelization to run ~define-subtargets~.
-  definitions:
-    hexgrid-cells: null
-    hexgrid-voxels: null
-    pre-defined: null
-#+end_src
-
-** Extract voxels
-#+name: runtime-config-extract-voxels
-#+begin_src yaml :tangle no :noweb yes :comments org :padline no
-extract-voxels:
-  description: >-
-    Configure parallelization to run ~extract-voxels~.
-  annotations:
-    layer: null
-    depth: null
-    flatmap: null
-    orientation: null
-#+end_src
-
-** Extract node types
-#+name: runtime-config-extract-node-types
-#+begin_src yaml :tangle no :noweb yes :comments org :padline no
-extract-node-types:
-  description: >-
-    Configure the extraction of node types.
-  models:
-    biophysical: null
-#+end_src
-
-** Extract node populations
-We will extract nodes for each subtarget on it's own compute-node.
-
-#+name: runtime-config-extract-node-populations
-#+begin_src yaml :tangle no :noweb yes :comments org :padline no
-extract-node-populations:
-  description: >-
-    Configure the extraction of node populations.
-  populations:
-    default:
-      number-compute-nodes: 8
-      number-tasks-per-node: 1
-#+end_src
-
-** Extract edge populations
-We will extract nodes for each subtarget on it's own compute-node.
-
-#+name: runtime-config-extract-edge-populations
-#+begin_src yaml :tangle no :noweb yes :comments org :padline no
-extract-edge-populations:
-  description: >-
-    Configure the extraction of edge populations.
-  populations:
-    local:
-      number-compute-nodes: 8
-      number-tasks-per-node: 1
-#+end_src
-
-** Analyze geometry
-#+name: runtime-config-analyze-geometry
-#+begin_src yaml :tangle no :noweb yes :comments org :padline no
-analyze-geometry:
-  description: >-
-    Configure the analyses of a circuit subtarget geometry.
-  analyses:
-    layer_volume: null
-    conicity: null
-#+end_src
-
-** Analyze composition
-#+name: runtime-config-analyze-composition
-#+begin_src yaml :tangle no :noweb yes :comments org :padline no
-analyze-composition:
-  description: >-
-    Configure the analyses of a circuit subtarget composition.
-  analyses:
-    cell-count-by-layer: null
-    cell-count-by-mtype: null
-#+end_src
-
-** Analyze connectivity
-Edge properties may be need a lot of memory, crashing too many parallel jobs on a single node.
-Let us try with 4 jobs in parallel on 1 node. For the 8 columnar subtargets this should be enough.
-
-#+name: runtime-config-analyze-connectivity
-#+begin_src yaml :tangle no :noweb yes :comments org :padline no
-analyze-connectivity:
-  description: >-
-    Configure the analyses of a circuit subtarget connectivity.
-  analyses:
-    neuronal-convergence:
-      number-compute-nodes: 1
-      number-tasks-per-node: 4
-    neuronal-divergence:
-      number-compute-nodes: 1
-      number-tasks-per-node: 4
-    synaptic-convergence:
-      number-compute-nodes: 1
-      number-tasks-per-node: 4
-    synaptic-divergence:
-      number-compute-nodes: 1
-      number-tasks-per-node: 4
-#+end_src
-
-* Results
-
-#+begin_src yaml :tangle runtime.yaml :noweb yes :comments no :padline no
-<<runtime-config-init>>
-pipeline:
-  <<runtime-config-define-subtargets>>
-  <<runtime-config-extract-voxels>>
-  <<runtime-config-extract-node-types>>
-  <<runtime-config-extract-node-populations>>
-  <<runtime-config-extract-edge-populations>>
-  <<runtime-config-analyze-geometry>>
-  <<runtime-config-analyze-composition>>
-  <<runtime-config-analyze-connectivity>>
-#+end_src
+    return in_hdf

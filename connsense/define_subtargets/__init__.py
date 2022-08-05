@@ -14,6 +14,7 @@ from bluepy import Cell
 from flatmap_utility import subtargets as flatmap_subtargets
 from flatmap_utility.tessellate import TriTille
 
+from ..import plugins
 from .config import SubtargetsConfig
 from ..pipeline import workspace
 from ..io.write_results import write, default_hdf
@@ -324,7 +325,39 @@ def output_specified_in(configured_paths, and_argued_to_be):
     return (to_hdf_at_path, under_group)
 
 
-def run(config, substep=None, in_mode=None, parallelize=None,
+def run(config, substep=None, in_mode=None, output=None, **kwargs):
+    """..."""
+    config = read(config)
+    input_paths, output_paths = check_paths(config, STEP)
+    LOG.warning("Define %s subtargets inside the circuit %s", substep, input_paths)
+
+    in_rundir = workspace.get_rundir(config, mode=in_mode, **kwargs)
+    to_define_subtargets_in = workspace.locate_base(in_rundir, for_step=STEP)
+    LOG.warning("\tworking in %s", to_define_subtargets_in)
+
+    parameters = config["parameters"][STEP]
+    members = parameters["members"]
+    definition = parameters["definitions"][substep]
+
+    subtargets = pd.Series(members, name="subtarget", index=pd.Index(range(len(members)), name="subtarget_id"))
+
+    sbtcfg = SubtargetsConfig(config)
+    circuit = sbtcfg.input_circuit[definition["circuit"]]
+
+    _, load = plugins.import_module(definition["loader"])
+
+    subtargets_gids = subtargets.apply(lambda s: load(circuit, s)).rename("gids")
+
+    LOG.info("Defined %s %s-subtargets.", len(subtargets), substep)
+    to_output = output_specified_in(output_paths, and_argued_to_be=output)
+    out_h5, hdf_group = to_output
+    write(subtargets, to_path=(out_h5, hdf_group+"/members"), format="fixed")
+    output = write(subtargets_gids, to_path=(out_h5, hdf_group+"/subtargets"), format="fixed")
+    LOG.info("DONE: define-subtargets %s %s", substep, output)
+    return output
+
+
+def run_1(config, substep=None, in_mode=None, parallelize=None,
           output=None, batch=None, sample=None, tap=None, **kwargs):
     """Run the definition(s) of subtargets.
     We will implement multiple definitions, just like analyze-connectivity...

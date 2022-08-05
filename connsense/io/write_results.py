@@ -189,7 +189,9 @@ def read_subtargets(from_object):
     else:
         root = path; group = "subtargets"
 
-    return read((root, group), for_step="define-subtargets")
+    members = read((root, group+"/members"), for_step="define-subtargets")
+    subtarget_gids = read((root, group+"/subtargets"), for_step="define-subtargets")
+    return pd.concat([members, subtarget_gids], axis=1).set_index("subtarget")
 
 
 def read_node_properties(from_object):

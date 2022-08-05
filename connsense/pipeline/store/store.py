@@ -18,9 +18,11 @@ from connsense.io import logging
 LOG = logging.get_logger(__name__)
 
 
-def locate_store(config):
+def locate_store(config, in_connsense_h5=None):
     """..."""
-    return Path(config["paths"]["input"]["store"])
+    if not in_connsense_h5:
+        return Path(config["paths"]["input"]["store"])
+    return Path(in_connsense_h5)
 
 
 def group_steps(config):
@@ -46,10 +48,10 @@ class HDFStore:
         return {name: analysis for quantity, analyses in configured.items()
                 for name, analysis in load_configured(quantity, analyses)}
 
-    def __init__(self, config):
+    def __init__(self, config, in_connsense_h5=None):
         """..."""
         self._config = config
-        self._root = locate_store(config)
+        self._root = locate_store(config, in_connsense_h5)
         self._groups = group_steps(config)
         self._analyses = self.load_analyses(config)
         self._controls = ranconn.get_controls(config)
