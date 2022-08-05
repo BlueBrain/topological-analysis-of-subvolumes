@@ -1,5 +1,5 @@
 """Interface to the HDFStore where the pipeline stores its data."""
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 from lazy import lazy
 from pathlib import Path
 import h5py
@@ -9,7 +9,8 @@ import pandas as pd
 from connsense import analyze_connectivity as anzconn
 from connsense.analyze_connectivity import matrices
 from connsense import randomize_connectivity as ranconn
-from connsense.io.write_results import (read_subtargets,
+from connsense.io.write_results import (read as read_dataset,
+                                        read_subtargets,
                                         read_node_properties,
                                         read_toc_plus_payload)
 from connsense.io import logging
@@ -59,6 +60,26 @@ class HDFStore:
     def get_path(self, step):
         """..."""
         return (self._root, self._groups[step])
+
+
+    @lazy
+    def datasets(self):
+        """..."""
+        return defaultdict(lambda: {})
+
+    def read_dataset(self, d):
+        """..."""
+        step, dset = d
+        h5, group = self.get_path(step)
+        if dset not in self.datasets:
+            self.datasets[dset] = read_dataset((h5, group+"/"+dset), step)
+        return pd.concat([self.subtargets, self.datasets[dset]], axis=1).set_index("subtarget")
+
+    @lazy
+    def subtargets(self):
+        """..."""
+        h5, group = self.get_path("define-subtargets")
+        return read_dataset((h5, group+"/index"), "define-subtargets")
 
     @lazy
     def subtarget_gids(self):
@@ -162,6 +183,10 @@ class HDFStore:
     def circuits(self):
         """Available circuits for which subtargets have been computed."""
         return self.subtarget_gids.index.get_level_values("circuit").unique().to_list()
+
+    def pour_subtarget(self, s, dataset):
+        """..."""
+        return self.read_dataset(dataset).loc[s]
 
     def pour_subtargets(self, circuit):
         """All subtargets defined for a circuit."""

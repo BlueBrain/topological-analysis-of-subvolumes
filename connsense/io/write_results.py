@@ -189,7 +189,13 @@ def read_subtargets(from_object):
     else:
         root = path; group = "subtargets"
 
-    members = read((root, group+"/members"), for_step="define-subtargets")
+    index = read((root, group+"/index"), for_step="define-subtargets")
+
+    with h5py.File(root, 'r') as connsense_hdf:
+        configured = [dset for dset in connsense_hdf["subtargets"].keys() if dset != "index"]
+
+    definitions = {dset: read((root, group+"/"+dset), "define-subtargets") for dset in configured}
+    return {dset: pd.concat([index, data], axis=1).set_index("subtarget") for dset, data in definitions.items()}
     subtarget_gids = read((root, group+"/subtargets"), for_step="define-subtargets")
     return pd.concat([members, subtarget_gids], axis=1).set_index("subtarget")
 

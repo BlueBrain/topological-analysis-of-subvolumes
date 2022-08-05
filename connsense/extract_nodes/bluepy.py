@@ -24,8 +24,8 @@ def get_node_depths(circuit):
     return depths
 
 
-def extract_node_properties(circuit, subtargets, properties):
-    """..."""
+def extract_node_properties_batch(circuit, subtargets, properties):
+    """...Expect subtargets to be lazy."""
 
     if "depth" in properties:
         LOG.info("Compute depths as node properties")
@@ -33,6 +33,14 @@ def extract_node_properties(circuit, subtargets, properties):
         properties.remove("depth")
     else:
         circuit_depths = None
+
+    def get_gids(subtarget):
+        """..."""
+        try:
+            return subtarget["gids"]
+        except KeyError:
+            return subtarget
+        raise RuntimeError("Python execution must not reach here.")
 
     def get_props(subtarget_gids):
         """..."""
@@ -42,8 +50,31 @@ def extract_node_properties(circuit, subtargets, properties):
             props = pd.concat([props, depths], axis=1)
         return props.reset_index().rename(columns={"index": "gid"})
 
-    dataframes = subtargets.apply(get_props)
+    dataframes = subtargets.apply(get_gids).apply(get_props)
     node_properties = (pd.concat(dataframes.values, keys=subtargets.index.values, names=subtargets.index.names)
                        .droplevel(None))
     LOG.info("Extracted node populations: %s, \n%s", node_properties.shape, pformat(node_properties))
     return node_properties
+
+
+def extract_node_properties(circuit, subtarget, properties):
+    """..."""
+    if "depth" in properties:
+        LOG.info("Compute depths as node properties")
+        circuit_depths = get_node_depths(circuit)
+        properties.remove("depth")
+    else:
+        circuit_depths = None
+
+    props = circuit.cells.get(subtarget["gids"], properties)
+    if circuit_depths is not None:
+        depths = circuit_depths.loc[circuit_depths.index.intersection(subtarget["gids"])]
+        props = pd.concat([props, depths], axis=1)
+    props = props.reset_index().rename(columns={"index": "gid"})
+    props.index.name = "node_id"
+    return props
+
+
+def collect_node_properties(of_subtargets):
+    """..."""
+    return pd.concat(of_subtargets.values, keys=of_subtargets.index.values, names=of_subtargets.index.names)

@@ -200,7 +200,7 @@ def setup_compute_node(c, inputs, for_computation, using_configs):
 def write_multinode_setup(compute_nodes, inputs, at_dirpath):
     """..."""
     inputs_h5, dataset = INPUTS
-    inputs.to_hdf(at_dirpath/inputs_h5, key=dataset)
+    #inputs.to_hdf(at_dirpath/inputs_h5, key=dataset)
 
     return read_pipeline.write({"compute_nodes": compute_nodes, "inputs": at_dirpath/inputs_h5},
                                 to_json=at_dirpath/"setup.json")
@@ -317,8 +317,7 @@ def collect_node_population(setup, from_dirpath, in_connsense_store):
         LOG.info("Write batch %s read from %s", compute_node, from_path)
         compute_node_result = describe_output(from_path)
         result = read_compute_node(compute_node_result, "extract-node-populations")
-        return write_compute_node(result, to_path=(in_connsense_store, hdf_group), append=True, format="table",
-                                  min_itemsize={"subtarget": 64})
+        return write_compute_node(result, to_path=(in_connsense_store, hdf_group), append=True, format="table")
 
     for compute_node, hdf_path in setup.items():
         move(compute_node, hdf_path)
@@ -517,7 +516,7 @@ def generate_inputs_of(computation, in_config, on_compute_node=None, by_subtarge
     """..."""
     from connsense.pipeline.store.store import HDFStore
 
-    LOG.info("Generate inputs for %s %s %s", computatiobn,
+    LOG.info("Generate inputs for %s %s %s", computation,
              "by subtarget" if by_subtarget else "", on_compute_node if on_compute_node else "")
 
     computation_type, of_quantity = describe(computation)
@@ -526,10 +525,14 @@ def generate_inputs_of(computation, in_config, on_compute_node=None, by_subtarge
     def get_subtarget(input_dataset):
         return lambda s: input_dataset.loc[s]
 
-    tap = HDFStore(as_configured, in_connsense_h5=on_compute_store)
+    tap = HDFStore(in_config)
 
-    variables = {var: val for var, val in descriped["input"].items() if var not in ("circuit", "connectome")}
-    input_datasets = tap.subtargets.apply(pour(tap, variables))
+    inputs_h5, dataset = INPUTS
+    input_batches = pd.read_hdf(on_compute_node/inputs_h5, dataset) if on_compute_node else None
+    input_subtargets = tap.subtargets if input_batches is None else tap.subtargets.loc[input_batches.index]
+
+    variables = {var: val for var, val in described["input"].items() if var not in ("circuit", "connectome")}
+    input_datasets = input_subtargets.apply(pour(tap, variables))
 
     return get_subtarget(input_datasets) if by_subtarget else input_datasets
 
@@ -541,8 +544,8 @@ def pour(tap, variables):
         """..."""
         def args(value):
             """..."""
-            return (value.get("transformation", None), tap.pour_subtargets(s, value["dataset"]))
-        return pd.Series({variable: evaluate(*args(value)) for variable, value in variables.items()})
+            return (value.get("transformation", None), tap.pour_subtarget(s, value["dataset"]))
+        return pd.Series({variable[:-1]: evaluate(*args(value)) for variable, value in variables.items()})
 
     def evaluate(transformation, of_dataset):
         """..."""
@@ -593,7 +596,7 @@ def get_group(transformation):
 
 def lazily(to_evaluate):
     """..."""
-    return lambda subtarget: lambda: to_evaulate(subtarget)
+    return lambda subtarget: lambda: to_evaluate(subtarget)
 
 def input_subtargets(in_config):
     """..."""
@@ -616,6 +619,7 @@ def input_subtargets(in_config):
 
 
 def parameterize(computation_type, of_quantity, in_config):
+    """..."""
     """..."""
     paramkey = PARAMKEY[computation_type]
 
@@ -735,8 +739,16 @@ def assign_batches_to(inputs, upto_number):
         try:
             shape = input_data.shape
         except AttributeError:
+            pass
+        else:
+            return np.prod(shape)
+
+        try:
             return len(input_data)
-        return np.prod(shape)
+        except TypeError:
+            pass
+
+        return 1.
 
     if isinstance(inputs, pd.Series):
         weights = inputs.apply(estimate_load).sort_values(ascending=True)
@@ -780,7 +792,7 @@ def write_compute(batches, to_hdf, at_dirpath):
     return at_dirpath / batches_h5
 
 
-def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node, inputs):
+def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node, inputs=None):
     """..."""
     execute, to_store_batch, to_store_one = configure_execution(of_computation, in_config, on_compute_node)
 
@@ -794,39 +806,54 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node, 
 
     in_hdf = "connsense-{}.h5"
 
-    circuit_args = get_circuit_args_for(computation_inputs, in_config)
+    circuit_kwargs = get_circuit_args_for(computation_inputs, in_config)
+    circuit_args = tuple(k for k in ["circuit", "connectome"] if circuit_kwargs[k])
+    circuit_args_values = tuple(v for v in (circuit_kwargs["circuit"], circuit_kwargs["connectome"]) if v)
+    circuit_args_names = tuple(v for v in ((lambda c: c.variant if c else None)(circuit_kwargs["circuit"]),
+                                           circuit_kwargs["connectome"]) if v)
+    connsense_index = pd.MultiIndex.from_tuples([circuit_args_names], names=circuit_args)
     kwargs = {key: value for key, value in parameters.items() if key not in ("description", "circuit", "connectome",
                                                                              "input", "extractor", "computation",
-                                                                             "output")}
-
+                                                                             "collector", "output")}
     subset_input = generate_inputs_of(of_computation, in_config, on_compute_node, by_subtarget=True)
 
     def run_batch(of_input, *, index, in_bowl):
         """..."""
         LOG.info("Compute batch %s of %s inputs args, and circuit %s, \n with kwargs %s ",
-                 index, len(of_input), circuit_args, pformat(kwargs))
+                 index, len(of_input), circuit_args_values, pformat(kwargs))
+
+        def execute_one(lazy_subtarget_inputs):
+            """..."""
+            return execute(*circuit_args_values, **lazy_subtarget_inputs().to_dict(), **kwargs)
 
         if to_store_batch:
-            result = execute(*circuit_args, of_input, **kwargs)
-            in_bowl[index] = to_store_batch(in_hdf.format(index), result)
-            return result
+            framed = pd.concat([of_input.apply(execute_one)], axis=0,
+                               keys=connsense_index.values, names=connsense_index.names)
+
+            _, collect_batch = plugins.import_module(parameters["collector"]) if "collector" in parameters else None
+            if collect_batch:
+                in_bowl[index] = to_store_batch(in_hdf.format(index), results=collect_batch(framed))
+            else:
+                in_bowl[index] = to_store_batch(in_hdf.format(index), results=framed, collect_batch=collector)
+            return in_bowl[index]
 
         def to_subtarget(s):
-            return to_store_one(in_hdf.format(index), result=execute(*circuit_args, of_input, **kwargs))
-
+            """..."""
+            return to_store_one(in_hdf.format(index), result=execute_one(lazy_subtarget_inputs=s))
         in_bowl[index] = to_store_one(update=of_input.apply(to_subtarget))
+
         return result
 
     manager = Manager()
     bowl = manager.dict()
     processes = []
 
-    batches = load_inputs_batches(on_compute_node, inputs)
+    batches = load_input_batches(on_compute_node, inputs)
     n_batches = batches.batch.max() - batches.batch.min() + 1
 
     for batch, subtargets in batches.groupby("batch"):
         LOG.info("Spawn compute node %s process %s / %s batches", on_compute_node, batch, n_batches)
-        p = Process(target=run_batch, args=(subset_input(subtargets),), kwargs={"index": batch, "in_bowl": bowl})
+        p = Process(target=run_batch, args=(subset_input(subtargets.index),), kwargs={"index": batch, "in_bowl": bowl})
         p.start()
         processes.append(p)
 
@@ -854,14 +881,16 @@ def input_circuit(labeled, in_config):
     if not labeled:
         return None
     sbtcfg = SubtargetsConfig(in_config)
-    return sbtcfg.input_circuit[labeled]
+    circuit = sbtcfg.input_circuit[labeled]
+    circuit.variant = labeled
+    return circuit
 
 def get_circuit_args_for(computation_inputs, in_config):
     """..."""
     c = computation_inputs.get("circuit", None)
     circuit = input_circuit(c, in_config)
     connectome = computation_inputs.get("connectome", None)
-    return tuple(x for x in (circuit, connectome) if x)
+    return {"circuit": circuit, "connectome": connectome}
 
 
 def load_input_batches(on_compute_node, inputs=None):
@@ -897,7 +926,7 @@ def configure_execution(computation, in_config, on_compute_node):
         return (execute, store_node_properties(of_quantity, on_compute_node, at_path), None)
 
     if computation_type == "extract-edge-populations":
-        return (execute, store_edge_extraction(of_quantity, on_compute_node, at_path), None)
+        return (execute, store_edge_extraction(of_quantity, on_compute_node, at_path, collect_batch), None)
 
     return (execute, None, store_matrix_data(computation_type, of_quantity, parameters, on_compute_node, at_path))
 
@@ -907,7 +936,7 @@ def store_node_properties(of_population, on_compute_node, in_hdf_group):
     def write_batch(connsense_h5, results):
         """..."""
         in_hdf = (on_compute_node/connsense_h5, in_hdf_group)
-        LOG.info("Write %s batch results to %s ", len(results), in_hdf)
+        LOG.info("Write %s  results %s ", in_hdf, len(results))
         return extract_nodes.write(results, of_population, in_hdf)
 
     return write_batch
@@ -979,8 +1008,7 @@ def collect_batched_edge_population(p, results, on_compute_node, hdf_group):
         LOG.info("collect batch %s of adjacencies at %s ", b, on_compute_node)
 
         batch_adj = read_toc_plus_payload(from_connsense_h5_and_group, for_step="extract-edge-populations")
-        adj = write_toc_plus_payload(batch_adj, (in_connsense_h5, hdf_edges +'/adj'), append=True, format="table",
-                                     min_itemsize=64)
+        adj = write_toc_plus_payload(batch_adj, (in_connsense_h5, hdf_edges +'/adj'), append=True, format="table")
 
         get_store = matrices.get_store
 
@@ -1016,7 +1044,7 @@ def collect_batched_node_population(p, results, on_compute_node, hdf_group):
         """..."""
         LOG.info("Write batch %s read from %s", batch, from_path)
         result = read_batch(from_path, "extract-node-populations")
-        return write_batch(result, to_path=in_hdf, append=True, format="table", min_itemsize={"subtarget": 64})
+        return write_batch(result, to_path=in_hdf, append=True, format="table")
 
     for batch, hdf_path in results.items():
         move(batch, hdf_path)

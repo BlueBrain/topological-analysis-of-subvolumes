@@ -54,7 +54,7 @@ def setup(config, substep=None, in_mode=None,  parallelize=None, output=None, **
     LOG.warning("Extract %s connectivity of subtargets", connectome)
 
     if parallelize:
-        from connsense.pipeline.parallelization import run_multinode, setup_compute_node
+        from connsense.pipeline.parallelization.parallelization import run_multinode, setup_compute_node
         return run_multinode(setup_compute_node, computation=f"extract-edge-populations/{connectome}",
                              in_config=config, using_runtime=parallelize)
 
@@ -135,7 +135,7 @@ def setup(config, substep=None, in_mode=None,  parallelize=None, output=None, **
 
 def collect(config, substep,  parallelize, subgraphs, controls, in_mode, **kwargs):
     """..."""
-    from connsense.pipeline.parallelization import run_multinode, collect_multinode
+    from connsense.pipeline.parallelization.parallelization import run_multinode, collect_multinode
     connectome = substep or "local"
     return run_multinode(process_of=collect_multinode, computation=f"extract-edge-populations/{connectome}",
                          in_config=config, using_runtime=parallelize, for_control=controls,

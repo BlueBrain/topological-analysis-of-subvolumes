@@ -189,8 +189,11 @@ class TopologicalAnalysis:
                                         on_compute_node=inputs.parent, inputs=inputs)
 
 
+    def collect(self, step, substep=None, in_mode=None, subgraphs=None, controls=None):
         """Collect the batched results generated in a single step.
         """
+        computation = '/'.join([step, substep] if substep else [step])
+        LOG.info("Gather computation %s %s --> %s", step, substep, computation)
         runner = self.__steps__[step]
         try:
             gather = runner.collect
@@ -199,6 +202,5 @@ class TopologicalAnalysis:
         else:
             LOG.info("Use to gather results: %s", gather)
 
-        return gather(computation='/'.join([step, substep] if substep else [step]),
-                      in_config=self._config, using_runtime=self._parallelize,
-                      on_compute_node=inputs.parent, inputs=inputs)
+        return gather(computation, in_config=self._config, using_runtime=self._parallelize,
+                      for_control=controls, making_subgraphs=subgraphs)

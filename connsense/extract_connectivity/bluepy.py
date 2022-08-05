@@ -107,7 +107,7 @@ def extract_adj_0(circuit, edge_population, subtargets):
     return pd.concat([connectivity], axis=0, keys=[connectome], names=["connectome"])
 
 
-def extract_adj(circuit, connectome, subtargets):
+def extract_adj_batch(circuit, connectome, subtargets):
     """..."""
     LOG.info("Extract connectivity for circuit %s connectome %s, subtargets %s",
              circuit, connectome, subtargets.index.values)
@@ -121,6 +121,18 @@ def extract_adj(circuit, connectome, subtargets):
 
     connectivity = subtargets.apply(extract_subtarget)
     return pd.concat([connectivity], axis=0, keys=[connectome], names=["connectome"])
+
+
+def extract_adj(circuit, connectome, subtarget):
+    """..."""
+    LOG.info("Extract connectivity for circuit %s connectome %s, subtargets %s",
+             circuit, connectome, subtargets.index.values)
+
+    edges_are_intrinsic = connectome in ("local", "intra_SSCX_midrange_wm")
+
+    gids = pd.Series(subtarget["gids"], name="gid")
+    connections = get_connections(to_subtarget=gids, in_connectome_labeled=connectome, of_circuit=circuit)
+    return as_adjmat(connections, gids, edges_are_intrinsic)
 
 
 def extract_edge_0(properties):
@@ -145,7 +157,7 @@ def extract_edge_0(properties):
     return extract
 
 
-def extract_edge(properties):
+def extract_edge_batch(properties):
     """..."""
     synprops = [Synapse.PRE_GID, Synapse.POST_GID] + [Synapse[p.upper()] for p in properties]
 
@@ -164,6 +176,26 @@ def extract_edge(properties):
         values = subtargets.apply(extract_subtarget)
         return (pd.concat([values], keys=[connectome], names=["connectome"])
                 .reorder_levels(["circuit", "connectome", "subtarget"]))
+
+    return extract
+
+
+def extract_edge(properties):
+    """..."""
+    synprops = [Synapse.PRE_GID, Synapse.POST_GID] + [Synapse[p.upper()] for p in properties]
+
+    def extract(circuit, connectome, subtargets):
+        """..."""
+        LOG.info("Extract properties for circuit %s, subtarget \n%s", circuit, subtargets.index.values)
+
+        edges_are_intrinsic = connectome in ("local", "intra_SSCX_midrange_wm")
+
+        circuit_connectome = find_connectome(connectome, circuit)
+
+        value = (circuit_connectome.pathway_synapses(s if edges_are_intrinsic else None, s, synprops)
+                 .reset_index().rename(columns={"index": "Synapse_ID"}))
+
+        return value
 
     return extract
 
@@ -203,7 +235,39 @@ def extract_connectivity_0(circuits, edge_population, subtargets):
     return {"adj": edge_adjs, "props": edge_props}
 
 
-def extract_connectivity(circuit, connectome, subtargets, properties=None):
+def extract_connectivity_batch(circuit, connectome, subtargets, properties=None):
+    """..."""
+
+    def apply(extract):
+        """..."""
+        LOG.info("Extract %s for %s subtargets in %s connectome %s", extract.__name__, len(subtargets)
+                 , circuit, connectome)
+
+        result = extract(circuit, connectome, subtargets)
+        LOG.info("Extracted %s edges", len(result))
+        return result
+
+    if not properties:
+        adjs = apply(extract_adj).rename("matrix")
+        return {"adj": adjs}
+
+    props = apply(extract_edge(properties)).rename("edge_properties")
+
+    def matrix(row):
+        """..."""
+        connections = row.edge_properties[[Synapse.PRE_GID, Synapse.POST_GID]]
+        nodes = pd.Series(row.gids, name="gid")
+        return as_adjmat(connections, nodes, connectome)
+
+    subtargets_connectome = (pd.concat([subtargets], keys=[connectome], names=["connectome"])
+                             .reorder_levels(["circuit", "connectome", "subtarget"]))
+
+    adjs = pd.concat([props, subtargets_connectome], axis=1).apply(matrix, axis=1).rename("matrix")
+
+    return {"adj": adjs, "props": props}
+
+
+def extract_connectivity(circuit, connectome, subtarget, properties=None):
     """..."""
 
     def apply(extract):

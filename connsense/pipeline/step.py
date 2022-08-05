@@ -68,12 +68,12 @@ class Step(Runnable):
         Expect attribute errors if this instance's runner  does not implement
         a collect method.
         """
-        from connsense.pipeline.parallelization import run_multinode, collect_multinode
+        from .parallelization.parallelization import run_multinode, collect_multinode
         return run_multinode(collect_multinode, computation, in_config, using_runtime, **kwargs)
 
     def run(self, computation, in_config, using_runtime, on_compute_node, inputs, **kwargs):
         """..."""
-        from .parallelization import run_multiprocess
+        from .parallelization.parallelization import run_multiprocess
         return run_multiprocess(computation, in_config, using_runtime, on_compute_node, inputs)
 
 

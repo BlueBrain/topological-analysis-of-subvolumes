@@ -133,7 +133,7 @@ def setup(config, substep, in_mode=None, parallelize=None, output=None, **kwargs
     population = substep
 
     if parallelize:
-        from connsense.pipeline.parallelization import run_multinode, setup_compute_node
+        from connsense.pipeline.parallelization.parallelization import run_multinode, setup_compute_node
         return run_multinode(setup_compute_node, computation=f"extract-node-populations/{population}",
                             in_config=config, using_runtime=parallelize)
 

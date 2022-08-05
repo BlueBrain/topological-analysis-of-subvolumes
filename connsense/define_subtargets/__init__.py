@@ -351,8 +351,8 @@ def run(config, substep=None, in_mode=None, output=None, **kwargs):
     LOG.info("Defined %s %s-subtargets.", len(subtargets), substep)
     to_output = output_specified_in(output_paths, and_argued_to_be=output)
     out_h5, hdf_group = to_output
-    write(subtargets, to_path=(out_h5, hdf_group+"/members"), format="fixed")
-    output = write(subtargets_gids, to_path=(out_h5, hdf_group+"/subtargets"), format="fixed")
+    write(subtargets, to_path=(out_h5, hdf_group+"/index"), format="fixed")
+    output = write(subtargets_gids, to_path=(out_h5, hdf_group+"/"+substep), format="fixed")
     LOG.info("DONE: define-subtargets %s %s", substep, output)
     return output
 
