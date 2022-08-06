@@ -35,6 +35,15 @@ def resolve_connectomes(in_argued):
                               " To do when ready to analyze local + mid-range.")
 
 
+def write_adj(matrices, to_output, append=False, format=True, return_config=False):
+    """..."""
+    hdf, group = to_output
+    LOG.info("Write adjacencies like %s", matrices.head())
+
+    write_toc_plus_payload(matrices, (hdf, group), append=append, format=format)
+    return (hdf, group)
+
+
 def write(edges, to_output, append=False, format=True, return_config=False):
     """..."""
     hdf, group = to_output

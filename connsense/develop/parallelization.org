@@ -304,8 +304,7 @@ def collect_edge_population(setup, from_dirpath, in_connsense_store):
         raise RuntimeError(f"NOTFOUND a description of the population extracted: {at_basedir}") from ferr
 
     p = population["name"]
-    adj_group = f"edges/populations/{p}/adj"
-    props_group = f"edges/populations/{p}/props"
+    hdf_edge_population = f"edges/populations/{p}"
 
     LOG.info("Collect edges with description \n%s", pformat(population))
 
@@ -323,40 +322,16 @@ def collect_edge_population(setup, from_dirpath, in_connsense_store):
 
     def collect_adjacencies(of_compute_node, output):
         """..."""
-        try:
-            from_connsense_h5 = output["adj"]
-        except KeyError as kerr:
-            raise RuntimeError(f"No adjacencies registered in compute node {of_compute_node}/output.json") from kerr
-
-        adj = read_toc_plus_payload(from_connsense_h5, for_step="extract-edge-populations")
-        return write_toc_plus_payload(adj, (in_connsense_store, adj_group), append=True, format="table",
-                                      min_itemsize=64)
+        adj = read_toc_plus_payload(output, for_step="extract-edge-populations")
+        return write_toc_plus_payload(adj, (in_connsense_store, hdf_edge_population), append=True, format="table")
 
     LOG.info("Collect adjacencies")
-    adjacencies = {c: collect_adjacencies(of_compute_node=c, output=o) for c, o in outputs.items()}
-    LOG.info("Adjacencies collected: \n%s", adjacencies)
+    for of_compute_node, output in outputs.items():
+        collect_adjacencies(of_compute_node, output)
 
-    if "properties" not in population:
-        LOG.info("No properties were extracted")
-        return adjacencies
+    LOG.info("Adjacencies collected: \n%s", len(outputs))
 
-    def props_store(compute_node, output):
-        """..."""
-        try:
-            props = output["props"]
-        except KeyError as kerr:
-            raise RuntimeError(f"No properties for compute node {compute_node} in its output {output}") from kerr
-
-        hdf, group = props
-        return matrices.get_store(hdf, group, for_matrix_type="pandas.DataFrame")
-
-    in_base_connsense_props = props_store("base", {"props": (in_connsense_store, props_group)})
-
-    LOG.info("Collect properties")
-    properties = in_base_connsense_props.collect({of_compute_node: props_store(of_compute_node, output)
-                                                  for of_compute_node, output in outputs.items()})
-    LOG.info("Properties collected \n%s", properties)
-    return {"adj": adjacencies, "props": properties}
+    return (in_connsense_store, hdf_edge_population)
 
 #+end_src
 
@@ -1257,24 +1232,28 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node, 
                                                                              "collector", "output")}
     subset_input = generate_inputs_of(of_computation, in_config, on_compute_node, by_subtarget=True)
 
+    collector = plugins.import_module(parameters["collector"]) if "collector" in parameters else None
+    def collect_batch(results):
+        """..."""
+        if not collector:
+            return results
+
+        _, collect = collector
+        return collect(results)
+
+    def execute_one(lazy_subtarget_inputs):
+        """..."""
+        return execute(*circuit_args_values, **lazy_subtarget_inputs().to_dict(), **kwargs)
+
     def run_batch(of_input, *, index, in_bowl):
         """..."""
-        LOG.info("Compute batch %s of %s inputs args, and circuit %s, \n with kwargs %s ",
+        LOG.info("Run %s batch %s of %s inputs args, and circuit %s, \n with kwargs %s ", of_computation,
                  index, len(of_input), circuit_args_values, pformat(kwargs))
 
-        def execute_one(lazy_subtarget_inputs):
-            """..."""
-            return execute(*circuit_args_values, **lazy_subtarget_inputs().to_dict(), **kwargs)
-
         if to_store_batch:
-            framed = pd.concat([of_input.apply(execute_one)], axis=0,
-                               keys=connsense_index.values, names=connsense_index.names)
-
-            _, collect_batch = plugins.import_module(parameters["collector"]) if "collector" in parameters else None
-            if collect_batch:
-                in_bowl[index] = to_store_batch(in_hdf.format(index), results=collect_batch(framed))
-            else:
-                in_bowl[index] = to_store_batch(in_hdf.format(index), results=framed, collect_batch=collector)
+            results = of_input.apply(execute_one)
+            framed = pd.concat([results], axis=0, keys=connsense_index.values, names=connsense_index.names)
+            in_bowl[index] = to_store_batch(in_hdf.format(index), results=collect_batch(framed))
             return in_bowl[index]
 
         def to_subtarget(s):
@@ -1394,7 +1373,7 @@ def configure_execution(computation, in_config, on_compute_node):
         return (execute, store_node_properties(of_quantity, on_compute_node, at_path), None)
 
     if computation_type == "extract-edge-populations":
-        return (execute, store_edge_extraction(of_quantity, on_compute_node, at_path, collect_batch), None)
+        return (execute, store_edge_extraction(of_quantity, on_compute_node, at_path), None)
 
     return (execute, None, store_matrix_data(computation_type, of_quantity, parameters, on_compute_node, at_path))
 
@@ -1416,8 +1395,8 @@ def store_edge_extraction(of_population, on_compute_node, in_hdf_group):
         """..."""
         in_hdf = (on_compute_node/connsense_h5, f"{in_hdf_group}/{of_population}")
         LOG.info("Write %s batch results to %s", len(results), in_hdf)
-        return extract_connectivity.write(results, to_output=in_hdf,  append=True, format="table",
-                                          return_config=True)
+        return extract_connectivity.write_adj(results, to_output=in_hdf,  append=True, format="table",
+                                              return_config=True)
 
     return write_batch
 
@@ -1479,18 +1458,21 @@ def collect_batched_node_population(p, results, on_compute_node, hdf_group):
              len(results), on_compute_node, hdf_group)
 
     in_connsense_h5 = on_compute_node / "connsense.h5"
-    in_hdf = (in_connsense_h5, hdf_group+"/"+p)
 
-    def move(batch, from_path):
+    hdf_node_population = (in_connsense_h5, hdf_group+"/"+p)
+
+    def move(batch, output):
         """..."""
-        LOG.info("Write batch %s read from %s", batch, from_path)
-        result = read_batch(from_path, "extract-node-populations")
-        return write_batch(result, to_path=in_hdf, append=True, format="table")
+        LOG.info("Write batch %s read from %s", batch, output)
+        result = read_batch(output, "extract-node-populations")
+        return write_batch(result, to_path=hdf_node_population, append=True, format="table")
 
-    for batch, hdf_path in results.items():
-        move(batch, hdf_path)
+    LOG.info("collect batched extraction of nodes at compute node %s", on_compute_node)
+    for batch, output in results.items():
+        move(batch, output)
 
-    return in_hdf
+    LOG.info("DONE collecting %s", collected)
+    return hdf_node_population
 
 #+end_src
 
@@ -1504,38 +1486,20 @@ def collect_batched_edge_population(p, results, on_compute_node, hdf_group):
 
     in_connsense_h5 = on_compute_node / "connsense.h5"
 
-    hdf_edges = hdf_group+'/'+p
+    hdf_edge_population = hdf_group+'/'+p
 
-    def collect_batch(b, output):
+    def move(batch, output):
         """.."""
-        try:
-            from_connsense_h5_and_group = output["adj"]
-        except KeyError as err:
-            raise RuntimeError(f"No adjacencies registered in compute node batch {b} of_compute_node output {output}")
-
-        LOG.info("collect batch %s of adjacencies at %s ", b, on_compute_node)
-
-        batch_adj = read_toc_plus_payload(from_connsense_h5_and_group, for_step="extract-edge-populations")
-        adj = write_toc_plus_payload(batch_adj, (in_connsense_h5, hdf_edges +'/adj'), append=True, format="table")
-
-        get_store = matrices.get_store
-
-        if "props" in output:
-            in_prop_store = get_store(in_connsense_h5, hdf_edges +'/props', "pandas.DataFrame",
-                                       in_mode='a')
-            batch_props, group = output["props"]
-            props = in_prop_store.collect({b: get_store(batch_props, group, for_matrix_type="pandas.DataFrame",
-                                                        in_mode='a')})
-        else:
-            props = pd.Series()
-
-        return {"adj": adj, "props": props}
+        LOG.info("collect batch %s of adjacencies at %s output %s ", batch, on_compute_node, output)
+        adjmats = read_toc_plus_payload(output, for_step="extract-edge-populations")
+        return write_toc_plus_payload(adjmats, (in_connsense_h5, hdf_edge_population), append=True, format="table")
 
     LOG.info("collect batched extraction of edges at compute node %s", on_compute_node)
-    collected = {b: collect_batch(b, output=o) for b, o in results.items()}
-    LOG.info("DONE collecting %s", collected)
+    for batch, output in results.item():
+        move(batch, output)
 
-    return {"adj": (in_connsense_h5, hdf_edges+"/adj"), "props": (in_connsense_h5, hdf_edges+"/props")}
+    LOG.info("DONE collecting %s", collected)
+    return (in_connsense_h5, hdf_edge_population)
 
 #+end_src
 

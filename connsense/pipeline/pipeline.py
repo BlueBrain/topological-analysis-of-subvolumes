@@ -182,7 +182,7 @@ class TopologicalAnalysis:
     def run(self, step, substep=None, in_mode=None, subgraphs=None, controls=None, inputs=None, **kwargs):
         """Run the pipeline, one (computation_type, of_quantity) at a time.
         """
-        LOG.warning("RUN pipeline action %s for step %s %s ", step, substep)
+        LOG.warning("RUN pipeline for step %s %s ", step, substep)
 
         return self.__steps__[step].run(computation='/'.join([step, substep] if substep else [step]),
                                         in_config=self._config, using_runtime=self._parallelize,

@@ -96,8 +96,8 @@ class HDFStore:
         hdf, grp = self.get_path("extract-node-populations")
         nodes = {p: read_node_properties((hdf, grp+'/'+p)) for p in populations}
         if len(nodes) == 1:
-            return nodes[populations[0]]
-        return nodes
+            return nodes[populations[0]].sort_index()
+        return nodes.sort_index()
         #try:
             #return read_node_properties(self.get_path("extract-node-populations"))
         #except (KeyError, FileNotFoundError):

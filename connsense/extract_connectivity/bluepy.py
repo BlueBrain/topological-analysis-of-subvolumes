@@ -41,10 +41,27 @@ def iter_afferent(to_subtarget, in_connectome_labeled, of_circuit, as_connection
     return (get_afferent(gid) for gid in to_subtarget)
 
 
-def get_connections(to_subtarget, in_connectome_labeled, of_circuit):
+def iter_connections(in_subtarget, connectome_labeled, of_circuit):
     """..."""
-    iterc = iter_afferent(to_subtarget, in_connectome_labeled, of_circuit, as_connections=True)
-    return pd.concat(list(iterc))
+
+    edges_are_intrinsic = connectome_labeled in ("local", "long-range", "cortico-cortical")
+
+    connectome = find_connectome(connectome_labeled, of_circuit)
+
+    try:
+        gids = in_subtarget["gids"]
+    except (KeyError, IndexError):
+        gids = in_subtarget
+
+    return connectome.iter_connections(gids if edges_are_intrinsic else None, gids, return_synapse_count=True)
+
+
+def get_connections(in_subtarget, connectome_labeled, of_circuit):
+    """..."""
+    #iterc = iter_afferent(to_subtarget, in_connectome_labeled, of_circuit, as_connections=True)
+    iterc = iter_connections(in_subtarget, connectome_labeled, of_circuit)
+    return pd.DataFrame(list(iterc), columns=[Synapse.PRE_GID, Synapse.POST_GID, "nsyn"])
+    #return pd.concat(list(iterc))
 
 
 def anonymize_gids(connections, gids, edges_are_intrinsic):
@@ -64,9 +81,10 @@ def anonymize_gids(connections, gids, edges_are_intrinsic):
         target_ids = nodes_idx[target_gids].values + 1
         nodes_idx += 1
 
-    edges = pd.DataFrame({"source": source_ids, "target": target_ids}, index=pd.MultiIndex.from_frame(connections))
+    edges = (pd.DataFrame({"source": source_ids, "target": target_ids}).join(connections)
+             .set_index([Synapse.PRE_GID, Synapse.POST_GID]).rename(columns={"nsyn": 'weight'}))
 
-    return (edges, nodes_idx)
+    return (edges.sort_index(), nodes_idx.sort_index())
 
 
 def get_adjacency(edges, number_nodes):
@@ -126,12 +144,12 @@ def extract_adj_batch(circuit, connectome, subtargets):
 def extract_adj(circuit, connectome, subtarget):
     """..."""
     LOG.info("Extract connectivity for circuit %s connectome %s, subtargets %s",
-             circuit, connectome, subtargets.index.values)
+             circuit, connectome, subtarget)
 
     edges_are_intrinsic = connectome in ("local", "intra_SSCX_midrange_wm")
 
     gids = pd.Series(subtarget["gids"], name="gid")
-    connections = get_connections(to_subtarget=gids, in_connectome_labeled=connectome, of_circuit=circuit)
+    connections = get_connections(in_subtarget=gids, connectome_labeled=connectome, of_circuit=circuit)
     return as_adjmat(connections, gids, edges_are_intrinsic)
 
 
@@ -180,22 +198,31 @@ def extract_edge_batch(properties):
     return extract
 
 
-def extract_edge(properties):
+def extract_edge(properties, statistics=None):
     """..."""
-    synprops = [Synapse.PRE_GID, Synapse.POST_GID] + [Synapse[p.upper()] for p in properties]
+    Synapse_CONN = [Synapse.PRE_GID, Synapse.POST_GID]
+    synprops = Synapse_CONN + [Synapse[p.upper()] for p in properties]
 
-    def extract(circuit, connectome, subtargets):
+    if statistics is True:
+        statistics = ["mean", "std"]
+
+    def extract(circuit, connectome, subtarget):
         """..."""
-        LOG.info("Extract properties for circuit %s, subtarget \n%s", circuit, subtargets.index.values)
+        LOG.info("Extract properties for circuit %s, subtarget \n%s", circuit, subtarget)
 
         edges_are_intrinsic = connectome in ("local", "intra_SSCX_midrange_wm")
 
         circuit_connectome = find_connectome(connectome, circuit)
 
-        value = (circuit_connectome.pathway_synapses(s if edges_are_intrinsic else None, s, synprops)
-                 .reset_index().rename(columns={"index": "Synapse_ID"}))
+        gids = subtarget["gids"]
+        value = circuit_connectome.pathway_synapses(gids if edges_are_intrinsic else None, gids, synprops)
 
-        return value
+        if not statistics:
+            return value
+
+        conns = value.reset_index(drop=True)
+        summary = conns.groupby(Synapse_CONN).agg(statistics)
+        return summary
 
     return extract
 
@@ -267,33 +294,27 @@ def extract_connectivity_batch(circuit, connectome, subtargets, properties=None)
     return {"adj": adjs, "props": props}
 
 
-def extract_connectivity(circuit, connectome, subtarget, properties=None):
+def extract_connectivity(circuit, connectome, subtarget, properties=None, statistics=None):
     """..."""
-
     def apply(extract):
         """..."""
-        LOG.info("Extract %s for %s subtargets in %s connectome %s", extract.__name__, len(subtargets)
-                 , circuit, connectome)
+        LOG.info("Extract %s in circuit %s connectome %s subtarget %s", extract.__name__,
+                 circuit, connectome, subtarget)
 
-        result = extract(circuit, connectome, subtargets)
-        LOG.info("Extracted %s edges", len(result))
+        result = extract(circuit, connectome, subtarget)
+        LOG.info("Extracted %s edges", result.shape)
         return result
 
     if not properties:
-        adjs = apply(extract_adj).rename("matrix")
+        adjs = apply(extract_adj)
         return {"adj": adjs}
 
-    props = apply(extract_edge(properties)).rename("edge_properties")
+    props = apply(extract_edge(properties, statistics))
 
-    def matrix(row):
-        """..."""
-        connections = row.edge_properties[[Synapse.PRE_GID, Synapse.POST_GID]]
-        nodes = pd.Series(row.gids, name="gid")
-        return as_adjmat(connections, nodes, connectome)
 
-    subtargets_connectome = (pd.concat([subtargets], keys=[connectome], names=["connectome"])
-                             .reorder_levels(["circuit", "connectome", "subtarget"]))
-
-    adjs = pd.concat([props, subtargets_connectome], axis=1).apply(matrix, axis=1).rename("matrix")
+    Synapse_CONN = [Synapse.PRE_GID, Synapse.POST_GID]
+    connections = props.index.to_frame().reset_index(drop=True) if statistics else props[Synapse_CONN]
+    nodes = pd.Series(subtarget["gids"], name="gid")
+    adj = as_adjmat(connections, nodes, connectome)
 
     return {"adj": adjs, "props": props}
