@@ -129,7 +129,7 @@ class MatrixStore:
     def toc(self):
         """"..."""
         key = self.group_identifier_toc
-        return pd.read_hdf(self._root, key).apply(self.but_lazily)
+        return pd.read_hdf(self._root, key).apply(self.but_lazily).sort_index()
 
     @property
     def keys(self):
@@ -268,17 +268,28 @@ class DataFrameHelper:
     def write(frame, to_hdf_store_at_path, under_group, as_dataset):
         """..."""
         at_path = to_hdf_store_at_path
-        under_key = f"{under_group}/{as_dataset}"
+        under_key = lambda key: '/'.join([under_group, as_dataset, key] if key else [under_group, as_dataset])
         #frame.to_hdf(at_path, under_key, mode='a', format="table")
-        frame.to_hdf(at_path, under_key, mode='a', format="fixed")
-        return under_key
+
+        index = frame.index.to_frame().reset_index(drop=True)
+        index.to_hdf(at_path, under_key("index"), format="table")
+
+        columns = frame.reset_index(drop=True)
+        columns.to_hdf(at_path, under_key("columns"))
+
+        return under_key(None)
 
     @staticmethod
     def read(dataset, under_group, in_hdf_store_at_path):
         """..."""
         at_path = in_hdf_store_at_path
-        under_key = under_group + "/" + dataset
-        return pd.read_hdf(at_path, under_key)
+        #under_key = under_group + "/" + dataset
+        under_key = lambda key: '/'.join([under_group, dataset, key])
+        columns = pd.read_hdf(at_path, under_key("columns"))
+        index = pd.read_hdf(at_path, under_key("index"))
+        if len(index.columns) == 1:
+            return columns.set_index(pd.Index(index))
+        return columns.set_index(pd.MultiIndex.from_frame(index))
 
 
 class SeriesHelper:

@@ -220,21 +220,17 @@ def main(argued=None):
         return result
 
     if is_to_run(argued.action):
-        if argued.substep:
-            parser.print_help()
-            raise parser.error(f"tap run {argued.step} does not accept a substep.\n"
-                               f"Please provide the {argued.step}'s substep explicitly as a CLI option.\n"
-                               "If in doubt Read the help above, or `tap --help`")
 
         if argued.step == "define-subtargets":
 
-            if not argued.definition:
+            if not argued.substep and not argued.definition:
                 raise parser.error(f"MISSING subtarget definition. Pass this as option `--definition=<...>`")
 
-            if (argued.modeltype or argued.annotation or argued.population or argued.analysis):
-                raise parser.error("Only --definition=<...>` is valid for `step=define-subtargets`")
-
-            return define_subtargets.run(argued.configure, substep=argued.definition, parallelize=argued.parallelize)
+            if not argued.substep:
+                if (argued.modeltype or argued.annotation or argued.population or argued.analysis):
+                    raise parser.error("Only --definition=<...>` is valid for `step=define-subtargets`")
+            definition = argued.substep or argued.definition
+            return define_subtargets.run(argued.configure, substep=definition, parallelize=argued.parallelize)
 
         substeps = {"extract-node-types": argued.modeltype,
                     "extract-voxels": argued.annotation,
@@ -245,12 +241,14 @@ def main(argued=None):
                     "analyze-node-types": argued.analysis,
                     "analyze-connectivity": argued.analysis,
                     "analyze-edges": argued.analysis}
-        arg_substep = substeps[argued.step]
 
-        if not arg_substep:
+        argued_substep = argued.substep or substeps[argued.step]
+
+        if not argued_substep:
             parser.print_help()
-            raise ArgumentParser.error(f"MISSING {SUBSTEPS[argued.step][:-1]}")
-
+            raise parser.error(f"tap run {argued.step} accepts EITHER the argument substep.\n"
+                               f"OR {argued.step}'s substep explicitly as a CLI option.\n"
+                               "If in doubt Read the help above, or `tap --help`")
 
         if ((argued.step == "extract-node-types" and (argued.annotation or argued.population or argued.analysis))
              or (argued.step == "extract-voxels" and (argued.modeltype or argued.population or argued.analysis))
@@ -262,8 +260,9 @@ def main(argued=None):
                                f"Argued : {pformat(argued)}")
 
         path_input = Path(argued.input) if argued.input else None
-        result = topaz.run(argued.step, arg_substep, in_mode=argued.mode, subgraphs=argued.subgraphs, controls=argued.controls,
-                            inputs=path_input, sample=argued.sample, output=argued.output)
+        result = topaz.run(argued.step, argued_substep, in_mode=argued.mode,
+                           subgraphs=argued.subgraphs, controls=argued.controls,
+                           inputs=path_input, sample=argued.sample, output=argued.output)
 
         LOG.info("DONE running pipeline")
 

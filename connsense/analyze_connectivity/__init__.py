@@ -554,6 +554,17 @@ def _check_paths(config):
     return check_paths(config, STEP)
 
 
+def setup(config, substep, subgraphs=None, controls=None, in_mode=None, parallelize=None,
+          output=None, batch=None, sample=None, tap=None, **kwargs):
+    """..."""
+    if parallelize:
+        from connsense.pipeline.parallelization.parallelization import run_multinode, setup_compute_node
+        return run_multinode(setup_compute_node, computation=f"analyze-connectivity/{substep}",
+                             in_config=config, using_runtime=parallelize)
+    return run(config, "setup", substep, subgraphs, controls, in_mode,
+               output=output, batch=batch, sample=sample, tap=tap, **kwargs)
+    
+
 def run(config, action, substep=None, subgraphs=None, controls=None, in_mode=None, parallelize=None,
         output=None, batch=None, sample=None, tap=None, dry_run=None, **kwargs):
     """..."""

@@ -46,8 +46,8 @@ class TopologicalAnalysis:
                              ("extract-node-populations", Step(extract_nodes)),
                              ("evaluate-subtargets", Step(evaluate_subtargets)),
                              ("extract-edge-populations", Step(extract_connectivity)),
-                             ("randomize_connectivity", Step(randomize_connectivity)),
-                             ("analyze_connectivity", Step(analyze_connectivity))])
+                             ("randomize-connectivity", Step(randomize_connectivity)),
+                             ("analyze-connectivity", Step(analyze_connectivity))])
 
     @classmethod
     def sequence_of_steps(cls):

@@ -342,11 +342,13 @@ def run(config, substep=None, in_mode=None, output=None, **kwargs):
     subtargets = pd.Series(members, name="subtarget", index=pd.Index(range(len(members)), name="subtarget_id"))
 
     sbtcfg = SubtargetsConfig(config)
-    circuit = sbtcfg.input_circuit[definition["circuit"]]
+    circuit_label = definition["input"]["circuit"]
+    circuit = sbtcfg.input_circuit[circuit_label]
 
     _, load = plugins.import_module(definition["loader"])
 
-    subtargets_gids = subtargets.apply(lambda s: load(circuit, s)).rename("gids")
+    subtargets_gids = pd.concat([subtargets.apply(lambda s: load(circuit, s)).rename("gids")], axis=0,
+                                keys=[circuit_label], names=["circuit"])
 
     LOG.info("Defined %s %s-subtargets.", len(subtargets), substep)
     to_output = output_specified_in(output_paths, and_argued_to_be=output)
