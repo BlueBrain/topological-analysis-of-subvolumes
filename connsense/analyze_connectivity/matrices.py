@@ -275,7 +275,7 @@ class DataFrameHelper:
         index.to_hdf(at_path, under_key("index"), format="table")
 
         columns = frame.reset_index(drop=True)
-        columns.to_hdf(at_path, under_key("columns"))
+        columns.to_hdf(at_path, under_key("columns"), format="table")
 
         return under_key(None)
 
@@ -287,8 +287,9 @@ class DataFrameHelper:
         under_key = lambda key: '/'.join([under_group, dataset, key])
         columns = pd.read_hdf(at_path, under_key("columns"))
         index = pd.read_hdf(at_path, under_key("index"))
+        LOG.info("read dataset %s under group %s at path %s", dataset, under_group, in_hdf_store_at_path)
         if len(index.columns) == 1:
-            return columns.set_index(pd.Index(index))
+            return columns.set_index(pd.Index(index[index.columns[0]]))
         return columns.set_index(pd.MultiIndex.from_frame(index))
 
 
@@ -301,16 +302,32 @@ class SeriesHelper:
         LOG.info("SeriesHelper write series %s to %s under %s as dataset %s",
                  series.index, to_hdf_store_at_path, under_group, as_dataset)
         at_path = to_hdf_store_at_path
-        under_key = f"{under_group}/{as_dataset}"
-        series.to_hdf(at_path, under_key, mode='a', format="fixed")
-        return under_key
+        under_key = lambda key: '/'.join([under_group, as_dataset, key] if key else [under_group, as_dataset])
+
+        index = series.index.to_frame().reset_index(drop=True)
+        index.to_hdf(at_path, under_key("index"), format="table")
+
+        values = series.reset_index(drop=True)
+        values.to_hdf(at_path, under_key("values"), format="table")
+
+        return under_key(None)
+        #under_key = f"{under_group}/{as_dataset}"
+        #series.to_hdf(at_path, under_key, mode='a', format="fixed")
+        #return under_key
 
     @staticmethod
     def read(dataset, under_group, in_hdf_store_at_path):
         """..."""
         at_path = in_hdf_store_at_path
-        under_key = under_group + "/" + dataset
-        return pd.read_hdf(at_path, under_key)
+        under_key = lambda key: '/'.join([under_group, dataset, key] if key else [under_group, dataset])
+        values = pd.read_hdf(at_path, under_key("values"))
+        index = pd.read_hdf(at_path, under_key("index"))
+        if len(index.columns) == 1:
+            return pd.Series(values.values, index=pd.Index(index[index.columns[0]]), name=values.name)
+        return pd.Series(values.values, index=pd.MultiIndex.from_frame(index))
+
+        #under_key = under_group + "/" + dataset
+        #return pd.read_hdf(at_path, under_key)
 
 
 class SeriesOfMatricesHelper:

@@ -25,10 +25,11 @@ from connsense.io import logging, read_config as read_pipeline
 from connsense.io.slurm import SlurmConfig
 from connsense.io.write_results import read_toc_plus_payload, write_toc_plus_payload
 from connsense.pipeline.workspace import find_base
+from connsense.pipeline.pipeline import NotConfiguredError
+from connsense.pipeline.store.store import HDFStore
 from connsense.define_subtargets.config import SubtargetsConfig
 from connsense.analyze_connectivity import check_paths, matrices
 from connsense.analyze_connectivity.analysis import SingleMethodAnalysisFromSource
-from connsense.apps import APPS
 
 # pylint: disable=locally-disabled, multiple-statements, fixme, line-too-long, too-many-locals, comparison-with-callable, too-many-arguments, invalid-name, unspecified-encoding, unnecessary-lambda-assignment
 
@@ -49,6 +50,10 @@ BATCH_SUBTARGETS = ("subtargets.h5", "batch")
 COMPUTE_NODE_SUBTARGETS = ("inputs.h5", "subtargets")
 INPUTS = ("inputs.h5", "subtargets")
 COMPUTE_NODE_ASSIGNMENT = ("subtargets.h5", "compute_node")
+
+
+class IllegalParallelComputationError(ValueError):
+    """..."""
 
 
 def describe(computation):
@@ -134,6 +139,7 @@ def batch_multinode(process_of, inputs, computation, in_config, at_path, using_p
 
 def setup_compute_node(c, inputs, for_computation, using_configs):
     """..."""
+    from connsense.apps import APPS
     LOG.info("Configure chunk %s with %s inputs to compute %s.", c, len(inputs), for_computation)
 
     computation_type, for_quantity = describe(for_computation)
@@ -505,10 +511,46 @@ def symlink_pipeline_subgraphs(to_config, at_dirpath):
     return create_symlink(at_dirpath)(to_config) if to_config else None
 
 
+def index_units(computation, in_config):
+    """..."""
+    computation_type, of_quantity = describe(computation)
+    parameters = parameterize(computation_type, of_quantity, in_config)
+
+    def check_input():
+        """..."""
+        try:
+            inputs = parameters["input"]
+        except KeyError:
+            return {}
+        indices = {"circuit": inputs.get("circuit", None), "connectome": inputs.get("connectome", None),
+                   "dataset": inputs.get("subtarget", {}).get("dataset", None)}
+        return {key: value for key, value in indices.items() if value}
+
+    indices = parameters.get("index", {}); indices.update(check_input())
+
+    if not indices:
+        raise NotConfiguredError(f"MISSING unit of computation for {computation}")
+
+    if "dataset" not in indices:
+        raise IllegalParallelComputationError("WITHOUT a dataset to iterate")
+
+    return indices
+
+
+def input_units(computation, to_tap):
+    """..."""
+    indices = index_units(computation, to_tap._config)
+    return to_tap.index_contents(indices)
+
+
+def filter_input_datasets(described):
+    """..."""
+    return {var: val for var, val in described.items() if (var not in ("circuit", "connectome")
+                                                           and isinstance(val, Mapping) and "dataset" in val)}
+
+
 def generate_inputs_of(computation, in_config, on_compute_node=None, by_subtarget=False):
     """..."""
-    from connsense.pipeline.store.store import HDFStore
-
     LOG.info("Generate inputs for %s %s %s", computation,
              "by subtarget" if by_subtarget else "", on_compute_node if on_compute_node else "")
 
@@ -523,46 +565,58 @@ def generate_inputs_of(computation, in_config, on_compute_node=None, by_subtarge
     inputs_h5, dataset = INPUTS
     input_batches = pd.read_hdf(on_compute_node/inputs_h5, dataset) if on_compute_node else None
 
-    input_subtargets = (tap.subtargets() if input_batches is None else
-                        tap.subtargets().loc[input_batches.index]).index.to_series()
+    variables = filter_input_datasets(described["input"])
 
-    variables = {var: val for var, val in described["input"].items() if var not in ("circuit", "connectome")}
-    input_datasets = input_subtargets.apply(pour(tap, variables, in_config))
+    #inputs = (input_units(computation, in_config) if input_batches is None
+              #else input_unites(computation, in_config).loc[input_batches.index]).index.to_series()
+
+    #input_subtargets = (tap.subtargets() if input_batches is None else
+    #                    tap.subtargets().loc[input_batches.index]).index.to_series()
+
+    unit_computations = input_units(computation, tap)
+
+    dataflow = pour(tap, variables)
+
+    #input_datasets = unit_computations.apply(dataflow, axis=1) #causes stop iteration for some cases!
+    input_datasets = pd.Series([dataflow(row) for i, row in unit_computations.iterrows()],
+                               index=pd.MultiIndex.from_frame(unit_computations))
 
     return get_subtarget(input_datasets) if by_subtarget else input_datasets
 
 
 
-def index_subtargets(variable, value, in_config):
-    """..."""
-    circuit_kwargs = subtarget_circuit_args(value["dataset"], in_config)
-    circuit_args = tuple(circuit_kwargs[k] for k in ["circuit", "connectome"] if circuit_kwargs[k])
-
-    def add_circuit_args(subtarget):
-         """..."""
-         return (*circuit_args, subtarget)
-
-    return add_circuit_args
-
-
-def pour(tap, variables, in_config):
-    """..."""
-    def for_subtarget(s):
+def pour(tap, variables):
+    """.."""
+    def tap_dataset(value):
         """..."""
-        def args(variable, value):
+        dataset = tap.pour_subtarget(value["dataset"])
+        #LOG.info("in dataset index \%s", dataset.index.names)
+        return dataset
+
+    def loc(subtarget):
+        """..."""
+        #LOG.info("Locate subtarget \n%s ", subtarget)
+        def lookup(to_dataset):
             """..."""
-            subtarget_index = index_subtargets(variable, value, in_config)(s)
-            return ({k: v for k, v in value.items() if k != "dataset"}, get_dataset(value, subtarget_index))
-        return pd.Series({variable: evaluate(*args(variable, value)) for variable, value in variables.items()})
+            index = tuple(subtarget[var] for var in subtarget.index if var in to_dataset.index.names)
+            #LOG.info("Look up %s in dataset indexed by %s", index, to_dataset.index.names)
+            return index
 
-    def get_dataset(value, subtarget_index):
-        """..."""
-        data = tap.pour_subtarget(value["dataset"], subtarget_index)
-        try:
-            return data.get_value()
-        except AttributeError:
-            pass
-        return data
+        def get_dataset(var, value):
+            """..."""
+            dataset = tap.pour_subtarget(value["dataset"], subset=lookup)
+            try:
+                value = dataset.get_value
+            except AttributeError:
+                return dataset
+            return value()
+
+        def get_transformation(value):
+            """..."""
+            return {k: v for k, v in value.items() if k != "dataset"}
+
+        return pd.Series({var: evaluate(get_transformation(value), get_dataset(var, value))
+                          for var, value in variables.items()})
 
     def evaluate(transformation, of_dataset):
         """..."""
@@ -586,7 +640,7 @@ def pour(tap, variables, in_config):
 
         return lambda dataset: to_type(to_filter(dataset))
 
-    return lazily(to_evaluate=for_subtarget)
+    return lazily(to_evaluate=loc)
 
 
 def get_filter(transformation):
@@ -617,28 +671,13 @@ def get_properties(transformation):
     return apply
 
 
+    return lazily(loc)
+
+
 def lazily(to_evaluate):
     """..."""
+    LOG.info("Evaluate %s lazily", to_evaluate.__name__)
     return lambda subtarget: lambda: to_evaluate(subtarget)
-
-def input_subtargets(in_config):
-    """..."""
-    _, output_paths = read_pipeline.check_paths(in_config, "define-subtargets")
-    path_subtargets = output_paths["steps"]["define-subtargets"]
-    LOG.info("Read subtargets from %s", path_subtargets)
-
-    subtargets = read_results(path_subtargets, for_step="define-subtargets")
-    LOG.info("Read %s subtargets", len(subtargets))
-
-    #subset for testing
-    # from bluepy import Cell
-    # circuit = input_circuit("Bio_M", in_config)
-    # def filter_l1(gids):
-    #     layers = circuit.cells.get(gids, Cell.LAYER)
-    #     return list(layers[layers==1].index.values)
-    # return subtargets.apply(filter_l1)
-
-    return subtargets
 
 
 def parameterize(computation_type, of_quantity, in_config):
@@ -649,9 +688,18 @@ def parameterize(computation_type, of_quantity, in_config):
     if not computation_type in in_config["parameters"]:
         raise RuntimeError(f"Unknown {computation_type}")
 
-    if of_quantity not in in_config["parameters"][computation_type][paramkey]:
-        raise RuntimeError(f"Unknown {paramkey[:-1]} {of_quantity} for {computation_type}")
-    return deepcopy(in_config["parameters"][computation_type][paramkey][of_quantity])
+    configured = in_config["parameters"][computation_type][paramkey]
+    if of_quantity not in configured:
+        try:
+            modeltype, component = of_quantity.split('/')
+        except ValueError:
+            raise RuntimeError(f"Unknown {paramkey} {of_quantity} for {computation_type}")
+        configured_quantity =  configured[modeltype][component]
+
+    else:
+        configured_quantity = configured[of_quantity]
+
+    return deepcopy(configured_quantity)
 
     if computation_type != "define-subtargets":
         if of_quantity not in in_config["parameters"][computation_type][paramkey]:
@@ -719,6 +767,7 @@ def read_runtime_config(for_parallelization, of_pipeline=None):
 
     def configure_slurm_for(computation_type):
         """..."""
+        LOG.info("Configure slurm for %s", computation_type)
         try:
             cfg_computation_type = of_pipeline["parameters"][computation_type]
         except KeyError:
@@ -832,11 +881,14 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node, 
     circuit_args_values = tuple(v for v in (circuit_kwargs["circuit"], circuit_kwargs["connectome"]) if v)
     circuit_args_names = tuple(v for v in ((lambda c: c.variant if c else None)(circuit_kwargs["circuit"]),
                                            circuit_kwargs["connectome"]) if v)
-    #connsense_index = pd.MultiIndex.from_tuples([circuit_args_names], names=circuit_args)
     kwargs = {key: value for key, value in parameters.items() if key not in ("description",
                                                                              "circuit", "connectome", "subtarget",
-                                                                             "input", "extractor", "computation",
+                                                                             "index", "input",
+                                                                             "extractor", "computation",
                                                                              "collector", "output")}
+    kwargs.update({key: value for key, value in parameters.get("input", {}).items()
+                   if not isinstance(value, Mapping) or "dataset" not in value})
+
     subset_input = generate_inputs_of(of_computation, in_config, on_compute_node, by_subtarget=True)
 
     collector = plugins.import_module(parameters["collector"]) if "collector" in parameters else None
@@ -977,24 +1029,28 @@ def load_input_batches(on_compute_node, inputs=None, n_parallel_tasks=None):
 
 
 
-def configure_execution(computation, in_config, on_compute_node):
+def get_executable(computation_type, parameters):
     """..."""
-    computation_type, of_quantity = describe(computation)
-
-    parameters = parameterize(computation_type, of_quantity, in_config)
-
     executable_type = EXECUTABLE[computation_type.split('-')[0]]
 
     try:
         executable = parameters[executable_type]
     except KeyError as err:
-        raise RuntimeError(f"No {executable_type} defined for {computation}") from err
+        raise RuntimeError(f"No {executable_type} defined for {computation_type}") from err
 
     _, execute = plugins.import_module(executable["source"], executable["method"])
 
+    return execute
+
+
+def configure_execution(computation, in_config, on_compute_node):
+    """..."""
+    computation_type, of_quantity = describe(computation)
+    parameters = parameterize(computation_type, of_quantity, in_config)
     _, output_paths = read_pipeline.check_paths(in_config, step=computation_type)
     _, at_path = output_paths["steps"][computation_type]
 
+    execute = get_executable(computation_type, parameters)
     if computation_type == "extract-node-populations":
         return (execute, store_node_properties(of_quantity, on_compute_node, at_path), None)
 

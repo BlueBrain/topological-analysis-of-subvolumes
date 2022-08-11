@@ -8,7 +8,7 @@ from pprint import pformat
 from connsense import pipeline
 from connsense.io import logging, read_config
 from connsense.pipeline import workspace
-from connsense import define_subtargets
+from connsense import define_subtargets, extract_node_types
 
 LOG = logging.get_logger("Toplogical analysis of flatmapped subtargets.")
 
@@ -100,6 +100,7 @@ SUBSTEPS = OrderedDict([("define-subtargets", "definitions"),
                         ("evaluate-subtargets", "metrics"),
                         ("extract-edge-populations", "populations"),
                         ("randomize-connectivity", "controls"),
+                        ("analyze-node-types", "analyses"),
                         ("analyze-connectivity", "analyses")])
 
 
@@ -231,6 +232,17 @@ def main(argued=None):
                     raise parser.error("Only --definition=<...>` is valid for `step=define-subtargets`")
             definition = argued.substep or argued.definition
             return define_subtargets.run(argued.configure, substep=definition, parallelize=argued.parallelize)
+
+        if argued.step == "extract-node-types":
+
+            if not argued.substep and not argued.modeltype:
+                raise parser.error(f"MISSING node-type modeltype. Pass this as option `--modeltype=<...>`")
+
+            if not argued.substep:
+                if (argued.definition or argued.annotation or argued.population or argued.analysis):
+                    raise parser.error("Only --modeltype=<...>` is valid for `step=extract-node-types`")
+            modeltype = argued.substep or argued.definition
+            return extract_node_types.run(argued.configure, substep=modeltype)
 
         substeps = {"extract-node-types": argued.modeltype,
                     "extract-voxels": argued.annotation,

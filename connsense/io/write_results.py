@@ -196,10 +196,6 @@ def read_subtargets(from_object):
 
     definitions = {dset: read((root, group+"/"+dset), "define-subtargets") for dset in configured}
     return definitions
-    #return {dset: pd.concat([index, data], axis=1).set_index("subtarget") for dset, data in definitions.items()}
-
-#    subtarget_gids = read((root, group+"/subtargets"), for_step="define-subtargets")
-#    return pd.concat([members, subtarget_gids], axis=1).set_index("subtarget")
 
 
 def read_node_properties(from_object):

@@ -2,7 +2,12 @@
 
 from collections.abc import Mapping
 import importlib
+from pprint import pformat
 from pathlib import Path
+
+from connsense.io import logging
+
+LOG = logging.get_logger("Write Results")
 
 
 class ImportFailure(ModuleNotFoundError):
@@ -11,19 +16,24 @@ class ImportFailure(ModuleNotFoundError):
 
 def import_module(from_path, with_method=None):
     """..."""
+    LOG.info("Import module from path %s, with method %s", from_path, with_method)
+
     if isinstance(from_path, Mapping):
         try:
             source = from_path["source"]
         except KeyError as kerr:
+            LOG.warning("No source in path: \n%s", pformat(from_path))
             raise ImportFailure from kerr
         try:
             method = from_path["method"]
         except KeyError as kerr:
+            LOG.warning("No method in path: \n%s", pformat(from_path))
             raise ImportFailure from kerr
         return import_module(source, method)
 
     if not from_path:
         assert not with_method, "Cannot find a method without a path."
+        LOG.warning("Cannot import a module from a null path")
         return (None, None)
     try:
         module = import_module_with_name(from_path)
@@ -42,6 +52,7 @@ def import_module(from_path, with_method=None):
 
     if with_method:
         if not hasattr(module, with_method):
+            LOG.warning("No method %s among module: \n%s", with_method, pformat(dir(module)))
             raise TypeError(f"No method to {with_method}")
         return (module, getattr(module, with_method))
 

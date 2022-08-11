@@ -6,6 +6,8 @@ import h5py
 
 import pandas as pd
 
+from connsense import plugins
+from connsense.define_subtargets.config import SubtargetsConfig
 from connsense import analyze_connectivity as anzconn
 from connsense.analyze_connectivity import matrices
 from connsense.io.write_results import (read as read_dataset,
@@ -31,6 +33,12 @@ def group_steps(config):
     return {step: group for step, (_, group) in inputs.items()}
 
 
+CIRCUIT_ID = "circuit"
+CONNECTOME_ID = "connectome"
+SUBTARGET_ID = "subtarget_id"
+MORPH_ID = "morphology_id"
+
+
 class HDFStore:
     """Handle the pipeline's data.
     """
@@ -48,15 +56,25 @@ class HDFStore:
     #     return {name: analysis for quantity, analyses in configured.items()
     #             for name, analysis in load_configured(quantity, analyses)}
 
-    def load_analyses(self):
+    INDICES = pd.Series(["circuit", "connectome", "subtarget", "morphology"],
+                        index=["circuit", "connectome", "subtarget_id", "morphology_id"])
+
+    def load_analyses(self, group):
         """..."""
-        return self._config["parameters"]["analyze-connectivity"]["analyses"]
+        try:
+            group_analyses = self._config["parameters"][f"analyze-{group}"]
+        except KeyError:
+            LOG.warning("No analyses for group %s", group)
+            return {}
+
+        return group_analyses["analyses"]
 
     def __init__(self, config, in_connsense_h5=None):
         """..."""
         self._config = config
         self._root = locate_store(config, in_connsense_h5)
         self._groups = group_steps(config)
+        self._circuits = {None: None}
 
     def get_path(self, step):
         """..."""
@@ -77,15 +95,20 @@ class HDFStore:
 
     def read_dataset(self, d):
         """..."""
-        step, dset = d
+        from connsense.pipeline.parallelization.parallelization import describe
+        step, dset = describe(d)
         h5, group = self.get_path(step)
         at_path = (h5, group+"/"+dset)
 
         if dset not in self.datasets[step]:
-            read = self.get_reader(step)
-            self.datasets[step][dset] = read(at_path, step).sort_index()
-
-        return self.datasets[step][dset]
+            if step == "extract-node-types":
+                self.datasets[step][dset] = self.read_node_types(dset).sort_index()
+            elif step.startswith("analyze-"):
+                self.datasets[step][dset] = self.analyses['-'.join(step.split('-')[1:])].get(dset, None)
+            else:
+                read = self.get_reader(step)
+                self.datasets[step][dset] = read(at_path, step).sort_index()
+        return  self.datasets[step][dset]
 
     def subtargets(self, circuit=None, connectome=None):
         """..."""
@@ -96,13 +119,53 @@ class HDFStore:
             return pd.concat([df], axis=0, keys=[value], names=[key])
 
         h5, group = self.get_path("define-subtargets")
-
         data = read_dataset((h5, group+"/index"), "define-subtargets")
+
         if not circuit:
             return data
         if connectome:
             data = index_subtargets(data, connectome, "connectome")
         return index_subtargets(data, circuit, "circuit")
+
+    @lazy
+    def index_circuits(self):
+        """Placeholder."""
+        return pd.Series(["Bio_M"], index=pd.Index(["Bio_M"], name="circuit_id"), name="circuit")
+
+    @lazy
+    def index_connectome(self):
+        """Placeholder."""
+        return pd.Series(["local"], index=pd.Index(["local"], name="connectome_id"), name="connectome")
+
+    @lazy
+    def index_subtargets(self):
+        """..."""
+        h5, group = self.get_path("define-subtargets")
+        return read_dataset((h5, group+"/index"), "define-subtargets")
+
+    @lazy
+    def index_morphologies(self):
+        """..."""
+        h5, group = self.get_path("extract-node-types")
+        return read_dataset((h5, group+"/biophysical/morphology/index"), "extract-node-types")
+
+    @lazy
+    def index_names(self):
+        """..."""
+        return {CIRCUIT_ID: self.index_circuits, CONNECTOME_ID: self.index_connectome,
+                SUBTARGET_ID: self.index_subtargets,
+                MORPH_ID: self.index_morphologies}
+
+    def modeltypes(self, m, circuit=None):
+        """..."""
+        modeltype, component = m.split('/')
+        if modeltype == "biophysical":
+            if component == "morphology":
+                morphologies = self.read_dataset(["extract-node-types", "biophysical/morphology"])
+                return morphologies.loc[circuit] if circuit else morphologies
+            raise KeyError(f"Unknown modeltype {modeltype} component {component}")
+        raise KeyError(f"Unown modeltype {modeltype}")
+
 
     @lazy
     def subtarget_gids(self):
@@ -180,13 +243,31 @@ class HDFStore:
         return {control:  get(control) for control in ranconn.get_controls(self._config).keys()}
 
 
-    def get_value_store(self, an, analysis):
+    def get_value_store(self, group, analysis):
         """..."""
-        to_hdf_at_path, under_group = self.get_path("analyze-connectivity")
-        return matrices.get_store(to_hdf_at_path, under_group + "/" + an, for_matrix_type=analysis["output"],
+        to_hdf_at_path, under_group = self.get_path(f"analyze-{group}")
+        an,alysis = analysis
+        return matrices.get_store(to_hdf_at_path, under_group + "/" + an, for_matrix_type=alysis["output"],
                                   in_mode="r")
 
 
+    def get_circuit(self, labeled):
+        """..."""
+        if labeled not in self._circuits:
+            sbtcfg = SubtargetsConfig(self._config)
+            self._circuits[labeled] = sbtcfg.input_circuit[labeled]
+        return self._circuits[labeled]
+
+    def read_node_types(self, data):
+        """..."""
+        from connsense.pipeline.parallelization import parallelization
+        LOG.info("READ node type models %s", data)
+        h5, gp = self.get_path("extract-node-types")
+        return read_dataset((h5, gp+"/biophysical/morphology/morphology_data"), "extract-node-types")
+
+    def input_morphologies(self, circuit):
+        """..."""
+        return self.read_node_types("biophysica/morphologies")
 
     @lazy
     def analyses(self):
@@ -204,7 +285,10 @@ class HDFStore:
             return None
 
         p = (self._root, self._groups[anzconn.STEP])
-        tocs = {an: tabulate(an, self.get_value_store(an,alysis)) for an,alysis in self.load_analyses().items()}
+        tocs = {"connectivity": {an: tabulate(an, self.get_value_store("connectivity", (an,alysis)))
+                                 for an,alysis in self.load_analyses("connectivity").items()},
+                "node-types": {an: tabulate(an, self.get_value_store("node-types", (an,alysis)))
+                               for an,alysis in self.load_analyses("node-types").items()}}
 
         return {tic: toc for tic, toc in tocs.items() if toc is not None}
 
@@ -213,20 +297,66 @@ class HDFStore:
         """Available circuits for which subtargets have been computed."""
         return self.subtarget_gids.index.get_level_values("circuit").unique().to_list()
 
-    def pour_subtarget(self, dataset, subtarget=None):
+
+    def index_values(self, described, subset=None):
+        """..."""
+        contents = tap.index_contents(described, subset)
+
+    
+    def index_contents(self, described, subset=None):
+        """..."""
+        circuit = described.get("circuit", None)
+        connectome = described.get("connectome", None)
+        circon = (circuit, connectome)
+
+        def lookup(to_dataset):
+            """..."""
+            return tuple(v for i, v in enumerate(circon) if ["circuit", "connectome"][i] in to_dataset.index.names)
+
+        dataset = self.pour_subtarget(described["dataset"], subset=lookup)
+
+        if connectome:
+            dataset = pd.concat([dataset], axis=0, keys=[connectome], names=["connectome"])
+        if circuit:
+            dataset = pd.concat([dataset], axis=0, keys=[circuit], names=["circuit"])
+
+        return (dataset if subset is None else dataset.loc[subset]).index.to_frame().reset_index(drop=True)
+
+    def pour_subtarget(self, dataset, subset=None):
         """..."""
         data = self.read_dataset(dataset)
 
-        if subtarget is None:
+        if subset is None:
             return data
 
-        if isinstance(subtarget, (pd.Index, tuple)):
-            return data.loc[subtarget]
+        index = subset(data) if callable(subset) else subset
 
-        if isinstance(subtarget, pd.Series):
-            return data.loc[subtarget.index]
+        if isinstance(index, (pd.Index, tuple, str)):
+            return data.loc[index]
 
-        raise TypeError(f"Not a valid subtarget reference type: {type(subtarget)}")
+        if isinstance(subset, (pd.Series, pd.DataFrame)):
+            return data.loc[index.index]
+
+        raise TypeError(f"Not a valid subtarget reference type: {type(index)}")
+
+
+    def pour_result(self, step, dataset, subset=None):
+        """...For example tap.load_analysis('analyze-connectivity', 'pathway-strength)
+        """
+        dataset = self.pour_subtarget([step, dataset], subset)
+
+        index_values = pd.DataFrame({self.INDICES[var]: self.index_names[var][vals].values
+                                     for var, vals in dataset.index.to_frame().iteritems()},
+                                    index=dataset.index)
+        index = pd.MultiIndex.from_frame(index_values)
+
+        if isinstance(dataset, pd.DataFrame):
+            return dataset.set_index(index)
+        return pd.Series(dataset.values, index=index, name=dataset.name)
+
+    def pour_analysis_result(self, group, member):
+        """..."""
+        return self.pour_result(f"analyze-{group}", member)
 
     def pour_subtargets(self, circuit):
         """All subtargets defined for a circuit."""

@@ -33,20 +33,28 @@ PARAMKEY = {"define-subtargets": "definitions",
             "analyze-connectivity": "analyses"}
 
 
+class NotConfiguredError(FileNotFoundError):
+    pass
+
+
 class TopologicalAnalysis:
     """..."""
     from connsense import define_subtargets
     from connsense import extract_nodes
+    from connsense import extract_node_types
     from connsense import evaluate_subtargets
     from connsense import extract_connectivity
     from connsense import randomize_connectivity
+    from connsense import analyze_node_types
     from connsense import analyze_connectivity
 
     __steps__ = OrderedDict([("define-subtargets", Step(define_subtargets)),
+                             ("extract-node-types", Step(extract_node_types)),
                              ("extract-node-populations", Step(extract_nodes)),
                              ("evaluate-subtargets", Step(evaluate_subtargets)),
                              ("extract-edge-populations", Step(extract_connectivity)),
                              ("randomize-connectivity", Step(randomize_connectivity)),
+                             ("analyze-node-types", Step(analyze_node_types)),
                              ("analyze-connectivity", Step(analyze_connectivity))])
 
     @classmethod
