@@ -291,7 +291,7 @@ def generate_predefined(subtargets_config, fmt):
     return pd.concat([generate_group(g, subtargets=ss) for g, ss in subtargets_group.items()])
 
 
-def define(subtarget_type, using_config, fmt=None):
+def define_0(subtarget_type, using_config, fmt=None):
     """..."""
     fmt = fmt or "wide"
     assert fmt in ("wide", "long"), f"Unknown format {fmt}"
@@ -303,6 +303,7 @@ def define(subtarget_type, using_config, fmt=None):
         raise ValueError(f"Unknown subtarget type {subtarget_type}") from kerr
 
     return subtarget_def.generate(subtargets_config.input_circuit)
+
 
 def read(config):
     """..."""
@@ -325,7 +326,95 @@ def output_specified_in(configured_paths, and_argued_to_be):
     return (to_hdf_at_path, under_group)
 
 
+def input_circuits(definition, in_config, tap):
+    """..."""
+    configured = in_config["definitions"][definition]["input"]["circuit"]
+    return pd.Series(configured, index=tap.subset_index("circuit", configured), name="circuit")
+
+
+def extract_subtargets(definition, in_config, tap):
+    """..."""
+    members = in_config.get("members", in_config["definitions"][definition].get("members", None))
+    _, load = plugins.import_module(in_config["definitions"][definition]["loader"])
+
+    def index_subtarget(values):
+        """..."""
+        return pd.Series(values, index=pd.RangeIndex(0, len(values), 1, name="subtarget_id"),
+                         name="subtarget")
+
+    def index_circuit(subtargets):
+        """..."""
+        return pd.concat([subtargets], axis=0, keys=tap.get_index("circuit", values=circuit.variant), names=["circuit"])
+
+    def from_circuit(c, subtargets=None):
+        """..."""
+        if subtargets is not None:
+            return subtargets.apply(lambda s: load(circuit=c, subtarget=s)).rename("gids")
+        return load(circuit=c)
+
+    circuits = input_circuits(definition, in_config, tap).apply(tap.get_circuit)
+
+    if isinstance(members, list):
+        subtargets = index_subtarget(members)
+        circuit_gidses = (pd.concat([subtargets.apply(lambda s: load(c, s)).rename("gids") for c in circuits],
+                                    axis=0, keys=circuits.index.values, names=[circuits.index.name])
+                          .reorder_levels(["subtarget_id", "circuit_id"]))
+
+    else:
+        raise NotImplementedError(f"NOT-YET when members of type {type(members)}")
+
+    return (subtargets, circuit_gidses)
+
+
 def run(config, substep=None, in_mode=None, output=None, **kwargs):
+    """..."""
+    from ..pipeline.store.store import HDFStore as TapStore
+    config = read(config)
+    input_paths, output_paths = check_paths(config, STEP)
+
+    parameters = config["parameters"][STEP]
+    definition = substep
+
+    LOG.warning("Define %s subtargets inside the circuit %s", substep,
+                parameters["definitions"][substep]["input"]["circuit"])
+
+    in_rundir = workspace.get_rundir(config, mode=in_mode, **kwargs)
+    to_define_subtargets_in = workspace.locate_base(in_rundir, for_step=STEP)
+    LOG.warning("\tworking in %s", to_define_subtargets_in)
+
+    subtargets, gidses = extract_subtargets(definition, in_config=parameters, tap=TapStore(config))
+
+    connsense_h5, define_subtargets = output_specified_in(output_paths, and_argued_to_be=output)
+    under_group = define_subtargets + "/" + definition
+
+    subtargets.to_hdf(connsense_h5, key=under_group+"/name")
+    gidses.to_hdf(connsense_h5, key=under_group+"/data")
+
+    return (connsense_h5, under_group)
+
+    subtargets = pd.Series(members, name="subtarget", index=pd.Index(range(len(members)), name="subtarget_id"))
+
+    sbtcfg = SubtargetsConfig(config)
+    circuit_label = definition["input"]["circuit"]
+    circuit = sbtcfg.input_circuit[circuit_label]
+
+    _, load = plugins.import_module(definition["loader"])
+
+    subtargets_gids = pd.concat([subtargets.apply(lambda s: load(circuit, s)).rename("gids")], axis=0,
+                                keys=[circuit_label], names=["circuit"])
+
+    LOG.info("Defined %s %s-subtargets.", len(subtargets), substep)
+    to_output = output_specified_in(output_paths, and_argued_to_be=output)
+    connsense_h5, group = to_output
+
+    write(subtargets, to_path=(connsense_h5, group))
+    write(subtargets, to_path=(out_h5, hdf_group+"/index"), format="fixed")
+    output = write(subtargets_gids, to_path=(out_h5, hdf_group+"/"+substep), format="fixed")
+    LOG.info("DONE: define-subtargets %s %s", substep, output)
+    return output
+
+
+def run_2(config, substep=None, in_mode=None, output=None, **kwargs):
     """..."""
     config = read(config)
     input_paths, output_paths = check_paths(config, STEP)

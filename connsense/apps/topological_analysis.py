@@ -5,7 +5,7 @@ from argparse import ArgumentParser, RawTextHelpFormatter
 from pathlib import Path
 from pprint import pformat
 
-from connsense import pipeline
+from connsense.pipeline import pipeline
 from connsense.io import logging, read_config
 from connsense.pipeline import workspace
 from connsense import define_subtargets, extract_node_types
@@ -197,7 +197,7 @@ def main(argued=None):
     LOG.info("Workspace initialized at %s", current_run)
 
     if is_to_init(argued.action):
-        return current_run
+        return topaz.initialize()
 
     if is_to_setup(argued.action):
         if argued.step == "define-subtargets":
@@ -241,7 +241,7 @@ def main(argued=None):
             if not argued.substep:
                 if (argued.definition or argued.annotation or argued.population or argued.analysis):
                     raise parser.error("Only --modeltype=<...>` is valid for `step=extract-node-types`")
-            modeltype = argued.substep or argued.definition
+            modeltype = argued.substep or argued.modeltype
             return extract_node_types.run(argued.configure, substep=modeltype)
 
         substeps = {"extract-node-types": argued.modeltype,

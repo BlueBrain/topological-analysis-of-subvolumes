@@ -1,4 +1,5 @@
 """Interface to the HDFStore where the pipeline stores its data."""
+from collections.abc import Iterable, Mapping
 from collections import OrderedDict, defaultdict
 from lazy import lazy
 from pathlib import Path
@@ -15,6 +16,7 @@ from connsense.io.write_results import (read as read_dataset,
                                         read_node_properties,
                                         read_toc_plus_payload)
 from connsense.io import logging
+from connsense.pipeline import ConfigurationError, NotConfiguredError
 
 
 LOG = logging.get_logger(__name__)
@@ -76,6 +78,70 @@ class HDFStore:
         self._groups = group_steps(config)
         self._circuits = {None: None}
 
+    @lazy
+    def index(self):
+        """..."""
+        return OrderedDict()
+        #configured = self._config["parameters"]["create-index"]["variables"]
+        #return OrderedDict({var: self.create_index(var, described) for var in configured})
+
+    def set_index(self, variable):
+        """..."""
+        value = self.create_index(variable)
+        self.index[variable] = value
+        return value
+
+    def create_index(self, variable):
+        """Create index for a variable and it's values.
+        """
+        configured = self._config["parameters"]["create-index"]["variables"]
+        described = configured[variable]
+        if isinstance(described, pd.Series):
+            values = described.values
+        elif isinstance(described, Mapping):
+            try:
+                dataset = described["dataset"]
+            except KeyError as kerr:
+                raise ConfigurationError(
+                    "If not a index values, an index variable description should provide a value for `dataset`"
+                ) from kerr
+            else:
+                transformations = {a: transform for a, transform in described.items() if a != "dataset"}
+                values = self.pour_subtarget(dataset, **transformations).values
+        elif isinstance(described, Iterable):
+            values = described
+        else:
+            raise ConfigurationError(f"CANNOT create index from description \n {pformat(desxribed)}")
+
+
+        index = pd.Series(values, index=pd.RangeIndex(0, len(values), 1, name=f"{variable}_id"), name=variable)
+        return index
+
+    def subset_index(self, variable, values):
+        """..."""
+        try:
+            index = self.index[variable]
+        except KeyError:
+            index = self.set_index(variable)
+
+        reverse = pd.Series(index.index.values, name=index.index.name, index=index)
+
+        if isinstance(values, list):
+            return pd.Index(reverse.loc[values])
+
+        try:
+            d = values["dataset"]
+        except KeyError:
+            pass
+        else:
+            computation_type, of_quantity = d
+            dataset = self.read_dataset([computation_type, of_quantity])
+            #dataset = self.read_dataset([computation_type, of_quantity+"/name"])
+            values = dataset.values
+
+        return pd.Index(reverse.loc[values])
+
+
     def get_path(self, step):
         """..."""
         return (self._root, self._groups[step])
@@ -101,31 +167,20 @@ class HDFStore:
         at_path = (h5, group+"/"+dset)
 
         if dset not in self.datasets[step]:
-            if step == "extract-node-types":
-                self.datasets[step][dset] = self.read_node_types(dset).sort_index()
-            elif step.startswith("analyze-"):
+            if step.startswith("analyze-"):
                 self.datasets[step][dset] = self.analyses['-'.join(step.split('-')[1:])].get(dset, None)
+            #elif step == "extract-node-types":
+            #    self.datasets[step][dset] = self.read_node_types(dset).sort_index()
             else:
                 read = self.get_reader(step)
                 self.datasets[step][dset] = read(at_path, step).sort_index()
+
         return  self.datasets[step][dset]
 
-    def subtargets(self, circuit=None, connectome=None):
+    def subtarget(self, definition):
         """..."""
-        if connectome:
-            assert circuit, f"Need circuit for connectome"
-
-        def index_subtargets(df, value, key):
-            return pd.concat([df], axis=0, keys=[value], names=[key])
-
         h5, group = self.get_path("define-subtargets")
-        data = read_dataset((h5, group+"/index"), "define-subtargets")
-
-        if not circuit:
-            return data
-        if connectome:
-            data = index_subtargets(data, connectome, "connectome")
-        return index_subtargets(data, circuit, "circuit")
+        return read_dataset((h5, '/'.join([group, definition, "data"])), "define-subtargets")
 
     @lazy
     def index_circuits(self):
@@ -255,7 +310,9 @@ class HDFStore:
         """..."""
         if labeled not in self._circuits:
             sbtcfg = SubtargetsConfig(self._config)
-            self._circuits[labeled] = sbtcfg.input_circuit[labeled]
+            circuit = sbtcfg.input_circuit[labeled]
+            circuit.variant = labeled
+            self._circuits[labeled] = circuit
         return self._circuits[labeled]
 
     def read_node_types(self, data):
@@ -263,11 +320,12 @@ class HDFStore:
         from connsense.pipeline.parallelization import parallelization
         LOG.info("READ node type models %s", data)
         h5, gp = self.get_path("extract-node-types")
+
         return read_dataset((h5, gp+"/biophysical/morphology/morphology_data"), "extract-node-types")
 
     def input_morphologies(self, circuit):
         """..."""
-        return self.read_node_types("biophysica/morphologies")
+        return self.read_node_types("biophysical/morphology")
 
     @lazy
     def analyses(self):
@@ -293,16 +351,10 @@ class HDFStore:
         return {tic: toc for tic, toc in tocs.items() if toc is not None}
 
     @lazy
-    def circuits(self):
+    def subtarget_circuits(self):
         """Available circuits for which subtargets have been computed."""
         return self.subtarget_gids.index.get_level_values("circuit").unique().to_list()
 
-
-    def index_values(self, described, subset=None):
-        """..."""
-        contents = tap.index_contents(described, subset)
-
-    
     def index_contents(self, described, subset=None):
         """..."""
         circuit = described.get("circuit", None)
@@ -339,20 +391,33 @@ class HDFStore:
 
         raise TypeError(f"Not a valid subtarget reference type: {type(index)}")
 
+    @lazy
+    def index_vars(self):
+        """..."""
+        return self._config["parameters"]["create-index"]["variables"]
+
+
+    def pour_dataset(self, variable, values):
+        """..."""
+        from connsense.pipeline.parallelization import parallelization as prl
+        computation_type, of_quantity = prl.describe(values)
+        #dataset = of_quantity+"/data" if variable in self.index_vars else of_quantity
+        dataset = of_quantity
+        return self.pour_result(computation_type, dataset)
+
 
     def pour_result(self, step, dataset, subset=None):
         """...For example tap.load_analysis('analyze-connectivity', 'pathway-strength)
         """
         dataset = self.pour_subtarget([step, dataset], subset)
 
-        index_values = pd.DataFrame({self.INDICES[var]: self.index_names[var][vals].values
-                                     for var, vals in dataset.index.to_frame().iteritems()},
-                                    index=dataset.index)
-        index = pd.MultiIndex.from_frame(index_values)
+        if subset is None:
+            return dataset
 
         if isinstance(dataset, pd.DataFrame):
             return dataset.set_index(index)
         return pd.Series(dataset.values, index=index, name=dataset.name)
+
 
     def pour_analysis_result(self, group, member):
         """..."""

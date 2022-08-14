@@ -54,13 +54,27 @@ class SubtargetsConfig:
         self._label = label or "define-subtargets"
 
     @staticmethod
-    def load_circuit(with_maybe_config):
+    def load_circuit(with_maybe_config, label=None):
         """..."""
         try:
             circuit = Circuit(with_maybe_config)
         except BluePyError:
             circuit = with_maybe_config
+        circuit.variant = label
         return circuit
+
+    @staticmethod
+    def get_node_depths(circuit):
+        LOG.info("RUN neuron depths extraction")
+        from flatmap_utility import supersampled_neuron_locations
+        #  TODO: Use config-provided flatmap, if possible
+        #  TODO: Could offer diffent ways to get the depths values here, such as, using [PH]y
+        orient = circuit.atlas.load_data("orientation")
+        flatmap = circuit.atlas.load_data("flatmap")
+        flat_and_depths = supersampled_neuron_locations(circuit, flatmap, orient, include_depth=True)
+        depths = flat_and_depths[["depth"]]
+        LOG.info("DONE neuron depths extractions")
+        return depths
 
     @lazy
     def input_circuit(self):
@@ -68,12 +82,14 @@ class SubtargetsConfig:
         paths = self._config["paths"]
 
         input_circuit = paths["circuit"]
+
         try:
             configs = input_circuit.items
         except AttributeError:
             config = input_circuit
             return {"_": self.load_circuit(config)}
-        return {label: self.load_circuit(config) for label, config in configs()}
+
+        return {label: self.load_circuit(config, label) for label, config in configs()}
 
     @lazy
     def input_atlas(self):

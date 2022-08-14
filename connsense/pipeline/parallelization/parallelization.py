@@ -20,12 +20,12 @@ from connsense import extract_nodes,  plugins
 from connsense.extract_connectivity import read_results
 from connsense.extract_connectivity import extract as extract_connectivity
 from connsense.pipeline import workspace
-from connsense.pipeline.pipeline import PARAMKEY
+from connsense.pipeline import PARAMKEY
 from connsense.io import logging, read_config as read_pipeline
 from connsense.io.slurm import SlurmConfig
 from connsense.io.write_results import read_toc_plus_payload, write_toc_plus_payload
 from connsense.pipeline.workspace import find_base
-from connsense.pipeline.pipeline import NotConfiguredError
+from connsense.pipeline import NotConfiguredError
 from connsense.pipeline.store.store import HDFStore
 from connsense.define_subtargets.config import SubtargetsConfig
 from connsense.analyze_connectivity import check_paths, matrices
@@ -221,8 +221,8 @@ def collect_multinode(computation_type, setup, from_dirpath, in_connsense_store)
     if computation_type == "extract-edge-populations":
         return collect_edge_population(setup, from_dirpath, in_connsense_store)
 
-    if computation_type == "analyze-connectivity":
-        return collect_analyze_connectivity(setup, from_dirpath, in_connsense_store)
+    if computation_type in ("analyze-connectivity", "analyze-node-types"):
+        return collect_analyze_step(setup, from_dirpath, in_connsense_store)
 
     raise NotImplementedError(f"INPROGRESS: {computation_type}")
 
@@ -305,7 +305,7 @@ def collect_node_population(setup, from_dirpath, in_connsense_store):
     return (in_connsense_store, hdf_group)
 
 
-def collect_analyze_connectivity(setup, from_dirpath, in_connsense_store):
+def collect_analyze_step(setup, from_dirpath, in_connsense_store):
     """..."""
     try:
         with open(from_dirpath/"description.json", 'r') as f:
@@ -511,7 +511,7 @@ def symlink_pipeline_subgraphs(to_config, at_dirpath):
     return create_symlink(at_dirpath)(to_config) if to_config else None
 
 
-def index_units(computation, in_config):
+def index_units_pre_create_index(computation, in_config):
     """..."""
     computation_type, of_quantity = describe(computation)
     parameters = parameterize(computation_type, of_quantity, in_config)
@@ -537,17 +537,25 @@ def index_units(computation, in_config):
     return indices
 
 
-def input_units(computation, to_tap):
+def input_units_pre_create_index(computation, to_tap):
     """..."""
     indices = index_units(computation, to_tap._config)
     return to_tap.index_contents(indices)
+
+
+def input_units(computation, to_tap):
+    """..."""
+    parameters = parameterize(*describe(computation), to_tap._config)
+    index_vars = parameters.get("index", parameters["input"])
+    index = pd.MultiIndex.from_product([to_tap.subset_index(var, values) for var, values in index_vars.items()])
+    return index
+    return index.to_frame().reset_index(drop=True)
 
 
 def filter_input_datasets(described):
     """..."""
     return {var: val for var, val in described.items() if (var not in ("circuit", "connectome")
                                                            and isinstance(val, Mapping) and "dataset" in val)}
-
 
 def generate_inputs_of(computation, in_config, on_compute_node=None, by_subtarget=False):
     """..."""
@@ -557,9 +565,6 @@ def generate_inputs_of(computation, in_config, on_compute_node=None, by_subtarge
     computation_type, of_quantity = describe(computation)
     described = parameterize(computation_type, of_quantity, in_config)
 
-    def get_subtarget(input_dataset):
-        return lambda s: input_dataset.loc[s]
-
     tap = HDFStore(in_config)
 
     inputs_h5, dataset = INPUTS
@@ -567,19 +572,18 @@ def generate_inputs_of(computation, in_config, on_compute_node=None, by_subtarge
 
     variables = filter_input_datasets(described["input"])
 
-    #inputs = (input_units(computation, in_config) if input_batches is None
-              #else input_unites(computation, in_config).loc[input_batches.index]).index.to_series()
-
-    #input_subtargets = (tap.subtargets() if input_batches is None else
-    #                    tap.subtargets().loc[input_batches.index]).index.to_series()
-
     unit_computations = input_units(computation, tap)
 
+    #input_datasets = pd.DataFrame({var: tap.pour_dataset(var, values["dataset"]).loc[unit_computations]
+                                   #for var, values in variables.items()})
     dataflow = pour(tap, variables)
+    input_datasets = pd.Series([dataflow(s) for s in unit_computations], index=unit_computations)
+    return (lambda s: input_datasets.loc[s]) if by_subtarget else input_datasets
+
 
     #input_datasets = unit_computations.apply(dataflow, axis=1) #causes stop iteration for some cases!
-    input_datasets = pd.Series([dataflow(row) for i, row in unit_computations.iterrows()],
-                               index=pd.MultiIndex.from_frame(unit_computations))
+    #input_datasets = pd.Series([dataflow(row) for i, row in unit_computations.iterrows()],
+                               #index=pd.MultiIndex.from_frame(unit_computations))
 
     return get_subtarget(input_datasets) if by_subtarget else input_datasets
 
@@ -587,13 +591,16 @@ def generate_inputs_of(computation, in_config, on_compute_node=None, by_subtarge
 
 def pour(tap, variables):
     """.."""
-    def tap_dataset(value):
-        """..."""
-        dataset = tap.pour_subtarget(value["dataset"])
-        #LOG.info("in dataset index \%s", dataset.index.names)
-        return dataset
+    #input_datasets = pd.DataFrame({var: tap.pour_dataset(var, vals["dataset"]) for var, vals in variables.items()})
+    input_datasets = {var: tap.pour_dataset(var, vals["dataset"]) for var, vals in variables.items()}
 
     def loc(subtarget):
+        """..."""
+        #return input_datasets.loc[subtarget]
+        return {var: vals.loc[subtarget] for var, vals in input_datasets.items()}
+
+
+    def loc_0(subtarget):
         """..."""
         #LOG.info("Locate subtarget \n%s ", subtarget)
         def lookup(to_dataset):
@@ -604,7 +611,9 @@ def pour(tap, variables):
 
         def get_dataset(var, value):
             """..."""
-            dataset = tap.pour_subtarget(value["dataset"], subset=lookup)
+            LOG.info("To pour on \n%s\n, get dataset %s, %s", subtarget, var, value)
+            #dataset = tap.pour_subtarget(value["dataset"], subset=lookup)
+            dataset = tap.pour_dataset(var, value["dataset"])
             try:
                 value = dataset.get_value
             except AttributeError:
@@ -737,17 +746,18 @@ def read_njobs(to_parallelize, computation_of):
     return (compute_nodes, compute_nodes * tasks)
 
 
-def read_runtime_config(for_parallelization, of_pipeline=None):
+def read_runtime_config(for_parallelization, of_pipeline=None, return_path=False):
     """..."""
     assert not of_pipeline or isinstance(of_pipeline, Mapping), of_pipeline
 
     if not for_parallelization:
-        return None
+        return (None, None) if return_path else None
 
     try:
         path = Path(for_parallelization)
     except TypeError:
         assert isinstance(for_parallelization, Mapping)
+        path = None
         config = for_parallelization
     else:
         if path.suffix.lower() in (".yaml", ".yml"):
@@ -760,7 +770,7 @@ def read_runtime_config(for_parallelization, of_pipeline=None):
             raise ValueError(f"Unknown config type {for_parallelization}")
 
     if not of_pipeline:
-        return config
+        return (path, config) if return_path else config
 
     from_runtime = config["pipeline"]
     default_sbatch = lambda : deepcopy(config["slurm"]["sbatch"])
@@ -774,10 +784,22 @@ def read_runtime_config(for_parallelization, of_pipeline=None):
             return None
 
         paramkey = PARAMKEY[computation_type]
-        quantities_to_configure = cfg_computation_type[paramkey]
-        configured = from_runtime.get(computation_type, {})[paramkey]
+        try:
+            quantities_to_configure = cfg_computation_type[paramkey]
+        except KeyError:
+            LOG.warning("No quantities to configure for %s". computation)
+            return None
+
+        try:
+            runtime = from_runtime[computation_type]
+        except KeyError:
+            LOG.warning("No runtime configured for computation type %s", computation_type)
+            return None
+
+        configured = runtime[paramkey]
 
         def configure_quantity(q):
+            """..."""
             cfg = deepcopy(configured.get(q) or {})
             if "sbatch" not in cfg:
                 cfg["sbatch"] = default_sbatch()
@@ -790,7 +812,8 @@ def read_runtime_config(for_parallelization, of_pipeline=None):
         return {q: configure_quantity(q) for q in quantities_to_configure if q != "description"}
 
     runtime_pipeline = {c: configure_slurm_for(computation_type=c) for c in of_pipeline["parameters"]}
-    return {"version": config["version"], "date": config["date"], "pipeline": runtime_pipeline}
+    config = {"version": config["version"], "date": config["date"], "pipeline": runtime_pipeline}
+    return (path, config) if return_path else config
 
 
 def prepare_parallelization(computation, in_config, using_runtime):
@@ -881,17 +904,17 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node, 
     circuit_args_values = tuple(v for v in (circuit_kwargs["circuit"], circuit_kwargs["connectome"]) if v)
     circuit_args_names = tuple(v for v in ((lambda c: c.variant if c else None)(circuit_kwargs["circuit"]),
                                            circuit_kwargs["connectome"]) if v)
-    kwargs = {key: value for key, value in parameters.items() if key not in ("description",
-                                                                             "circuit", "connectome", "subtarget",
-                                                                             "index", "input",
-                                                                             "extractor", "computation",
-                                                                             "collector", "output")}
-    kwargs.update({key: value for key, value in parameters.get("input", {}).items()
-                   if not isinstance(value, Mapping) or "dataset" not in value})
+    kwargs = {var: value for var, value in parameters.items() if var not in ("description", "index", "input",
+                                                                             "loader", "extractor", "computation",
+                                                                             "output", "collector")}
+    kwargs.update({var: value for var, value in parameters.get("input", {}).items()
+                   if var not in ("circuit", "connectome") and (
+                           not isinstance(value, Mapping) or "dataset" not in value)})
 
     subset_input = generate_inputs_of(of_computation, in_config, on_compute_node, by_subtarget=True)
 
     collector = plugins.import_module(parameters["collector"]) if "collector" in parameters else None
+
     def collect_batch(results):
         """..."""
         if not collector:
@@ -902,7 +925,7 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node, 
 
     def execute_one(lazy_subtarget_inputs):
         """..."""
-        return execute(*circuit_args_values, **lazy_subtarget_inputs().to_dict(), **kwargs)
+        return execute(*circuit_args_values, **lazy_subtarget_inputs(), **kwargs)
 
     def run_batch(of_input, *, index, in_bowl):
         """..."""
@@ -915,8 +938,9 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node, 
 
         if to_store_batch:
             results = of_input.apply(execute_one)
-            framed = pd.concat([results], axis=0, keys=connsense_index.values, names=connsense_index.names)
-            in_bowl[index] = to_store_batch(in_hdf.format(index), results=collect_batch(framed))
+            in_bowl[index] = to_store_batch(in_hdf.format(index), results=collect_batch(results))
+            #framed = pd.concat([results], axis=0, keys=connsense_index.values, names=connsense_index.names)
+            #in_bowl[index] = to_store_batch(in_hdf.format(index), results=collect_batch(framed))
         else:
             in_bowl[index] = to_store_one(in_hdf.format(index), update=of_input.apply(to_subtarget))
 
@@ -988,7 +1012,12 @@ def input_circuit_args(computation, in_config, load_circuit=True, load_connectom
     except KeyError as kerr:
         raise ValueError(f"No inputs configured for {computation}") from kerr
 
-    c = computation_inputs.get("circuit", None)
+    input_circuits = computation_inputs.get("circuit", None)
+    if input_circuits:
+        assert len(input_circuits) == 1, f"NotImplemented processing more than one circuit"
+        c = input_circuits[0]
+    else:
+        c = None
     circuit = input_circuit(c, in_config) if load_circuit else c
 
     x = computation_inputs.get("connectome", None)

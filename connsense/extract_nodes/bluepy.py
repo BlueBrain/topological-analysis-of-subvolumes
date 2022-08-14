@@ -60,15 +60,16 @@ def extract_node_properties_batch(circuit, subtargets, properties):
 def extract_node_properties(circuit, subtarget, properties):
     """..."""
     if "depth" in properties:
-        LOG.info("Compute depths as node properties")
+        LOG.info("Compute depths as node properties for subtarget %s", subtarget)
         circuit_depths = get_node_depths(circuit)
-        properties.remove("depth")
     else:
         circuit_depths = None
 
-    props = circuit.cells.get(subtarget["gids"], properties)
+    #props = circuit.cells.get(subtarget["gids"], properties)
+    props = circuit.cells.get(subtarget, [p for p in properties if p != "depth"])
     if circuit_depths is not None:
-        depths = circuit_depths.loc[circuit_depths.index.intersection(subtarget["gids"])]
+        #depths = circuit_depths.loc[circuit_depths.index.intersection(subtarget["gids"])]
+        depths = circuit_depths.loc[circuit_depths.index.intersection(subtarget)]
         props = pd.concat([props, depths], axis=1)
     props = props.reset_index().rename(columns={"index": "gid"})
     props.index.name = "node_id"

@@ -14,27 +14,13 @@ from ..io.write_results import (read_toc_plus_payload, read_node_properties,
 from .step import Step
 from .store import HDFStore
 from ..io import logging
+from .import ConfigurationError, NotConfiguredError, PARAMKEY, workspace
+
+
 LOG = logging.get_logger("pipeline.")
 
 PipelineState = namedtuple("PipelineState", ["complete", "running", "queue"],
                            defaults=[None, None, None])
-
-
-PARAMKEY = {"define-subtargets": "definitions",
-            "extract-voxels": "annotations",
-            "extract-node-types": "modeltypes",
-            "extract-node-populations": "populations",
-            "extract-edge-types": "models",
-            "extract-edge-populations": "populations",
-            "randomize-connectivity": "algorithms",
-            "analyze-geometry": "analyses",
-            "analyze-node-types": "analyses",
-            "analyze-composition": "analyses",
-            "analyze-connectivity": "analyses"}
-
-
-class NotConfiguredError(FileNotFoundError):
-    pass
 
 
 class TopologicalAnalysis:
@@ -73,7 +59,7 @@ class TopologicalAnalysis:
                             if step in configured_steps])
 
     @classmethod
-    def read_config(cls, c, raw=False):
+    def read_config(cls, c, raw=False, return_location=True):
         """..."""
         from connsense.io import read_config
 
@@ -81,9 +67,10 @@ class TopologicalAnalysis:
             path = Path(c)
         except TypeError:
             assert isinstance(c, Mapping)
-            return c
+            return (None, c) if return_location else c
 
-        return read_config.read(path, raw=raw)
+        config = read_config.read(path, raw=raw)
+        return (path, config) if return_location else config
 
     @classmethod
     def read_parallelization_0(cls, config):
@@ -107,9 +94,9 @@ class TopologicalAnalysis:
         raise ValueError(f"Unknown file format {path.suffix}")
 
     @classmethod
-    def read_parallelization(cls, config, of_pipeline=None):
+    def read_parallelization(cls, config, of_pipeline=None, return_path=False):
         from .parallelization.parallelization import read_runtime_config as read_runtime
-        return read_runtime(config, of_pipeline)
+        return read_runtime(config, of_pipeline, return_path)
 
     @classmethod
     def read_steps(cls, config):
@@ -128,8 +115,11 @@ class TopologicalAnalysis:
         c = config
         p = parallelize
 
-        self._config = self.read_config(c)
-        self._parallelize = self.read_parallelization(p, of_pipeline=self._config) if parallelize else None
+        self._path_config, self._config = self.read_config(c, return_location=True)
+
+        self._path_parallelize, self._parallelize = (
+            self.read_parallelization(p, of_pipeline=self._config, return_path=True) if parallelize
+            else (None, None) if return_path else None)
 
         self._data = HDFStore(self._config)
 
@@ -160,6 +150,16 @@ class TopologicalAnalysis:
     def get_h5group(self, step):
         """..."""
         return self._data_groups.get(step)
+
+    def initialize(self, step=None, substep=None, subgraphs=None, controls=None, mode=None):
+        """..."""
+        current = workspace.initialize((self._config, self._path_config), step, substep, subgraphs, controls, mode,
+                                        (self._parallelize, self._path_parallelize))
+        LOG.info("Workspace initialized at %s", current)
+
+        if step == "index":
+            self._data.create_index()
+        return current
 
     def setup(self, step, substep=None, subgraphs=None, controls=None, **kwargs):
         """Setup the pipeline, one step and if defined one substep at a time.
