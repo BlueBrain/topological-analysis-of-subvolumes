@@ -56,25 +56,38 @@ class SubtargetsConfig:
     @staticmethod
     def load_circuit(with_maybe_config, label=None):
         """..."""
+        LOG.info("Load circuit %s", label)
         try:
             circuit = Circuit(with_maybe_config)
         except BluePyError:
             circuit = with_maybe_config
         circuit.variant = label
-        return circuit
+        return SubtargetsConfig.attribute_depths(circuit)
 
     @staticmethod
-    def get_node_depths(circuit):
+    def attribute_depths(circuit):
+        from voxcell import VoxcellError
         LOG.info("RUN neuron depths extraction")
         from flatmap_utility import supersampled_neuron_locations
         #  TODO: Use config-provided flatmap, if possible
         #  TODO: Could offer diffent ways to get the depths values here, such as, using [PH]y
         orient = circuit.atlas.load_data("orientation")
-        flatmap = circuit.atlas.load_data("flatmap")
+        try:
+            flatmap = circuit.atlas.load_data("flatmap")
+        except VoxcellError as err:
+            LOG.warning("No flatmap found for circuit %s", circuit.variant)
+            return circuit
+
         flat_and_depths = supersampled_neuron_locations(circuit, flatmap, orient, include_depth=True)
-        depths = flat_and_depths[["depth"]]
+        circuit.cells._depths = flat_and_depths[["depth"]]
         LOG.info("DONE neuron depths extractions")
-        return depths
+
+        def get_depths(self, gids):
+            """..."""
+            return self._depths.reindex(gids)
+
+        circuit.cells.__class__.depths = get_depths
+        return circuit
 
     @lazy
     def input_circuit(self):

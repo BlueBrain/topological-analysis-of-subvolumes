@@ -135,8 +135,14 @@ class HDFStore:
             pass
         else:
             computation_type, of_quantity = d
-            dataset = self.read_dataset([computation_type, of_quantity])
-            #dataset = self.read_dataset([computation_type, of_quantity+"/name"])
+
+            with h5py.File(self._root, 'r') as hdf_store:
+                _, group = self.get_path(computation_type)
+                key = '/'.join([group, of_quantity])
+                datakey = of_quantity + "/name" if "name" in hdf_store[key] else of_quantity
+
+            LOG.info("subset index for %s datakey %s", d, datakey)
+            dataset = self.read_dataset([computation_type, datakey])
             values = dataset.values
 
         return pd.Index(reverse.loc[values])
@@ -221,7 +227,6 @@ class HDFStore:
             raise KeyError(f"Unknown modeltype {modeltype} component {component}")
         raise KeyError(f"Unown modeltype {modeltype}")
 
-
     @lazy
     def subtarget_gids(self):
         """lists of gids for each subtarget column in the database."""
@@ -297,14 +302,12 @@ class HDFStore:
 
         return {control:  get(control) for control in ranconn.get_controls(self._config).keys()}
 
-
     def get_value_store(self, group, analysis):
         """..."""
         to_hdf_at_path, under_group = self.get_path(f"analyze-{group}")
         an,alysis = analysis
         return matrices.get_store(to_hdf_at_path, under_group + "/" + an, for_matrix_type=alysis["output"],
                                   in_mode="r")
-
 
     def get_circuit(self, labeled):
         """..."""
@@ -396,27 +399,37 @@ class HDFStore:
         """..."""
         return self._config["parameters"]["create-index"]["variables"]
 
-
     def pour_dataset(self, variable, values):
         """..."""
         from connsense.pipeline.parallelization import parallelization as prl
         computation_type, of_quantity = prl.describe(values)
-        #dataset = of_quantity+"/data" if variable in self.index_vars else of_quantity
-        dataset = of_quantity
-        return self.pour_result(computation_type, dataset)
 
+        with h5py.File(self._root, 'r') as hdf_store:
+            _, group = self.get_path(computation_type)
+            key = '/'.join([group, of_quantity])
+            datakey = of_quantity + "/data" if "data" in hdf_store[key] else of_quantity
+
+        return self.pour_result(computation_type, datakey)
 
     def pour_result(self, step, dataset, subset=None):
         """...For example tap.load_analysis('analyze-connectivity', 'pathway-strength)
         """
-        dataset = self.pour_subtarget([step, dataset], subset)
+        data = self.read_dataset([step, dataset])
 
         if subset is None:
-            return dataset
+            return data
 
-        if isinstance(dataset, pd.DataFrame):
-            return dataset.set_index(index)
-        return pd.Series(dataset.values, index=index, name=dataset.name)
+        index = subset(data) if callable(subset) else subset
+
+        if isinstance(index, (pd.Index, tuple, str)):
+            return data.loc[index]
+
+        if isinstance(subset, (pd.Series, pd.DataFrame)):
+            return data.loc[index.index]
+
+        raise TypeError(f"Not a valid subtarget reference type: {type(index)}")
+
+
 
 
     def pour_analysis_result(self, group, member):

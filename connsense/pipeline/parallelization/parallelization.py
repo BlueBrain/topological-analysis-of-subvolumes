@@ -80,9 +80,9 @@ def run_multinode(process_of, computation, in_config, using_runtime, for_control
     computation_type, _ = describe(computation)
 
     inputs = generate_inputs_of(computation, in_config)
-    n_compute_nodes,  n_jobs = prepare_parallelization(computation, in_config, using_runtime)
+    n_compute_nodes,  n_parallel_jobs = prepare_parallelization(computation, in_config, using_runtime)
     batched = batch_multinode(process_of, inputs, computation, in_config,
-                              at_path=to_stage, using_parallelization=(n_compute_nodes, len(inputs)))
+                              at_path=to_stage, using_parallelization=(n_compute_nodes, n_parallel_jobs))
 
     if process_of == setup_compute_node:
         using_configs["slurm_params"] = configure_slurm(computation, in_config, using_runtime)
@@ -90,13 +90,15 @@ def run_multinode(process_of, computation, in_config, using_runtime, for_control
         compute_nodes = {c: setup_compute_node(c, inputs, (computation_type, to_stage), using_configs)
                          for c, inputs in batched.groupby("compute_node")}
         return {"configs": using_configs,
-                "number_compute_nodes": n_compute_nodes, "number_total_jobs": n_jobs,
+                "number_compute_nodes": n_compute_nodes, "number_total_jobs": n_parallel_jobs,
                 "setup": write_multinode_setup(compute_nodes, inputs,  at_dirpath=to_stage)}
 
     if process_of == collect_multinode:
+        _, output_paths = read_pipeline.check_paths(in_config, step=computation_type)
+        at_path = output_paths["steps"][computation_type]
+
         setup = {c: read_setup_compute_node(c, for_quantity=to_stage) for c,_ in batched.groupby("compute_node")}
-        at_base = Path(in_config["paths"]["output"]["store"])
-        return collect_multinode(computation_type, setup, from_dirpath=to_stage, in_connsense_store=at_base)
+        return collect_multinode(computation_type, setup, from_dirpath=to_stage, in_connsense_store=at_path)
 
     raise ValueError(f"Unknown {process_of} multinode")
 
@@ -116,11 +118,11 @@ def run_multinode_configs(process_of, computation, in_config, for_control, makin
 
 def batch_multinode(process_of, inputs, computation, in_config, at_path, using_parallelization):
     """..."""
-    n_compute_nodes, n_total_jobs = using_parallelization
+    n_compute_nodes, n_parallel_jobs = using_parallelization
 
     if process_of == setup_compute_node:
         LOG.info("Assign batches to %s inputs", len(inputs))
-        batches = assign_batches_to(inputs, upto_number=n_total_jobs)
+        batches = assign_batches_to(inputs, upto_number=n_parallel_jobs)
 
         n_batches = batches.max() + 1
         LOG.info("Assign compute nodes to %s batches of %s inputs", len(batches), n_batches)
@@ -212,8 +214,8 @@ def write_multinode_setup(compute_nodes, inputs, at_dirpath):
 
 def collect_multinode(computation_type, setup, from_dirpath, in_connsense_store):
     """..."""
-    if not in_connsense_store.exists():
-        raise RuntimeError(f"NOTFOUND {in_connsense_h5_at_basedir}\n HDF5 for connsense in base dir must exist")
+    #if not in_connsense_store.exists():
+        #raise RuntimeError(f"NOTFOUND {in_connsense_h5_at_basedir}\n HDF5 for connsense in base dir must exist")
 
     if computation_type == "extract-node-populations":
         return collect_node_population(setup, from_dirpath, in_connsense_store)
@@ -237,8 +239,10 @@ def collect_edge_population(setup, from_dirpath, in_connsense_store):
     except FileNotFoundError as ferr:
         raise RuntimeError(f"NOTFOUND a description of the population extracted: {at_basedir}") from ferr
 
-    p = population["name"]
-    hdf_edge_population = f"edges/populations/{p}"
+    #p = population["name"]
+    #hdf_edge_population = f"edges/populations/{p}"
+    connsense_h5, group = in_connsense_store
+    hdf_edge_population = group + '/' + population["name"]
 
     LOG.info("Collect edges with description \n%s", pformat(population))
 
@@ -258,7 +262,8 @@ def collect_edge_population(setup, from_dirpath, in_connsense_store):
         """..."""
         LOG.info("Collect adjacencies compute-node %s output %s", of_compute_node, output)
         adj = read_toc_plus_payload(output, for_step="extract-edge-populations")
-        return write_toc_plus_payload(adj, (in_connsense_store, hdf_edge_population), append=True, format="table")
+        return write_toc_plus_payload(adj, (connsense_h5, hdf_edge_population), append=True, format="table")
+        #return write_toc_plus_payload(adj, (in_connsense_store, hdf_edge_population), append=True, format="table")
 
     LOG.info("Collect adjacencies")
     for of_compute_node, output in outputs.items():
@@ -289,20 +294,22 @@ def collect_node_population(setup, from_dirpath, in_connsense_store):
             raise RuntimeError(f"No output configured for compute node {of_compute_node}") from ferr
         return output
 
-    p = population["name"]
-    hdf_group = f"nodes/populations/{p}"
+    #p = population["name"]
+    #hdf_group = f"nodes/populations/{p}"
+    connsense_h5, group = in_connsense_store
 
     def move(compute_node, from_path):
         """..."""
         LOG.info("Write batch %s read from %s", compute_node, from_path)
         compute_node_result = describe_output(from_path)
         result = read_compute_node(compute_node_result, "extract-node-populations")
-        return write_compute_node(result, to_path=(in_connsense_store, hdf_group), append=True, format="table")
+        return write_compute_node(result, to_path=(connsense_h5, group+"/"+population["name"]),
+                                  append=True, format="table")
 
     for compute_node, hdf_path in setup.items():
         move(compute_node, hdf_path)
 
-    return (in_connsense_store, hdf_group)
+    return (in_connsense_store, group+"/"+population["name"])
 
 
 def collect_analyze_step(setup, from_dirpath, in_connsense_store):
@@ -313,8 +320,10 @@ def collect_analyze_step(setup, from_dirpath, in_connsense_store):
     except FileNotFoundError as ferr:
         raise RuntimeError(f"NOTFOUND a description of the population extracted: {at_basedir}") from ferr
 
-    a = analysis["name"]
-    hdf_analysis = f"analyses/connectivity/{a}"
+    #a = analysis["name"]
+    #hdf_analysis = f"analyses/connectivity/{a}"
+    connsense_h5, group = in_connsense_store
+    hdf_analysis = group + '/' + analysis["name"]
     output_type = analysis["output"]
 
     def describe_output(of_compute_node):
@@ -327,7 +336,7 @@ def collect_analyze_step(setup, from_dirpath, in_connsense_store):
         return output
 
     outputs = {c: describe_output(of_compute_node) for c, of_compute_node in setup.items()}
-    LOG.info("Analysis %s reported outputs: \n%s", a, pformat(outputs))
+    LOG.info("Analysis %s reported outputs: \n%s", analysis["name"], pformat(outputs))
 
     def in_store(at_path, hdf_group=None):
         """..."""
@@ -339,7 +348,7 @@ def collect_analyze_step(setup, from_dirpath, in_connsense_store):
         h5, g = output
         return in_store(at_path=h5, hdf_group=g)
 
-    return in_store(in_connsense_store).collect({c: move(compute_node=c, output=o) for c, o in outputs.items()})
+    return in_store(connsense_h5).collect({c: move(compute_node=c, output=o) for c, o in outputs.items()})
 
 
 
@@ -827,10 +836,16 @@ def prepare_parallelization(computation, in_config, using_runtime):
     return read_njobs(to_parallelize=configured, computation_of=quantity)
 
 
-def assign_batches_to(inputs, upto_number):
+def assign_batches_to(inputs, upto_number, return_load=False):
     """..."""
     def estimate_load(input_data): #pylint: disable=unused-argument
         """Needs improvement.."""
+        if callable(input_data):
+            return estimate_load(input_data())
+
+        if isinstance(input_data, Mapping):
+            first = next(v for v in input_data.values())
+            return estimate_load(first)
         try:
             shape = input_data.shape
         except AttributeError:
@@ -846,17 +861,18 @@ def assign_batches_to(inputs, upto_number):
         return 1.
 
     if isinstance(inputs, pd.Series):
-        weights = inputs.apply(estimate_load).sort_values(ascending=True)
+        weights = inputs.apply(estimate_load).sort_values(ascending=True).rename("estimated_load")
     elif isinstance(inputs, pd.DataFrame):
-        weights = inputs.apply(estimate_load, axis=1).sort_values(ascending=True)
+        weights = inputs.apply(estimate_load, axis=1).sort_values(ascending=True).rename("estimated_load")
     else:
         raise TypeError(f"Unhandled type of input: {inputs}")
 
-    computational_load = np.cumsum(weights) / weights.sum()
-    batches = (upto_number * (computational_load - computational_load.min())).apply(int).rename("batch")
+    computational_load = (np.cumsum(weights) / weights.sum()).rename("estimated_load")
+    n = np.minimum(upto_number, len(inputs))
+    batches = (n * (computational_load - computational_load.min())).apply(int).rename("batch")
 
-    LOG.info("Load balanced batches for %s inputs: \n %s", len(inputs), batches)
-    return batches
+    LOG.info("Load balanced batches for %s inputs: \n %s", len(inputs), batches.value_counts())
+    return batches if not return_load else pd.concat([batches, weights/weights.sum()], axis=1)
     #return batches.loc[inputs.index]
 
 
@@ -887,6 +903,24 @@ def write_compute(batches, to_hdf, at_dirpath):
     return at_dirpath / batches_h5
 
 
+
+def load_kwargs(parameters, to_tap):
+    """..."""
+    def load(value):
+        if not isinstance(value, Mapping) or "dataset" not in value:
+            return value
+        return to_tap.read_dataset(value["dataset"])
+
+    kwargs = {var: load(value) for var, value in parameters.items() if var not in ("description", "index", "input",
+                                                                                   "loader", "extractor",
+                                                                                   "computation",
+                                                                                   "output", "collector")}
+    kwargs.update({var: value for var, value in parameters.get("input", {}).items()
+                   if var not in ("circuit", "connectome") and (
+                           not isinstance(value, Mapping) or "dataset" not in value)})
+    return kwargs
+
+
 def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node, inputs=None):
     """..."""
     execute, to_store_batch, to_store_one = configure_execution(of_computation, in_config, on_compute_node)
@@ -904,12 +938,8 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node, 
     circuit_args_values = tuple(v for v in (circuit_kwargs["circuit"], circuit_kwargs["connectome"]) if v)
     circuit_args_names = tuple(v for v in ((lambda c: c.variant if c else None)(circuit_kwargs["circuit"]),
                                            circuit_kwargs["connectome"]) if v)
-    kwargs = {var: value for var, value in parameters.items() if var not in ("description", "index", "input",
-                                                                             "loader", "extractor", "computation",
-                                                                             "output", "collector")}
-    kwargs.update({var: value for var, value in parameters.get("input", {}).items()
-                   if var not in ("circuit", "connectome") and (
-                           not isinstance(value, Mapping) or "dataset" not in value)})
+
+    kwargs = load_kwargs(parameters, to_tap=HDFStore(in_config))
 
     subset_input = generate_inputs_of(of_computation, in_config, on_compute_node, by_subtarget=True)
 
@@ -950,13 +980,15 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node, 
     bowl = manager.dict()
     processes = []
 
-    n_compute_nodes,  n_jobs = prepare_parallelization(of_computation, in_config, using_runtime)
-    batches = load_input_batches(on_compute_node, inputs, n_parallel_tasks=int(n_jobs/n_compute_nodes))
+    #n_compute_nodes,  n_jobs = prepare_parallelization(of_computation, in_config, using_runtime)
+    #batches = load_input_batches(on_compute_node, inputs, n_parallel_tasks=int(n_jobs/n_compute_nodes))
+    batches = load_input_batches(on_compute_node)
     n_batches = batches.batch.max() - batches.batch.min() + 1
 
     for batch, subtargets in batches.groupby("batch"):
         LOG.info("Spawn compute node %s process %s / %s batches", on_compute_node, batch, n_batches)
-        p = Process(target=run_batch, args=(subset_input(subtargets.index),), kwargs={"index": batch, "in_bowl": bowl})
+        p = Process(target=run_batch,
+                    args=(subset_input(subtargets.index),), kwargs={"index": batch, "in_bowl": bowl})
         p.start()
         processes.append(p)
 
@@ -1054,7 +1086,7 @@ def load_input_batches(on_compute_node, inputs=None, n_parallel_tasks=None):
     inputs_read = pd.read_hdf(on_compute_node/store_h5, key=dataset)
     if not n_parallel_tasks:
         return inputs_read
-    return inputs_read.assign(batch=pd.Series(np.arange(0, len(inputs_read))/n_parallel_tasks).to_numpy(int))
+    return inputs_read.assign(batch=pd.Series(np.arange(0, len(inputs_read))%n_parallel_tasks).to_numpy(int))
 
 
 
@@ -1118,17 +1150,22 @@ def store_matrix_data(of_quantity, parameters, on_compute_node, in_hdf_group):
     of_output = parameters["output"]
     hdf_quantity = f"{in_hdf_group}/{of_quantity}"
 
+    cached_stores = {}
+
     def write_hdf(at_path, *, result=None, update=None):
         """..."""
         assert at_path
         assert not(result is None and update is None)
         assert result is not None or update is not None
-        store = matrices.get_store(on_compute_node/at_path, hdf_quantity, for_matrix_type=of_output)
+
+        p = on_compute_node/at_path
+        if p not in cached_stores:
+            cached_stores[p] = matrices.get_store(p, hdf_quantity, for_matrix_type=of_output)
 
         if result is not None:
-            return store.write(result)
+            return cached_stores[p].write(result)
 
-        store.append_toc(store.prepare_toc(of_paths=update))
+        cached_stores[p].append_toc(cached_stores[p].prepare_toc(of_paths=update))
         return (at_path, hdf_quantity)
 
     return write_hdf

@@ -342,10 +342,6 @@ def extract_subtargets(definition, in_config, tap):
         return pd.Series(values, index=pd.RangeIndex(0, len(values), 1, name="subtarget_id"),
                          name="subtarget")
 
-    def index_circuit(subtargets):
-        """..."""
-        return pd.concat([subtargets], axis=0, keys=tap.get_index("circuit", values=circuit.variant), names=["circuit"])
-
     def from_circuit(c, subtargets=None):
         """..."""
         if subtargets is not None:

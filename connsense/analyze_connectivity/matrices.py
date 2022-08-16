@@ -269,6 +269,8 @@ class DataFrameHelper:
         """..."""
         at_path = to_hdf_store_at_path
         under_key = lambda key: '/'.join([under_group, as_dataset, key] if key else [under_group, as_dataset])
+        LOG.info("Write DataFrame with shape %s at path %s, under group %s %s: \n%s",
+                 frame.shape, at_path, under_group, as_dataset, frame.head())
         #frame.to_hdf(at_path, under_key, mode='a', format="table")
 
         index = frame.index.to_frame().reset_index(drop=True)

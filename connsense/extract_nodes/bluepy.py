@@ -57,20 +57,38 @@ def extract_node_properties_batch(circuit, subtargets, properties):
     return node_properties
 
 
-def extract_node_properties(circuit, subtarget, properties):
+def extract_node_properties(circuit, subtarget, properties, depths=None):
     """..."""
     if "depth" in properties:
         LOG.info("Compute depths as node properties for subtarget %s", subtarget)
-        circuit_depths = get_node_depths(circuit)
+        circuit_depths = get_node_depths(circuit) if depths is None else depths
     else:
         circuit_depths = None
 
-    #props = circuit.cells.get(subtarget["gids"], properties)
     props = circuit.cells.get(subtarget, [p for p in properties if p != "depth"])
     if circuit_depths is not None:
-        #depths = circuit_depths.loc[circuit_depths.index.intersection(subtarget["gids"])]
         depths = circuit_depths.loc[circuit_depths.index.intersection(subtarget)]
         props = pd.concat([props, depths], axis=1)
+    props = props.reset_index().rename(columns={"index": "gid"})
+    props.index.name = "node_id"
+    return props
+
+
+def extract_node_properties(circuit, subtarget, properties):
+    """..."""
+    props = circuit.cells.get(subtarget, [p for p in properties if p != "depth"])
+
+    if "depth" in properties:
+        try:
+            circuit_cells_depths = circuit.cells.depths
+        except AttributeError:
+            circuit_cells_depths = get_node_depths(circuit)
+            depths = circuit_cells_depths.reindex(subtarget)
+        else:
+            depths = circuit_cells_depths(subtarget)
+
+        props = pd.concat([props, depths], axis=1)
+
     props = props.reset_index().rename(columns={"index": "gid"})
     props.index.name = "node_id"
     return props
