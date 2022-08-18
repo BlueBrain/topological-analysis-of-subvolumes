@@ -276,6 +276,43 @@ def collect_edge_population(setup, from_dirpath, in_connsense_store):
 
 def collect_node_population(setup, from_dirpath, in_connsense_store):
     """..."""
+    try:
+        with open(from_dirpath/"description.json", 'r') as f:
+            population = json.load(f)
+    except FileNotFoundError as ferr:
+        raise RuntimeError(f"NOTFOUND a description of the population extracted: {from_dirpath}")
+
+    connsense_h5, group = in_connsense_store
+    hdf_population = group + '/' + population["name"]
+
+    def describe_output(of_compute_node):
+        """..."""
+        try:
+            with open(Path(of_compute_node["dirpath"]) / "output.json", 'r') as f:
+                output = json.load(f)
+        except FileNotFoundError as ferr:
+            raise RuntimeError(f"No output configured for compute node {of_compute_node}") from ferr
+        return output
+
+    outputs = {c: describe_output(of_compute_node) for c, of_compute_node in setup.items()}
+    LOG.info("Extract node populations %s reported outputs: \n%s", population["name"], pformat(outputs))
+
+    def in_store(at_path, hdf_group=None):
+        """..."""
+        return matrices.get_store(at_path, hdf_group or hdf_population, pd.DataFrame)
+
+    def move(compute_node, output):
+        """..."""
+        LOG.info("Get node population store for compute-node %s output %s", compute_node, output)
+        h5, g = output
+        return in_store(at_path=h5, hdf_group=g)
+
+    return in_store(connsense_h5).collect({c: move(compute_node=c, output=o) for c, o in outputs.items()})
+
+
+
+def collect_node_population_single_dataframe(setup, from_dirpath, in_connsense_store):
+    """...Deprecated"""
     from connsense.io.write_results import read as read_compute_node, write as write_compute_node
     LOG.info("Collect node population at %s using setup \n%s", from_dirpath, setup)
 
@@ -283,7 +320,7 @@ def collect_node_population(setup, from_dirpath, in_connsense_store):
         with open(from_dirpath/"description.json", 'r') as f:
             population = json.load(f)
     except FileNotFoundError as ferr:
-        raise RuntimeError(f"NOTFOUND a description of the population extracted: {at_basedir}") from ferr
+        raise RuntimeError(f"NOTFOUND a description of the population extracted: {from_dirpath}") from ferr
 
     def describe_output(of_compute_node):
         """..."""
@@ -318,7 +355,7 @@ def collect_analyze_step(setup, from_dirpath, in_connsense_store):
         with open(from_dirpath/"description.json", 'r') as f:
             analysis = json.load(f)
     except FileNotFoundError as ferr:
-        raise RuntimeError(f"NOTFOUND a description of the population extracted: {at_basedir}") from ferr
+        raise RuntimeError(f"NOTFOUND a description of the analysis extracted: {from_dirpath}") from ferr
 
     #a = analysis["name"]
     #hdf_analysis = f"analyses/connectivity/{a}"
@@ -582,11 +619,13 @@ def generate_inputs_of(computation, in_config, on_compute_node=None, by_subtarge
     variables = filter_input_datasets(described["input"])
 
     unit_computations = input_units(computation, tap)
+    LOG.info("There will be %s unit computations with index %s", len(unit_computations), unit_computations.names)
+    unit_slices = [unit_computations[s:s+1] for s in range(0, len(unit_computations))]
 
     #input_datasets = pd.DataFrame({var: tap.pour_dataset(var, values["dataset"]).loc[unit_computations]
                                    #for var, values in variables.items()})
     dataflow = pour(tap, variables)
-    input_datasets = pd.Series([dataflow(s) for s in unit_computations], index=unit_computations)
+    input_datasets = pd.Series([dataflow(s) for s in unit_slices], index=unit_computations)
     return (lambda s: input_datasets.loc[s]) if by_subtarget else input_datasets
 
 
@@ -603,20 +642,36 @@ def pour(tap, variables):
     #input_datasets = pd.DataFrame({var: tap.pour_dataset(var, vals["dataset"]) for var, vals in variables.items()})
     input_datasets = {var: tap.pour_dataset(var, vals["dataset"]) for var, vals in variables.items()}
 
+    def unpack(value):
+        """..."""
+        try:
+            get = value.get_value
+        except AttributeError:
+            return value
+        return get()
+
+    def group_properties(var):
+        """..."""
+        properties = variables[var].get("properties", None)
+
+        def apply(subtarget):
+            """..."""
+            if not properties:
+                return subtarget
+
+            return lambda index: subtarget[properties].loc[index]
+
+        return apply
+
     def loc(subtarget):
         """..."""
-        #return input_datasets.loc[subtarget]
-        return {var: vals.loc[subtarget] for var, vals in input_datasets.items()}
+        return {variable: valuess.loc[subtarget].apply(unpack).apply(group_properties(variable))
+                for variable, valuess in input_datasets.items()}
 
 
     def loc_0(subtarget):
         """..."""
-        #LOG.info("Locate subtarget \n%s ", subtarget)
-        def lookup(to_dataset):
-            """..."""
-            index = tuple(subtarget[var] for var in subtarget.index if var in to_dataset.index.names)
-            #LOG.info("Look up %s in dataset indexed by %s", index, to_dataset.index.names)
-            return index
+        LOG.info("Locate subtarget \n%s ", subtarget)
 
         def get_dataset(var, value):
             """..."""
@@ -632,6 +687,8 @@ def pour(tap, variables):
         def get_transformation(value):
             """..."""
             return {k: v for k, v in value.items() if k != "dataset"}
+
+        return pd.Series({var: vals.loc[subtarget] for var, vals in input_datasets.items()})
 
         return pd.Series({var: evaluate(get_transformation(value), get_dataset(var, value))
                           for var, value in variables.items()})
@@ -953,9 +1010,16 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node, 
         _, collect = collector
         return collect(results)
 
-    def execute_one(lazy_subtarget_inputs):
+    def execute_one(lazy_subtarget):
         """..."""
-        return execute(*circuit_args_values, **lazy_subtarget_inputs(), **kwargs)
+        def unpack(value):
+            if isinstance(value, pd.Series):
+                assert len(value) == 1
+                return value.iloc[0]
+            return value
+
+        return execute(*circuit_args_values, **{var: unpack(value) for var, value in lazy_subtarget().items()},
+                       **kwargs)
 
     def run_batch(of_input, *, index, in_bowl):
         """..."""
@@ -964,7 +1028,7 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node, 
 
         def to_subtarget(s):
             """..."""
-            return to_store_one(in_hdf.format(index), result=execute_one(lazy_subtarget_inputs=s))
+            return to_store_one(in_hdf.format(index), result=execute_one(lazy_subtarget=s))
 
         if to_store_batch:
             results = of_input.apply(execute_one)
@@ -1052,7 +1116,12 @@ def input_circuit_args(computation, in_config, load_circuit=True, load_connectom
         c = None
     circuit = input_circuit(c, in_config) if load_circuit else c
 
-    x = computation_inputs.get("connectome", None)
+    input_connectomes = computation_inputs.get("connectome", None)
+    if input_connectomes:
+        assert len(input_connectomes) == 1, f"NotImplemented processing more than one connectome"
+        x = input_connectomes[0]
+    else:
+        x = None
     connectome = input_connectome(x, in_circuit) if load_connectome else x
     return {"circuit": circuit, "connectome": connectome}
 
@@ -1113,7 +1182,8 @@ def configure_execution(computation, in_config, on_compute_node):
 
     execute = get_executable(computation_type, parameters)
     if computation_type == "extract-node-populations":
-        return (execute, store_node_properties(of_quantity, on_compute_node, at_path), None)
+        return (execute, None,  store_node_properties(of_quantity, on_compute_node, at_path))
+        #return (execute, store_node_properties(of_quantity, on_compute_node, at_path), None)
 
     if computation_type == "extract-edge-populations":
         return (execute, store_edge_extraction(of_quantity, on_compute_node, at_path), None)
@@ -1121,8 +1191,11 @@ def configure_execution(computation, in_config, on_compute_node):
     return (execute, None, store_matrix_data(of_quantity, parameters, on_compute_node, at_path))
 
 
-def store_node_properties(of_population, on_compute_node, in_hdf_group):
-    """..."""
+def store_node_properties_batch(of_population, on_compute_node, in_hdf_group):
+    """...This will extract node properties for all subtargets as a single datasframe.
+    NOT-IDEAL and needs hacks to gather differemt resuts into the same input dataframe.
+    REPLACE by single subtarget store using matrices
+    """
     def write_batch(connsense_h5, results):
         """..."""
         in_hdf = (on_compute_node/connsense_h5, in_hdf_group)
@@ -1130,6 +1203,28 @@ def store_node_properties(of_population, on_compute_node, in_hdf_group):
         return extract_nodes.write(results, of_population, in_hdf)
 
     return write_batch
+
+
+def store_node_properties(of_population, on_compute_node, in_hdf_group):
+    """..."""
+    LOG.info("Store node properties of population %s on compute node %s in hdf %s, one subtarget at a time",
+             of_population, on_compute_node, in_hdf_group)
+
+    def write_hdf(at_path, *, result=None, update=None):
+        """..."""
+        assert not(result is None and update is None)
+        assert result is not None or update is not None
+
+        hdf_population = in_hdf_group+'/'+of_population
+        store = matrices.get_store(on_compute_node/at_path, hdf_population, "pandas.DataFrame")
+
+        if result is not None:
+            return store.write(result)
+
+        store.append_toc(store.prepare_toc(of_paths=update))
+        return (at_path, hdf_population)
+
+    return write_hdf
 
 
 def store_edge_extraction(of_population, on_compute_node, in_hdf_group):
@@ -1176,8 +1271,8 @@ def collect_batches(of_computation, results, on_compute_node, hdf_group, of_outp
     computation_type, of_quantity = describe(of_computation)
 
 
-    if computation_type == "extract-node-populations":
-        return collect_batched_node_population(of_quantity, results, on_compute_node, hdf_group)
+    #if computation_type == "extract-node-populations":
+        #return collect_batched_node_population(of_quantity, results, on_compute_node, hdf_group)
 
     if computation_type == "extract-edge-populations":
         return collect_batched_edge_population(of_quantity, results, on_compute_node, hdf_group)

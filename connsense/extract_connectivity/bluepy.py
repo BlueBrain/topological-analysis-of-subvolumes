@@ -13,6 +13,8 @@ from ..io import logging
 
 STEP = "extract-connectivity"
 
+INTRINSIC = ("local", "intra_SSCX_midrange_wm")
+
 LOG = logging.get_logger(STEP)
 
 
@@ -44,7 +46,7 @@ def iter_afferent(to_subtarget, in_connectome_labeled, of_circuit, as_connection
 def iter_connections(in_subtarget, connectome_labeled, of_circuit):
     """..."""
 
-    edges_are_intrinsic = connectome_labeled in ("local", "long-range", "cortico-cortical")
+    edges_are_intrinsic = connectome_labeled in INTRINSIC
 
     connectome = find_connectome(connectome_labeled, of_circuit)
 
@@ -61,7 +63,6 @@ def get_connections(in_subtarget, connectome_labeled, of_circuit):
     #iterc = iter_afferent(to_subtarget, in_connectome_labeled, of_circuit, as_connections=True)
     iterc = iter_connections(in_subtarget, connectome_labeled, of_circuit)
     return pd.DataFrame(list(iterc), columns=[Synapse.PRE_GID, Synapse.POST_GID, "nsyn"])
-    #return pd.concat(list(iterc))
 
 
 def anonymize_gids(connections, gids, edges_are_intrinsic):
@@ -130,7 +131,7 @@ def extract_adj_batch(circuit, connectome, subtargets):
     LOG.info("Extract connectivity for circuit %s connectome %s, subtargets %s",
              circuit, connectome, subtargets.index.values)
 
-    edges_are_intrinsic = connectome in ("local", "intra_SSCX_midrange_wm")
+    edges_are_intrinsic = connectome in INTRINSIC
 
     def extract_subtarget(gids):
         gids = pd.Series(gids, name="gid")
@@ -141,17 +142,26 @@ def extract_adj_batch(circuit, connectome, subtargets):
     return pd.concat([connectivity], axis=0, keys=[connectome], names=["connectome"])
 
 
-def extract_adj(circuit, connectome, subtarget):
+def extract_adj_series(circuit, connectome, subtarget):
     """..."""
-    LOG.info("Extract connectivity for circuit %s connectome %s, subtargets %s",
-             circuit, connectome, subtarget)
+    assert len(subtarget) == 1, ("extract_adj will work with a single subtarget packaged in a single element Series."
+                                 f" Provided list has {len(subtarget)}")
+    LOG.info("Extract connectivity for circuit %s connectome %s, subtargets %s", circuit, connectome, subtarget)
 
-    edges_are_intrinsic = connectome in ("local", "intra_SSCX_midrange_wm")
+    edges_are_intrinsic = connectome in INTRINSIC
 
-    gids = pd.Series(subtarget["gids"], name="gid")
-    connections = get_connections(in_subtarget=gids, connectome_labeled=connectome, of_circuit=circuit)
+    gids = pd.Series(subtarget.iloc[0], name="gid")
+    connections = get_connections(subtarget, connectome_labeled=connectome, of_circuit=circuit)
     return as_adjmat(connections, gids, edges_are_intrinsic)
 
+
+def extract_adj(circuit, connectome, subtarget):
+    """..."""
+    LOG.info("Extract connectivity for circuit %s connectome %s, subtargets \n%s", circuit, connectome, subtarget)
+    edges_are_intrinsic = connectome in INTRINSIC
+    gids = pd.Series(subtarget, name="gid")
+    connections = get_connections(subtarget, connectome_labeled=connectome, of_circuit=circuit)
+    return as_adjmat(connections, gids, edges_are_intrinsic)
 
 def extract_edge_0(properties):
     """..."""
@@ -183,7 +193,7 @@ def extract_edge_batch(properties):
         """..."""
         LOG.info("Extract properties for circuit %s, subtarget \n%s", circuit, subtargets.index.values)
 
-        edges_are_intrinsic = connectome in ("local", "intra_SSCX_midrange_wm")
+        edges_are_intrinsic = connectome in INTRINSIC
 
         circuit_connectome = find_connectome(connectome, circuit)
 
@@ -210,7 +220,7 @@ def extract_edge(properties, statistics=None):
         """..."""
         LOG.info("Extract properties for circuit %s, subtarget \n%s", circuit, subtarget)
 
-        edges_are_intrinsic = connectome in ("local", "intra_SSCX_midrange_wm")
+        edges_are_intrinsic = connectome in INTRINSIC
 
         circuit_connectome = find_connectome(connectome, circuit)
 

@@ -57,7 +57,7 @@ def extract_node_properties_batch(circuit, subtargets, properties):
     return node_properties
 
 
-def extract_node_properties(circuit, subtarget, properties, depths=None):
+def extract_node_properties_0(circuit, subtarget, properties, depths=None):
     """..."""
     if "depth" in properties:
         LOG.info("Compute depths as node properties for subtarget %s", subtarget)

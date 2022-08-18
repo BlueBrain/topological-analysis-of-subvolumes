@@ -101,7 +101,8 @@ SUBSTEPS = OrderedDict([("define-subtargets", "definitions"),
                         ("extract-edge-populations", "populations"),
                         ("randomize-connectivity", "controls"),
                         ("analyze-node-types", "analyses"),
-                        ("analyze-connectivity", "analyses")])
+                        ("analyze-connectivity", "analyses"),
+                        ("analyze-physiology", "analyses")])
 
 
 def parameterize_substeps(s, in_config):

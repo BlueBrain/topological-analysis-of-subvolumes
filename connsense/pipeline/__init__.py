@@ -17,4 +17,5 @@ PARAMKEY = {"define-subtargets": "definitions",
             "analyze-geometry": "analyses",
             "analyze-node-types": "analyses",
             "analyze-composition": "analyses",
-            "analyze-connectivity": "analyses"}
+            "analyze-connectivity": "analyses",
+            "analyze-physiology": "analyses"}

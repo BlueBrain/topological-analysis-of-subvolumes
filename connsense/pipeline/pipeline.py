@@ -25,14 +25,15 @@ PipelineState = namedtuple("PipelineState", ["complete", "running", "queue"],
 
 class TopologicalAnalysis:
     """..."""
-    from connsense import define_subtargets
-    from connsense import extract_nodes
-    from connsense import extract_node_types
-    from connsense import evaluate_subtargets
-    from connsense import extract_connectivity
-    from connsense import randomize_connectivity
-    from connsense import analyze_node_types
-    from connsense import analyze_connectivity
+    from connsense import (define_subtargets,
+                           extract_nodes,
+                           extract_node_types,
+                           evaluate_subtargets,
+                           extract_connectivity,
+                           randomize_connectivity,
+                           analyze_node_types,
+                           analyze_connectivity,
+                           analyze_physiology)
 
     __steps__ = OrderedDict([("define-subtargets", Step(define_subtargets)),
                              ("extract-node-types", Step(extract_node_types)),
@@ -41,7 +42,8 @@ class TopologicalAnalysis:
                              ("extract-edge-populations", Step(extract_connectivity)),
                              ("randomize-connectivity", Step(randomize_connectivity)),
                              ("analyze-node-types", Step(analyze_node_types)),
-                             ("analyze-connectivity", Step(analyze_connectivity))])
+                             ("analyze-connectivity", Step(analyze_connectivity)),
+                             ("analyze-physiology", Step(analyze_physiology))])
 
     @classmethod
     def sequence_of_steps(cls):

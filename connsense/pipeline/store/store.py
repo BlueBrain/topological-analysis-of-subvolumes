@@ -82,8 +82,6 @@ class HDFStore:
     def index(self):
         """..."""
         return OrderedDict()
-        #configured = self._config["parameters"]["create-index"]["variables"]
-        #return OrderedDict({var: self.create_index(var, described) for var in configured})
 
     def set_index(self, variable):
         """..."""
@@ -147,11 +145,13 @@ class HDFStore:
 
         return pd.Index(reverse.loc[values])
 
+    def reindex(self, variable, dataset):
+        """..."""
+        raise NotImplementedError
 
     def get_path(self, step):
         """..."""
         return (self._root, self._groups[step])
-
 
     @lazy
     def datasets(self):
@@ -170,16 +170,18 @@ class HDFStore:
         from connsense.pipeline.parallelization.parallelization import describe
         step, dset = describe(d)
         h5, group = self.get_path(step)
-        at_path = (h5, group+"/"+dset)
 
         if dset not in self.datasets[step]:
             if step.startswith("analyze-"):
                 self.datasets[step][dset] = self.analyses['-'.join(step.split('-')[1:])].get(dset, None)
             #elif step == "extract-node-types":
             #    self.datasets[step][dset] = self.read_node_types(dset).sort_index()
+            elif step == "extract-node-populations":
+                store = matrices.get_store(h5, group+"/"+dset, pd.DataFrame)
+                self.datasets[step][dset] = store.toc
             else:
                 read = self.get_reader(step)
-                self.datasets[step][dset] = read(at_path, step).sort_index()
+                self.datasets[step][dset] = read((h5, group+"/"+dset), step).sort_index()
 
         return  self.datasets[step][dset]
 
@@ -234,7 +236,6 @@ class HDFStore:
             return read_subtargets(self.get_path("define-subtargets"))
         except (KeyError, FileNotFoundError):
             return None
-
     @lazy
     def nodes(self):
         """Subtarget nodes that have been saved to the HDf store."""
@@ -428,8 +429,6 @@ class HDFStore:
             return data.loc[index.index]
 
         raise TypeError(f"Not a valid subtarget reference type: {type(index)}")
-
-
 
 
     def pour_analysis_result(self, group, member):
