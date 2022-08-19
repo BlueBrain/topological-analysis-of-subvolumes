@@ -44,7 +44,7 @@ def _remove_link(path):
     return None
 
 
-EXECUTABLE = {"define": "loader", "extract": "extractor", "analyze": "computation"}
+EXECUTABLE = {"define": "loader", "extract": "extractor", "sample": "generator", "analyze": "computation"}
 
 BATCH_SUBTARGETS = ("subtargets.h5", "batch")
 COMPUTE_NODE_SUBTARGETS = ("inputs.h5", "subtargets")
@@ -223,7 +223,7 @@ def collect_multinode(computation_type, setup, from_dirpath, in_connsense_store)
     if computation_type == "extract-edge-populations":
         return collect_edge_population(setup, from_dirpath, in_connsense_store)
 
-    if computation_type in ("analyze-connectivity", "analyze-node-types", "analyze-physiology"):
+    if computation_type in ("analyze-connectivity", "analyze-node-types", "analyze-physiology", "sample-edge-populations"):
         return collect_analyze_step(setup, from_dirpath, in_connsense_store)
 
     raise NotImplementedError(f"INPROGRESS: {computation_type}")
@@ -607,8 +607,7 @@ def generate_inputs_of(computation, in_config, on_compute_node=None, by_subtarge
 
 def pour(tap, variables):
     """.."""
-    #input_datasets = pd.DataFrame({var: tap.pour_dataset(var, vals["dataset"]) for var, vals in variables.items()})
-    input_datasets = {var: tap.pour_dataset(var, vals["dataset"]) for var, vals in variables.items()}
+    #input_datasets = {var: tap.pour_dataset(var, vals["dataset"]) for var, vals in variables.items()}
 
     def unpack(value):
         """..."""
@@ -631,11 +630,20 @@ def pour(tap, variables):
 
         return apply
 
+    def load_dataset(var, values):
+        """..."""
+        dataset = tap.pour_dataset(var, values["dataset"]).apply(unpack)
+        if not "reindex" in values:
+            return dataset
+
+        original = dataset.apply(lambda subtarget: tap.reindex(subtarget, values["reindex"]))
+        return pd.concat(original.values, axis=0, keys=original.index.values, names=original.index.names)
+
+    input_datasets = {var: load_dataset(var, values).apply(group_properties(var)) for var, values in variables.items()}
+
     def loc(subtarget):
         """..."""
-        return {variable: valuess.loc[subtarget].apply(unpack).apply(group_properties(variable))
-                for variable, valuess in input_datasets.items()}
-
+        return {variable: values.loc[subtarget] for variable, values in input_datasets.items()}
 
     def loc_0(subtarget):
         """..."""

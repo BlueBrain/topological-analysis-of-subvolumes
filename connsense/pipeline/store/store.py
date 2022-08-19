@@ -166,9 +166,19 @@ class HDFStore:
 
         return pd.Index(reverse.loc[values])
 
-    def reindex(self, variable, dataset):
+    def reindex(self, dataframe, variables):
         """..."""
-        raise NotImplementedError
+        LOG.info("Reindex %s to \n%s", dataframe.index.names, pformat(variables))
+        indices = {var: self.pour_subtarget(value["dataset"]) for var, value in variables.items()}
+
+        def reverse(index):
+            """..."""
+            return pd.Series(index.index.values, index=index.values, name=index.name)
+
+        idxframe = dataframe.index.to_frame().reset_index(drop=True)
+        reverse = {var: reverse(idx) for var, idx in indices.items()}
+        re_idxframe = pd.DataFrame({f"{var}_id": val[idxframe[var].values].values for var, val in reverse.items()})
+        return dataframe.set_index(pd.MultiIndex.from_frame(re_idxframe))
 
     def get_path(self, step):
         """..."""
@@ -198,6 +208,9 @@ class HDFStore:
             #elif step == "extract-node-types":
             #    self.datasets[step][dset] = self.read_node_types(dset).sort_index()
             elif step == "extract-node-populations":
+                store = matrices.get_store(h5, group+"/"+dset, pd.DataFrame)
+                self.datasets[step][dset] = store.toc
+            elif step == "sample-edge-populations":
                 store = matrices.get_store(h5, group+"/"+dset, pd.DataFrame)
                 self.datasets[step][dset] = store.toc
             else:
