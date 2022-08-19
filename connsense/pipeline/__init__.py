@@ -13,9 +13,15 @@ PARAMKEY = {"define-subtargets": "definitions",
             "create-index": "variables",
             "extract-node-populations": "populations",
             "extract-edge-populations": "populations",
+            "sample-edge-populations": "analyses",
             "randomize-connectivity": "algorithms",
             "analyze-geometry": "analyses",
             "analyze-node-types": "analyses",
             "analyze-composition": "analyses",
             "analyze-connectivity": "analyses",
             "analyze-physiology": "analyses"}
+
+COMPKEYS = ["description",
+            "index", "input", "kwargs",
+            "loader", "extractor",  "computation",
+            "output", "collector","reindex"]

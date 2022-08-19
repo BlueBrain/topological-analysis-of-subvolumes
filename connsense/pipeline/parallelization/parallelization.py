@@ -20,7 +20,7 @@ from connsense import extract_nodes,  plugins
 from connsense.extract_connectivity import read_results
 from connsense.extract_connectivity import extract as extract_connectivity
 from connsense.pipeline import workspace
-from connsense.pipeline import PARAMKEY
+from connsense.pipeline import PARAMKEY, COMPKEYS
 from connsense.io import logging, read_config as read_pipeline
 from connsense.io.slurm import SlurmConfig
 from connsense.io.write_results import read_toc_plus_payload, write_toc_plus_payload
@@ -77,7 +77,7 @@ def run_multinode(process_of, computation, in_config, using_runtime, for_control
     using_configs = run_multinode_configs(process_of, computation, in_config, for_control, making_subgraphs,
                                           at_dirpath=to_stage)
 
-    computation_type, _ = describe(computation)
+    computation_type, of_quantity = describe(computation)
 
     inputs = generate_inputs_of(computation, in_config)
     n_compute_nodes,  n_parallel_jobs = prepare_parallelization(computation, in_config, using_runtime)
@@ -85,9 +85,9 @@ def run_multinode(process_of, computation, in_config, using_runtime, for_control
                               at_path=to_stage, using_parallelization=(n_compute_nodes, n_parallel_jobs))
 
     if process_of == setup_compute_node:
-        using_configs["slurm_params"] = configure_slurm(computation, in_config, using_runtime)
+        using_configs["slurm_params"] = configure_slurm(computation, in_config, using_runtime).get("sbatch", None)
 
-        compute_nodes = {c: setup_compute_node(c, inputs, (computation_type, to_stage), using_configs)
+        compute_nodes = {c: setup_compute_node(c, inputs, (computation_type, of_quantity, to_stage), using_configs)
                          for c, inputs in batched.groupby("compute_node")}
         return {"configs": using_configs,
                 "number_compute_nodes": n_compute_nodes, "number_total_jobs": n_parallel_jobs,
@@ -144,9 +144,9 @@ def setup_compute_node(c, inputs, for_computation, using_configs):
     from connsense.apps import APPS
     LOG.info("Configure chunk %s with %s inputs to compute %s.", c, len(inputs), for_computation)
 
-    computation_type, for_quantity = describe(for_computation)
+    computation_type, for_quantity, to_stage = for_computation
 
-    for_compute_node = for_quantity / f"compute-node-{c}"
+    for_compute_node = to_stage / f"compute-node-{c}"
     for_compute_node.mkdir(parents=False, exist_ok=True)
     configs = symlink_pipeline(configs=using_configs, at_dirpath=for_compute_node)
 
@@ -175,7 +175,7 @@ def setup_compute_node(c, inputs, for_computation, using_configs):
         """..."""
         return None
 
-    master_launchscript = for_quantity / "launchscript.sh"
+    master_launchscript = to_stage / "launchscript.sh"
 
     with open(master_launchscript, 'a') as to_launch:
 
@@ -189,7 +189,7 @@ def setup_compute_node(c, inputs, for_computation, using_configs):
              f" of {len(inputs)} _inputs. #######################################")
         write(f"pushd {for_compute_node}")
 
-        sbatch = f"sbatch {of_executable.name} run {computation_type} {for_quantity.name} \\"
+        sbatch = f"sbatch {of_executable.name} run {computation_type} {for_quantity} \\"
         write(sbatch)
         write(cmd_configs())
         write(cmd_options())
@@ -223,7 +223,7 @@ def collect_multinode(computation_type, setup, from_dirpath, in_connsense_store)
     if computation_type == "extract-edge-populations":
         return collect_edge_population(setup, from_dirpath, in_connsense_store)
 
-    if computation_type in ("analyze-connectivity", "analyze-node-types"):
+    if computation_type in ("analyze-connectivity", "analyze-node-types", "analyze-physiology"):
         return collect_analyze_step(setup, from_dirpath, in_connsense_store)
 
     raise NotImplementedError(f"INPROGRESS: {computation_type}")
@@ -515,8 +515,7 @@ def read_pipeline_subgraphs(algorithm, at_dirpath): #pylint: disable=unused-argu
 def write_description(computation, in_config, at_dirpath):
     """..."""
     computation_type, of_quantity = describe(computation)
-    paramkey = PARAMKEY[computation_type]
-    configured = in_config["parameters"][computation_type][paramkey][of_quantity]
+    configured = parameterize(computation_type, of_quantity, in_config)
     configured["name"] = of_quantity
     return read_pipeline.write(configured, to_json=at_dirpath / "description.json")
 
@@ -556,37 +555,6 @@ def symlink_pipeline_subgraphs(to_config, at_dirpath):
     """..."""
     return create_symlink(at_dirpath)(to_config) if to_config else None
 
-
-def index_units_pre_create_index(computation, in_config):
-    """..."""
-    computation_type, of_quantity = describe(computation)
-    parameters = parameterize(computation_type, of_quantity, in_config)
-
-    def check_input():
-        """..."""
-        try:
-            inputs = parameters["input"]
-        except KeyError:
-            return {}
-        indices = {"circuit": inputs.get("circuit", None), "connectome": inputs.get("connectome", None),
-                   "dataset": inputs.get("subtarget", {}).get("dataset", None)}
-        return {key: value for key, value in indices.items() if value}
-
-    indices = parameters.get("index", {}); indices.update(check_input())
-
-    if not indices:
-        raise NotConfiguredError(f"MISSING unit of computation for {computation}")
-
-    if "dataset" not in indices:
-        raise IllegalParallelComputationError("WITHOUT a dataset to iterate")
-
-    return indices
-
-
-def input_units_pre_create_index(computation, to_tap):
-    """..."""
-    indices = index_units(computation, to_tap._config)
-    return to_tap.index_contents(indices)
 
 
 def input_units(computation, to_tap):
@@ -785,11 +753,18 @@ def parameterize(computation_type, of_quantity, in_config):
 
 def configure_slurm(computation, in_config, using_runtime):
     """..."""
-    computation_type, quantity = computation.split('/')
+    computation_type, quantity = describe(computation)
     pipeline_config = in_config if isinstance(in_config, Mapping) else read_pipeline.read(in_config)
     from_runtime = (read_runtime_config(for_parallelization=using_runtime, of_pipeline=pipeline_config)
                     if not isinstance(using_runtime, Mapping) else using_runtime)
-    return from_runtime["pipeline"].get(computation_type, {}).get(quantity, None).get("sbatch", None)
+
+    params = from_runtime["pipeline"].get(computation_type, {})
+    try:
+        configured = params[quantity]
+    except KeyError:
+        quantity, component = quantity.split('/')
+        configured = params[quantity][component]
+    return configured
 
 
 def read_njobs(to_parallelize, computation_of):
@@ -864,16 +839,36 @@ def read_runtime_config(for_parallelization, of_pipeline=None, return_path=False
 
         configured = runtime[paramkey]
 
+        def decompose_quantity(q):
+            """..."""
+            return [var for var in quantities_to_configure[q].keys() if var not in COMPKEYS]
+
         def configure_quantity(q):
             """..."""
-            cfg = deepcopy(configured.get(q) or {})
-            if "sbatch" not in cfg:
-                cfg["sbatch"] = default_sbatch()
-            if "number-compute-nodes" not in cfg:
-                cfg["number-compute-nodes"] = 1
-            if "number-tasks-per-node" not in cfg:
-                cfg["number-tasks-per-node"] = 1
-            return cfg
+            q_cfg = deepcopy(configured.get(q) or {})
+            if "sbatch" not in q_cfg:
+                q_cfg["sbatch"] = default_sbatch()
+            if "number-compute-nodes" not in q_cfg:
+                q_cfg["number-compute-nodes"] = 1
+            if "number-tasks-per-node" not in q_cfg:
+                q_cfg["number-tasks-per-node"] = 1
+
+            def configure_component(c):
+                """..."""
+                cfg = deepcopy(configured.get(q, {}).get(c, {}))
+                if "sbatch" not in cfg:
+                    cfg["sbatch"] = q_cfg["sbatch"]
+                if "number-compute-nodes" not in cfg:
+                    cfg["number-compute-nodes"] = q_cfg["number-compute-nodes"]
+                if "number-tasks-per-node" not in cfg:
+                    cfg["number-tasks-per-node"] = q_cfg['number-tasks-per-node']
+
+                return cfg
+
+            for c in decompose_quantity(q):
+                q_cfg[c] = configure_component(c)
+
+            return q_cfg
 
         return {q: configure_quantity(q) for q in quantities_to_configure if q != "description"}
 
@@ -884,7 +879,7 @@ def read_runtime_config(for_parallelization, of_pipeline=None, return_path=False
 
 def prepare_parallelization(computation, in_config, using_runtime):
     """.."""
-    computation_type, quantity = computation.split('/')
+    computation_type, quantity = describe(computation)
     from_runtime = (read_runtime_config(for_parallelization=using_runtime, of_pipeline=in_config)
                     if not isinstance(using_runtime, Mapping) else using_runtime)
     LOG.info("prepare parallelization %s using runtime \n%s", computation, pformat(from_runtime))
@@ -968,10 +963,8 @@ def load_kwargs(parameters, to_tap):
             return value
         return to_tap.read_dataset(value["dataset"])
 
-    kwargs = {var: load(value) for var, value in parameters.items() if var not in ("description", "index", "input",
-                                                                                   "loader", "extractor",
-                                                                                   "computation",
-                                                                                   "output", "collector")}
+    kwargs = parameters.get("kwargs", {})
+    kwargs.update({var: load(value) for var, value in parameters.items() if var not in COMPKEYS})
     kwargs.update({var: value for var, value in parameters.get("input", {}).items()
                    if var not in ("circuit", "connectome") and (
                            not isinstance(value, Mapping) or "dataset" not in value)})

@@ -1,6 +1,8 @@
 """Interface to the HDFStore where the pipeline stores its data."""
 from collections.abc import Iterable, Mapping
 from collections import OrderedDict, defaultdict
+from copy import deepcopy
+from pprint import pformat
 from lazy import lazy
 from pathlib import Path
 import h5py
@@ -16,7 +18,7 @@ from connsense.io.write_results import (read as read_dataset,
                                         read_node_properties,
                                         read_toc_plus_payload)
 from connsense.io import logging
-from connsense.pipeline import ConfigurationError, NotConfiguredError
+from connsense.pipeline import ConfigurationError, NotConfiguredError, COMPKEYS
 
 
 LOG = logging.get_logger(__name__)
@@ -61,15 +63,34 @@ class HDFStore:
     INDICES = pd.Series(["circuit", "connectome", "subtarget", "morphology"],
                         index=["circuit", "connectome", "subtarget_id", "morphology_id"])
 
+
+    def decompose(self, computation_type, of_quantity):
+        """..."""
+        from connsense.pipeline.parallelization import parallelization as prl
+        parameters = prl.parameterize(computation_type, of_quantity, self._config)
+        return {var: val for var, val in parameters.items() if var not in COMPKEYS}
+
     def load_analyses(self, group):
         """..."""
+        topic = f"analyze-{group}"
         try:
-            group_analyses = self._config["parameters"][f"analyze-{group}"]
+            group_analyses = self._config["parameters"][topic]
         except KeyError:
             LOG.warning("No analyses for group %s", group)
             return {}
 
-        return group_analyses["analyses"]
+        analyses = group_analyses["analyses"]
+        components = {q: self.decompose(computation_type=topic, of_quantity=q) for q in analyses}
+
+        def compose_analysis(a):
+            """..."""
+            analysis = {key: deepcopy(value) for key, value in analyses[a].items() if (key in COMPKEYS
+                                                                                       and key != "description")}
+            analysis["components"] = components[a]
+
+            return analysis
+
+        return {a: compose_analysis(a) for a in analyses}
 
     def __init__(self, config, in_connsense_h5=None):
         """..."""
@@ -109,7 +130,7 @@ class HDFStore:
         elif isinstance(described, Iterable):
             values = described
         else:
-            raise ConfigurationError(f"CANNOT create index from description \n {pformat(desxribed)}")
+            raise ConfigurationError(f"CANNOT create index from description \n {pformat(described)}")
 
 
         index = pd.Series(values, index=pd.RangeIndex(0, len(values), 1, name=f"{variable}_id"), name=variable)
@@ -183,7 +204,7 @@ class HDFStore:
                 read = self.get_reader(step)
                 self.datasets[step][dset] = read((h5, group+"/"+dset), step).sort_index()
 
-        return  self.datasets[step][dset]
+        return self.datasets[step][dset]
 
     def subtarget(self, definition):
         """..."""
@@ -335,24 +356,72 @@ class HDFStore:
     def analyses(self):
         """A TOC for analyses results available in the HDF store.
         """
-        def tabulate(analysis, store):
+        # def tabulate(analysis, store):
+        #     """..."""
+        #     if not store:
+        #         return None
+        #     try:
+        #         return store.toc
+        #     except FileNotFoundError as error:
+        #         LOG.error("Analysis %s NO TOC found: %s", analysis, error)
+        #         return None
+        #     return None
+
+        # p = (self._root, self._groups[anzconn.STEP])
+        # tocs = {"connectivity": {an: tabulate(an, self.get_value_store("connectivity", (an,alysis)))
+        #                          for an,alysis in self.load_analyses("connectivity").items()},
+        #         "node-types": {an: tabulate(an, self.get_value_store("node-types", (an,alysis)))
+        #                        for an,alysis in self.load_analyses("node-types").items()},
+        #         "physiology": {an: tabulate(an, self.get_value_store("physiology", (an,alysis)))
+        #                        for an,alysis in self.load_analyses("physiology").items()}}
+
+        # return {tic: toc for tic, toc in tocs.items() if toc is not None}
+
+
+        def tabulate(group):
             """..."""
-            if not store:
-                return None
-            try:
-                return store.toc
-            except FileNotFoundError as error:
-                LOG.error("Analysis %s NO TOC found: %s", analysis, error)
-                return None
-            return None
+            def section(an, analysis):
+                """..."""
+                LOG.info("Tabulate stores for %s, %s", an, analysis)
+                components = analysis.pop("components", {})
 
-        p = (self._root, self._groups[anzconn.STEP])
-        tocs = {"connectivity": {an: tabulate(an, self.get_value_store("connectivity", (an,alysis)))
-                                 for an,alysis in self.load_analyses("connectivity").items()},
-                "node-types": {an: tabulate(an, self.get_value_store("node-types", (an,alysis)))
-                               for an,alysis in self.load_analyses("node-types").items()}}
+                if not components:
+                    if not analysis:
+                        return {}
+                    store = self.get_value_store(group, (an, analysis))
+                    if not store:
+                        return None
+                    try:
+                        return store.toc
+                    except FileNotFoundError as err:
+                        LOG.error("Analysis %s NO TOC found %s", analysis, err)
+                        return None
+                    return None
 
-        return {tic: toc for tic, toc in tocs.items() if toc is not None}
+                astore = self.get_value_store(group, (an, analysis)) if analysis else None
+                stores = {an: astore} if astore else {}
+
+                LOG.info("add components to analysis store: %s", stores)
+
+                for c, component in components.items():
+                    LOG.info("Load store component %s", c)
+                    cstore = section(f"{an}/{c}", component)
+                    if cstore is not None:
+                        stores[f"{an}/{c}"] = cstore
+                return stores
+
+            tocs = {}
+            for an, analysis in self.load_analyses(group).items():
+                astore = section(an, analysis)
+                if isinstance(astore, Mapping):
+                    tocs.update(astore)
+                if isinstance(astore, pd.Series):
+                    tocs[an] = astore
+
+            return tocs
+            return {an: section(an, analysis) for an, analysis in self.load_analyses(group).items()}
+
+        return {g: tabulate(group=g) for g in ["node-types", "connectivity", "physiology"]}
 
     @lazy
     def subtarget_circuits(self):

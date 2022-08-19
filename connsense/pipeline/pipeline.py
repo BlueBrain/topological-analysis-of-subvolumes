@@ -14,7 +14,7 @@ from ..io.write_results import (read_toc_plus_payload, read_node_properties,
 from .step import Step
 from .store import HDFStore
 from ..io import logging
-from .import ConfigurationError, NotConfiguredError, PARAMKEY, workspace
+from .import ConfigurationError, NotConfiguredError, PARAMKEY, COMPKEYS, workspace
 
 
 LOG = logging.get_logger("pipeline.")
@@ -44,6 +44,13 @@ class TopologicalAnalysis:
                              ("analyze-node-types", Step(analyze_node_types)),
                              ("analyze-connectivity", Step(analyze_connectivity)),
                              ("analyze-physiology", Step(analyze_physiology))])
+
+    def decompose(self, computation_type, of_quantity):
+        """Decompose a computation into it's components."""
+        from connsense.pipeline.parallelization import parallelization as prl
+        parameters = prl.parameterize(computation_type, of_quantity, self._config)
+
+        return {var: val for var, val in parameters.items() if var not in COMPKEYS}
 
     @classmethod
     def sequence_of_steps(cls):
