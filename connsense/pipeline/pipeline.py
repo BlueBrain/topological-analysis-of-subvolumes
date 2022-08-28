@@ -130,7 +130,7 @@ class TopologicalAnalysis:
 
         self._path_parallelize, self._parallelize = (
             self.read_parallelization(p, of_pipeline=self._config, return_path=True) if parallelize
-            else (None, None) if return_path else None)
+            else (None, None))
 
         self._data = HDFStore(self._config)
 
@@ -176,7 +176,7 @@ class TopologicalAnalysis:
         """Setup the pipeline, one step and if defined one substep at a time.
         We can chain all the steps together later.
         """
-        LOG.warning("SETUP pipeline action %s for step %s %s ", step, substep)
+        LOG.warning("SETUP pipeline action for step %s %s ", step, substep)
 
         in_mode = kwargs.get("in_mode", None)
 

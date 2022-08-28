@@ -852,9 +852,11 @@ def input_units(computation, to_tap):
     """..."""
     parameters = parameterize(*describe(computation), to_tap._config)
     index_vars = parameters.get("index", parameters["input"])
-    index = pd.MultiIndex.from_product([to_tap.subset_index(var, values) for var, values in index_vars.items()])
-    return index
-    return index.to_frame().reset_index(drop=True)
+    if len(index_vars) > 1:
+        return pd.MultiIndex.from_product([to_tap.subset_index(var, values) for var, values in index_vars.items()])
+
+    var, values = next(iter(index_vars.items()))
+    return pd.Index(to_tap.subset_index(var, values))
 
 
 def filter_input_datasets(described):
@@ -936,6 +938,8 @@ def pour(tap, variables):
         return pd.concat(original.values, axis=0, keys=original.index.values, names=original.index.names)
 
     input_datasets = {var: load_dataset(var, values).apply(group_properties(var)) for var, values in variables.items()}
+
+    LOG.info("Pour tap to get elements of \n%s", pformat(input_datasets))
 
     def loc(subtarget):
         """..."""

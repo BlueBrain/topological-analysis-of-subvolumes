@@ -110,6 +110,11 @@ class HDFStore:
         self.index[variable] = value
         return value
 
+    def configure_index(self, variable=None):
+        """..."""
+        configured = self._config["parameters"]["create-index"]["variables"]
+        return configured if not variable else configured[variable]
+
     def create_index(self, variable):
         """Create index for a variable and it's values.
         """
@@ -128,10 +133,9 @@ class HDFStore:
                 transformations = {a: transform for a, transform in described.items() if a != "dataset"}
                 values = self.pour_subtarget(dataset, **transformations).values
         elif isinstance(described, Iterable):
-            values = described
+            values = list(described)
         else:
             raise ConfigurationError(f"CANNOT create index from description \n {pformat(described)}")
-
 
         index = pd.Series(values, index=pd.RangeIndex(0, len(values), 1, name=f"{variable}_id"), name=variable)
         return index
@@ -434,7 +438,7 @@ class HDFStore:
             return tocs
             return {an: section(an, analysis) for an, analysis in self.load_analyses(group).items()}
 
-        return {g: tabulate(group=g) for g in ["node-types", "connectivity", "physiology"]}
+        return {g: tabulate(group=g) for g in ["node-types", "composition", "connectivity", "physiology"]}
 
     @lazy
     def subtarget_circuits(self):
