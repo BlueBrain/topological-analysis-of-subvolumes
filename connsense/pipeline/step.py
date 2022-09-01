@@ -76,7 +76,6 @@ class Step(Runnable):
         from .parallelization.parallelization import run_multiprocess
         return run_multiprocess(computation, in_config, using_runtime, on_compute_node, inputs)
 
-
     def check_state(self, pipeline):
         """TODO: Check where a pipeline is along the sequence of steps that define it."""
         return True

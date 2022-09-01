@@ -54,7 +54,7 @@ class SubtargetsConfig:
         self._label = label or "define-subtargets"
 
     @staticmethod
-    def load_circuit(with_maybe_config, label=None):
+    def load_circuit(with_maybe_config, label=None, with_depths=False):
         """..."""
         LOG.info("Load circuit %s", label)
         try:
@@ -62,10 +62,13 @@ class SubtargetsConfig:
         except BluePyError:
             circuit = with_maybe_config
         circuit.variant = label
-        return SubtargetsConfig.attribute_depths(circuit)
+        return SubtargetsConfig.attribute_depths(circuit) if with_depths else circuit
 
-    @staticmethod
-    def attribute_depths(circuit):
+    def attribute_depths(self, circuit):
+        """..."""
+        if isinstance(circuit, str):
+            return self.attribute_depths(self.input_circuit[circuit])
+
         from voxcell import VoxcellError
         LOG.info("RUN neuron depths extraction")
         from flatmap_utility import supersampled_neuron_locations
@@ -88,6 +91,15 @@ class SubtargetsConfig:
 
         circuit.cells.__class__.depths = get_depths
         return circuit
+
+    @staticmethod
+    def get_depths(circuit):
+        """..."""
+        try:
+            return circuit.cells.depths
+        except AttributeError:
+            circuit = SubtargetsConfig.attribute_depths(circuit)
+        return circuit.cells.paths
 
     @lazy
     def input_circuit(self):

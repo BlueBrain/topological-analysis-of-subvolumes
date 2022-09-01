@@ -7,6 +7,7 @@ from pprint import pformat
 import pandas as pd
 
 from connsense.io import logging
+from connsense.define_subtargets.config import attribute_depths
 
 LOG = logging.get_logger("Extract node populations.")
 
@@ -82,7 +83,7 @@ def extract_node_properties(circuit, subtarget, properties):
         try:
             circuit_cells_depths = circuit.cells.depths
         except AttributeError:
-            circuit_cells_depths = get_node_depths(circuit)
+            circuit_cells_depths = attribute_depths(circuit)
             depths = circuit_cells_depths.reindex(subtarget)
         else:
             depths = circuit_cells_depths(subtarget)

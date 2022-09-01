@@ -223,7 +223,8 @@ def collect_multinode(computation_type, setup, from_dirpath, in_connsense_store)
     if computation_type == "extract-edge-populations":
         return collect_edge_population(setup, from_dirpath, in_connsense_store)
 
-    if computation_type in ("analyze-connectivity", "analyze-node-types", "analyze-physiology", "sample-edge-populations"):
+    if computation_type in ("analyze-connectivity", "analyze-composition",
+                            "analyze-node-types", "analyze-physiology", "sample-edge-populations"):
         return collect_analyze_step(setup, from_dirpath, in_connsense_store)
 
     raise NotImplementedError(f"INPROGRESS: {computation_type}")
@@ -1026,7 +1027,7 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node, 
         return execute(*circuit_args_values, **{var: unpack(value) for var, value in lazy_subtarget().items()},
                        **kwargs)
 
-    def run_batch(of_input, *, index, in_bowl):
+    def run_batch(of_input, *, index, in_bowl=None):
         """..."""
         LOG.info("Run %s batch %s of %s inputs args, and circuit %s, \n with kwargs %s ", of_computation,
                  index, len(of_input), circuit_args_values, pformat(kwargs))
@@ -1037,37 +1038,49 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node, 
 
         if to_store_batch:
             results = of_input.apply(execute_one)
-            in_bowl[index] = to_store_batch(in_hdf.format(index), results=collect_batch(results))
+            result = to_store_batch(in_hdf.format(index), results=collect_batch(results))
             #framed = pd.concat([results], axis=0, keys=connsense_index.values, names=connsense_index.names)
-            #in_bowl[index] = to_store_batch(in_hdf.format(index), results=collect_batch(framed))
+            #result = to_store_batch(in_hdf.format(index), results=collect_batch(framed))
         else:
-            in_bowl[index] = to_store_one(in_hdf.format(index), update=of_input.apply(to_subtarget))
+            result = to_store_one(in_hdf.format(index), update=of_input.apply(to_subtarget))
 
-        return in_bowl[index]
+        if in_bowl:
+            in_bowl[index] = result
+        return result
 
-    manager = Manager()
-    bowl = manager.dict()
-    processes = []
+    n_compute_nodes,  n_total_jobs = prepare_parallelization(of_computation, in_config, using_runtime)
 
-    #n_compute_nodes,  n_jobs = prepare_parallelization(of_computation, in_config, using_runtime)
     #batches = load_input_batches(on_compute_node, inputs, n_parallel_tasks=int(n_jobs/n_compute_nodes))
     batches = load_input_batches(on_compute_node)
     n_batches = batches.batch.max() - batches.batch.min() + 1
 
-    for batch, subtargets in batches.groupby("batch"):
-        LOG.info("Spawn compute node %s process %s / %s batches", on_compute_node, batch, n_batches)
-        p = Process(target=run_batch,
-                    args=(subset_input(subtargets.index),), kwargs={"index": batch, "in_bowl": bowl})
-        p.start()
-        processes.append(p)
+    if n_compute_nodes == n_total_jobs:
+        bowl = {}
+        for batch, subtargets in batches.groupby("batch"):
+            LOG.info("Run Single Node %s process %s / %s batches", on_compute_node, batch, n_batches)
+            bowl[batch] = run_batch(subset_input(subtargets.index), index=batch)
+        LOG.info("DONE Single Node connsense run.")
+    else:
+        manager = Manager()
+        bowl = manager.dict()
+        processes = []
 
-    LOG.info("LAUNCHED %s processes", n_batches)
+        for batch, subtargets in batches.groupby("batch"):
+            LOG.info("Spawn Compute Node %s process %s / %s batches", on_compute_node, batch, n_batches)
+            p = Process(target=run_batch,
+                        args=(subset_input(subtargets.index),), kwargs={"index": batch, "in_bowl": bowl})
+            p.start()
+            processes.append(p)
 
-    for p in processes:
-        p.join()
+        LOG.info("LAUNCHED %s processes", n_batches)
+
+        for p in processes:
+            p.join()
+
+        LOG.info("Parallel computation %s results %s", of_computation, len(bowl))
 
     results = {key: value for key, value in bowl.items()}
-    LOG.info("Parallel computation %s results %s", of_computation, len(results))
+    LOG.info("Computation %s results %s", of_computation, len(results))
 
     read_pipeline.write(results, to_json=on_compute_node/"batched_output.h5")
 

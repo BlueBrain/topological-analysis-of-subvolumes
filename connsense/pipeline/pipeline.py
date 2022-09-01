@@ -33,6 +33,7 @@ class TopologicalAnalysis:
                            sample_connectivity,
                            randomize_connectivity,
                            analyze_node_types,
+                           analyze_composition,
                            analyze_connectivity,
                            analyze_physiology)
 
@@ -44,6 +45,7 @@ class TopologicalAnalysis:
                              ("sample-edge-populations", Step(sample_connectivity)),
                              ("randomize-connectivity", Step(randomize_connectivity)),
                              ("analyze-node-types", Step(analyze_node_types)),
+                             ("analyze-composition", Step(analyze_composition)),
                              ("analyze-connectivity", Step(analyze_connectivity)),
                              ("analyze-physiology", Step(analyze_physiology))])
 

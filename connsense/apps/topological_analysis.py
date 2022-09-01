@@ -102,6 +102,7 @@ SUBSTEPS = OrderedDict([("define-subtargets", "definitions"),
                         ("sample-edge-populations", "analyses"),
                         ("randomize-connectivity", "controls"),
                         ("analyze-node-types", "analyses"),
+                        ("analyze-composition", "analyses"),
                         ("analyze-connectivity", "analyses"),
                         ("analyze-physiology", "analyses")])
 
