@@ -7,6 +7,8 @@ import numpy as np
 import pandas as pd
 from scipy import sparse
 
+from tqdm import tqdm
+
 from bluepy import Cell, Synapse, Direction
 
 from ..io import logging
@@ -19,11 +21,13 @@ LOG = logging.get_logger(STEP)
 
 
 def find_connectome(c, in_circuit):
-    """..."""
-    return  in_circuit.connectome if c == "local" else in_circuit.projection(c)
+    """...TODO: find a solution to removing `-extrinsic` explictly here.
+    This is done to consider WM connectome as extrinsic...
+    """
+    return  in_circuit.connectome if c == "local" else in_circuit.projection(c.split("-extrinsic")[0])
 
 
-def iter_afferent(to_subtarget, in_connectome_labeled, of_circuit, as_connections=False):
+def iter_afferent_afferent(to_subtarget, in_connectome_labeled, of_circuit, as_connections=False):
     """..."""
     edges_are_intrinsic = in_connectome_labeled in ("local", "long-range", "cortico-cortical")
 
@@ -46,9 +50,10 @@ def iter_afferent(to_subtarget, in_connectome_labeled, of_circuit, as_connection
 def iter_connections(in_subtarget, connectome_labeled, of_circuit):
     """..."""
 
-    edges_are_intrinsic = connectome_labeled in INTRINSIC
-
-    connectome = find_connectome(connectome_labeled, of_circuit)
+#    edges_are_intrinsic = connectome_labeled in INTRINSIC
+#    connectome = find_connectome(connectome_labeled, of_circuit)
+    labeled, edges_are_intrinsic = connectome_labeled
+    connectome = find_connectome(labeled, of_circuit)
 
     try:
         gids = in_subtarget["gids"]
@@ -58,11 +63,72 @@ def iter_connections(in_subtarget, connectome_labeled, of_circuit):
     return connectome.iter_connections(gids if edges_are_intrinsic else None, gids, return_synapse_count=True)
 
 
-def get_connections(in_subtarget, connectome_labeled, of_circuit):
+def _get_connections_serial(in_subtarget, connectome_labeled, of_circuit):
     """..."""
-    #iterc = iter_afferent(to_subtarget, in_connectome_labeled, of_circuit, as_connections=True)
+    #iterc = iter_afferent_afferent(to_subtarget, in_connectome_labeled, of_circuit, as_connections=True)
     iterc = iter_connections(in_subtarget, connectome_labeled, of_circuit)
     return pd.DataFrame(list(iterc), columns=[Synapse.PRE_GID, Synapse.POST_GID, "nsyn"])
+
+
+def iter_afferent(to_gids, in_subtarget, connectome_labeled, of_circuit):
+    """..."""
+    #edges_are_intrinsic = connectome_labeled in INTRINSIC
+    #connectome = find_connectome(connectome_labeled, of_circuit)
+    labeled, edges_are_intrinsic = connectome_labeled
+    connectome = find_connectome(labeled, of_circuit)
+
+    return connectome.iter_connections(pre=in_subtarget if edges_are_intrinsic else None, post=to_gids,
+                                       return_synapse_count=True)
+
+
+def get_connections(in_subtarget, connectome_labeled, of_circuit, n_batches=1):
+    """Batch subtarget connections and run in parallel ...
+    """
+    if n_batches == 1:
+        return _get_connections_serial(in_subtarget, connectome_labeled, of_circuit)
+
+    def run_batch(gids, *, index=0, in_bowl=None):
+        """..."""
+        LOG.info("Get connections for %s gids batch %s among %s batches", len(gids), index, n_batches)
+        def afferent(gid):
+            """..."""
+            iterc = iter_afferent([gid], in_subtarget,connectome_labeled, of_circuit)
+            return pd.DataFrame(list(iterc), columns=[Synapse.PRE_GID, Synapse.POST_GID, "nsyn"])
+
+        connections_batches = [batch for batch in (afferent(gid=g) for g in tqdm(gids))
+                               if batch is not None and not batch.empty]
+        if not connections_batches:
+            LOG.warning("No connections in batch %s of %s gids: ", index, len(gids))
+            return pd.DataFrame()
+
+        connections = pd.concat(connections_batches)
+        LOG.info("Done connections for %s gids batch %s among %s batches: \t%s connections",
+                 len(gids), index or 1, n_batches, len(connections))
+        if in_bowl is not None:
+            in_bowl[index] = connections
+        return connections
+
+    from multiprocessing import Process, Manager
+    manager = Manager()
+    bowl = manager.dict()
+    processes = []
+
+    LOG.info("Extract edges for %s cells in %s batches", len(in_subtarget), n_batches)
+    batched_gids = pd.DataFrame({"gid": in_subtarget,
+                                "batch": np.linspace(0, n_batches - 1.e-9, len(in_subtarget), dtype=int)})
+    for batch, gids in batched_gids.groupby("batch"):
+        LOG.info("Spawn extraction of batch %s / %s", batch, n_batches)
+        p = Process(target=run_batch, args=(gids["gid"].values,), kwargs={"index": batch, "in_bowl": bowl})
+        p.start()
+        processes.append(p)
+
+    LOG.info("LAUNCHED computation of %s batches", n_batches)
+    for p in processes:
+        LOG.info("JOIN process %s", p)
+        p.join()
+
+    batched_connections = [x for x in bowl.values() if x is not None and not x.empty]
+    return pd.concat(batched_connections).reset_index(drop=True) if batched_connections else pd.DataFrame()
 
 
 def anonymize_gids(connections, gids, edges_are_intrinsic):
@@ -155,13 +221,14 @@ def extract_adj_series(circuit, connectome, subtarget):
     return as_adjmat(connections, gids, edges_are_intrinsic)
 
 
-def extract_adj(circuit, connectome, subtarget):
+def extract_adj(circuit, connectome, subtarget, *, sources="intrinsic", n_parallel_batches=1):
     """..."""
     LOG.info("Extract connectivity for circuit %s connectome %s, subtargets \n%s", circuit, connectome, subtarget)
-    edges_are_intrinsic = connectome in INTRINSIC
+    intrinsic = sources == "intrinsic"
     gids = pd.Series(subtarget, name="gid")
-    connections = get_connections(subtarget, connectome_labeled=connectome, of_circuit=circuit)
-    return as_adjmat(connections, gids, edges_are_intrinsic)
+    connections = get_connections(subtarget, connectome_labeled=(connectome, intrinsic), of_circuit=circuit,
+                                  n_batches=n_parallel_batches)
+    return as_adjmat(connections, gids, intrinsic)
 
 def extract_edge_0(properties):
     """..."""

@@ -909,6 +909,8 @@ def assign_batches_to(inputs, upto_number, return_load=False):
             return estimate_load(input_data())
 
         if isinstance(input_data, Mapping):
+            if not input_data:
+                return 1.
             first = next(v for v in input_data.values())
             return estimate_load(first)
         try:
@@ -1098,8 +1100,8 @@ def input_circuit(labeled, in_config):
     if not labeled:
         return None
     sbtcfg = SubtargetsConfig(in_config)
-    circuit = sbtcfg.input_circuit[labeled]
-    circuit.variant = labeled
+    circuit = sbtcfg.attribute_depths(circuit=labeled)
+
     return circuit
 
 
@@ -1286,6 +1288,8 @@ def store_matrix_data(of_quantity, parameters, on_compute_node, in_hdf_group):
 
 def collect_batches(of_computation, results, on_compute_node, hdf_group, of_output_type):
     """..."""
+    LOG.info("Collect bactched %s results of %s on compute node %s in group %s output type %s",
+             of_computation, len(results), on_compute_node, hdf_group, of_output_type)
     computation_type, of_quantity = describe(of_computation)
 
 
