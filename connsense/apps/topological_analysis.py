@@ -255,7 +255,8 @@ def main(argued=None):
                     "analyze-composition": argued.analysis,
                     "analyze-node-types": argued.analysis,
                     "analyze-connectivity": argued.analysis,
-                    "analyze-edges": argued.analysis}
+                    "analyze-edges": argued.analysis,
+                    "analyze-physiology": argued.analysis}
 
         argued_substep = argued.substep or substeps[argued.step]
 

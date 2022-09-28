@@ -116,7 +116,8 @@ def run_multinode_configs(process_of, computation, in_config, for_control, makin
     raise ValueError(f"Unknown {process_of} multinode")
 
 
-def batch_multinode(process_of, inputs, computation, in_config, at_path, using_parallelization):
+def batch_multinode(process_of, inputs, computation, in_config, at_path, using_parallelization,
+                    max_launch_submissions=500):
     """..."""
     n_compute_nodes, n_parallel_jobs = using_parallelization
 
@@ -131,7 +132,12 @@ def batch_multinode(process_of, inputs, computation, in_config, at_path, using_p
         assignment = pd.concat([batches, compute_nodes], axis=1)
         assignment_h5, dataset = COMPUTE_NODE_ASSIGNMENT
         assignment.to_hdf(at_path/assignment_h5, key=dataset)
-        return assignment
+
+        if assignment.compute_node.max() <= max_launch_submissions:
+            return assignment
+
+        submissions = assignment.compute_node.apply(lambda n: int(n / max_launch_submissions))
+        return assignment.assign(submission=submissions)
 
     if process_of == collect_multinode:
         return read_compute_nodes_assignment(at_path)
@@ -175,9 +181,14 @@ def setup_compute_node(c, inputs, for_computation, using_configs):
         """..."""
         return None
 
-    master_launchscript = to_stage / "launchscript.sh"
+    if "submission" not in inputs:
+        launchscript = to_stage / "launchscript.sh"
+    else:
+        submission = inputs.submission.unique()
+        assert len(submission) == 1
+        launchscript = to_stage / f"launchscript-{submission[0]}.sh"
 
-    with open(master_launchscript, 'a') as to_launch:
+    with open(launchscript, 'a') as to_launch:
 
         def write(aline):
             if aline:
@@ -636,6 +647,7 @@ def pour(tap, variables):
     def load_dataset(var, values):
         """..."""
         dataset = tap.pour_dataset(var, values["dataset"]).apply(unpack)
+
         if not "reindex" in values:
             return dataset
 
@@ -648,7 +660,24 @@ def pour(tap, variables):
 
     def loc(subtarget):
         """..."""
-        return {variable: values.loc[subtarget] for variable, values in input_datasets.items()}
+        def get(variable):
+            """..."""
+            try:
+                value_subtarget = input_datasets[variable].loc[subtarget]
+            except KeyError as kerr:
+                LOG.warning("Subtarget %s not found in input datasets %s", subtarget, variable)
+                return None
+            return value_subtarget
+
+        subtarget_input_dataset = {}
+
+        for variable in input_datasets:
+            values = get(variable)
+            if values is None:
+                return None
+            subtarget_input_dataset[variable] = values
+
+        return subtarget_input_dataset
 
     def loc_0(subtarget):
         """..."""
@@ -793,7 +822,25 @@ def read_njobs(to_parallelize, computation_of):
     try:
         p = to_parallelize[q]
     except KeyError:
-        return (1, 1)
+        if '/' in q:
+            try:
+                q0, q1 = q.split('/')
+            except ValueError: #TODO: log something
+                return (1, 1)
+            else:
+                try:
+                    p0 = to_parallelize[q0]
+                except KeyError:
+                    return (1, 1)
+                else:
+                    try:
+                        p = p0[q1]
+                    except KeyError:
+                        return (1, 1)
+                    else:
+                        pass
+        else:
+            return (1, 1)
 
     compute_nodes = p["number-compute-nodes"]
     tasks = p["number-tasks-per-node"]
@@ -905,6 +952,9 @@ def assign_batches_to(inputs, upto_number, return_load=False):
     """..."""
     def estimate_load(input_data): #pylint: disable=unused-argument
         """Needs improvement.."""
+        if input_data is None:
+            return None
+
         if callable(input_data):
             return estimate_load(input_data())
 
@@ -933,6 +983,11 @@ def assign_batches_to(inputs, upto_number, return_load=False):
         weights = inputs.apply(estimate_load, axis=1).sort_values(ascending=True).rename("estimated_load")
     else:
         raise TypeError(f"Unhandled type of input: {inputs}")
+
+    nan_weights = weights[weights.isna()]
+    if len(nan_weights) > 0:
+        LOG.warning("No input data for %s / %s inputs:\n%s", len(nan_weights), len(weights), pformat(nan_weights))
+        weights = weights.dropna()
 
     computational_load = (np.cumsum(weights) / weights.sum()).rename("estimated_load")
     n = np.minimum(upto_number, len(inputs))
