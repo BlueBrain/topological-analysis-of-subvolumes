@@ -665,7 +665,7 @@ def pour(tap, variables):
             try:
                 value_subtarget = input_datasets[variable].loc[subtarget]
             except KeyError as kerr:
-                LOG.warning("Subtarget %s not found in input datasets %s", subtarget, variable)
+                LOG.warning("Subtarget %s\n not found in input datasets %s", subtarget, variable)
                 return None
             return value_subtarget
 
@@ -990,7 +990,7 @@ def assign_batches_to(inputs, upto_number, return_load=False):
         weights = weights.dropna()
 
     computational_load = (np.cumsum(weights) / weights.sum()).rename("estimated_load")
-    n = np.minimum(upto_number, len(inputs))
+    n = np.minimum(upto_number, len(weights))
     batches = (n * (computational_load - computational_load.min())).apply(int).rename("batch")
 
     LOG.info("Load balanced batches for %s inputs: \n %s", len(inputs), batches.value_counts())
@@ -1026,7 +1026,7 @@ def write_compute(batches, to_hdf, at_dirpath):
 
 
 
-def load_kwargs(parameters, to_tap):
+def load_kwargs(parameters, to_tap, on_compute_node):
     """..."""
     def load(value):
         if not isinstance(value, Mapping) or "dataset" not in value:
@@ -1038,7 +1038,28 @@ def load_kwargs(parameters, to_tap):
     kwargs.update({var: value for var, value in parameters.get("input", {}).items()
                    if var not in ("circuit", "connectome") and (
                            not isinstance(value, Mapping) or "dataset" not in value)})
-    return kwargs
+
+    try:
+        workdir = kwargs["workdir"]
+    except KeyError:
+        return kwargs
+
+    if isinstance(workdir, Path):
+        return kwargs
+
+    if isinstance(workdir, str):
+        path = Path(workdir)/on_compute_node.relative_to(to_tap._root.parent)
+        path.mkdir(parents=True, exist_ok=True)
+        kwargs["workdir"] = path
+        return kwargs
+
+    if workdir is True:
+        workdir = on_compute_node / "workdir"
+        workdir.mkdir(parents=False, exist_ok=True)
+        kwargs["workdir"] = workdir
+        return kwargs
+
+    raise NotImplementedError(f"What to do with workdir type {type(workdir)}")
 
 
 def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node, inputs=None):
@@ -1059,7 +1080,7 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node, 
     circuit_args_names = tuple(v for v in ((lambda c: c.variant if c else None)(circuit_kwargs["circuit"]),
                                            circuit_kwargs["connectome"]) if v)
 
-    kwargs = load_kwargs(parameters, to_tap=HDFStore(in_config))
+    kwargs = load_kwargs(parameters, HDFStore(in_config), on_compute_node)
 
     subset_input = generate_inputs_of(of_computation, in_config, on_compute_node, by_subtarget=True)
 
@@ -1091,7 +1112,10 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node, 
 
         def to_subtarget(s):
             """..."""
-            return to_store_one(in_hdf.format(index), result=execute_one(lazy_subtarget=s))
+            r = execute_one(lazy_subtarget=s)
+            LOG.info("store one lazy subtarget %s result \n%s", r)
+            LOG.info("Result data types %s", r.info())
+            return to_store_one(in_hdf.format(index), result=r)
 
         if to_store_batch:
             results = of_input.apply(execute_one)
@@ -1256,6 +1280,7 @@ def configure_execution(computation, in_config, on_compute_node):
     _, at_path = output_paths["steps"][computation_type]
 
     execute = get_executable(computation_type, parameters)
+
     if computation_type == "extract-node-populations":
         return (execute, None,  store_node_properties(of_quantity, on_compute_node, at_path))
         #return (execute, store_node_properties(of_quantity, on_compute_node, at_path), None)
@@ -1359,8 +1384,9 @@ def collect_batches(of_computation, results, on_compute_node, hdf_group, of_outp
     in_store = matrices.get_store(in_connsense_h5, hdf_quantity, for_matrix_type=of_output_type)
 
     batched = results.items()
-    in_store.collect({batch: matrices.get_store(connsense_h5, hdf_quantity, for_matrix_type=of_output_type)
-                      for batch, (connsense_h5, group) in batched})
+    in_store.collect({batch: matrices.get_store(on_compute_node / batch_connsense_h5, hdf_quantity,
+                                                for_matrix_type=of_output_type)
+                      for batch, (batch_connsense_h5, group) in batched})
     return (in_connsense_h5, hdf_quantity)
 
 def collect_batched_edge_population(p, results, on_compute_node, hdf_group):
