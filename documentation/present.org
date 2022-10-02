@@ -1,0 +1,413 @@
+#+title: (sub) Target Analysis Pipeline
+
+* To analyze sub-targets in a circuit.
+
+*connsense-TAP*  offers a solution to a problem,
+
+** PROBLEM
+
+Our circuits are as detailed as the current state of the art experimental data and algorithms allow. Circuit data artefacts are complex and ridden with neuroscience and informatics jargon --- both of which can be a hurdle in analyzing a circuit reconstruction.
+
+1. Physically large circuit --- analyses, unless parallelized, can be slow
+
+2. Book-keeping analyses results can be a head-ache
+
+3. Too much neuroscientific and informatic jargon to load a circuit to analyze
+
+
+** SOLUTION: TAP
+
+*** ~tap-env~: Circuit Analysis Compute Environemnt
+Follow conventions to provide methods on individual ~circuit-subtargets~ that ~TAP~ will parallelize.
+
+*** ~tap-store~: A HDFstore to hold the analysis data
+Use an interface to interact with the analyzed data and generate reports
+
+*** ~tap-config~: A Reporducible document in the form of a YAML / JSON config file
+Use the config to reproduce analyses on existing or new circuits.
+
+
+* ANALYSIS
+
+
+* SUBTARGET
+
+An analysis will be that of the entire circuit, or a ~circuit-subtarget~ that can be represented simply as a collection of neurons. We may parcellate the brain's physical shape into constituent blocks and study how a brain circuit phenomenon varies across these ~subtargets~.
+
+The rat-SSCx circuit has 8 subregions, with a total of 4.5 million neurons. The upcoming mouse-IsoCortex will have the entire neocortex with more than 10 million neurons. We may define each region as a ~subtarget~ and analyze the distribution of neurons across them.
+
+Or we may be interested in a brain-circuit parcellation that arises from a biological phenomenon, and define ~subtargets~ accordingly. Parcellation of the SSCx into conical ~subtargets~ oriented along cortical layers can be used to study the composition and connectivity of these columnar ~subtargets~ in relation to white-matter innervation that follows a similar columnar pattern.
+
+
+* TAP Config
+
+Let us start by configuring a ~connsense-TAP~. We will write a ~YAML~ config, starting with a header to help us track our progress.
+
+#+name: config-header
+#+begin_src yaml :tangle pipeline.yaml
+description: >-
+  Configure a connsense subTarget Analysis Pipeline to analyze your circuit.
+version: 0.0.0
+date: <2022-10-04 Tue>
+#+end_src
+
+There are two ~TAP~ config sections we need to fill,
+
+** Paths
+
+We need to first describe the input / output paths to ~connsense-TAP~. We need a path to the circuits we will analyze. ~TAP~ assumes that all of these circuits are the same /brain-model/.
+
+#+name: config-paths
+#+begin_src yaml
+paths:
+  description: >-
+    The ~connsense~ pipeline needs paths to the input data to load from, and output paths to store data.
+    Paths to the circuit must be provided along with paths to the HDF5 archive that will store the pipeline's
+    results.
+  format: relative
+  circuit:
+    root: "/gpfs/bbp.cscs.ch/project/proj83/circuits"
+    files:
+      Bio_M: "Bio_M/20200805/CircuitConfig_TC_WM"
+  pipeline:
+    root: "/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2"
+    input:
+      store: "connsense.h5"
+    output:
+      store: "connsense.h5"
+    steps:
+      define-subtargets: "subtargets"
+      extract-node-populations: "nodes/populations"
+      extract-edge-populations: "edges/populations"
+      analyze-connectivity: "analyses/connectivity"
+
+#+end_src
+
+As the config above suggests, we will have four distinct steps in our ~connsense-TAP~ run. We can add steps as we progress. Let us look at the four steps that we have configured.
+
+** Parameters
+
+The second section concerns with the parameters that ~connsense-TAP~ will use to run computations. The starting point will be the definitions of ~circuit-subtargets~. We consider spatially defined subtargets, hexagonal prism shaped columns defined using a mapping to the circuit's ~flatmap~. To track the computations as the pipeline progresses, ~connsense-TAP~ will use an indexing scheme. We need to declare the variables to use in the index. Here we want to study a circuit's connectivity --- so the circuit's connectome will be one of the variables. We will have ~subtargets~ within the circuit connectome that we want to study as indpendent circuits.
+
+#+name: config-parameters
+#+begin_src yaml
+parameters:
+  create-index:
+    description:
+      Create tap-store indices by listing datasets for each index variable.
+    variables:
+      circuit:
+        - "Bio_M"
+      connectome:
+        - "local"
+      subtarget:
+        dataset: ["define-subtargets", "flatmap-columns/name"]
+
+#+end_src
+
+We have used a  reference to a dataset that our ~connsense-TAP~ instance is expected to have when it needs that dataset to create an index for ~subtargets~. The reference can be read as ~(computation-type dataset)~. So here we refered to the dataset that is the result of ~define-subtargets~ dataset ~flatmap-columns/name~.
+
+We have entered this /zeroth/ ~step~ because it is not really a ~computation~ that is run independently. The information is used within ~connsense-TAP~ for indexing.
+
+Let us look at the steps that contain science,
+
+
+*** Define Subtargets
+
+The /first/ step is to define the ~subtargets~. Each ~subtarget~ will have a name, and a set of ~gids~ associated with it. There is a variety of specifications that ~connsense-TAP~ understands. For our use we will specify path to an ~NRRD~ that maps ~voxel --> subtarget_id~, with information that maps ~subtarget_id --> subtarget info~. Along with paths to data ~connsense-TAP~ will need a method that /defines/ the subtargets. We point to a method within ~connsense~.
+
+#+name: config-define-subtargets
+#+begin_src yaml
+define-subtargets:
+  description: >-
+      Configure how subtargets are defined.
+  definitions:
+    flatmap-columns:
+      description: >-
+        Hexaongal prism like columns oriented along cortical layers, from white-matter to pia.
+        The data is loaded from an NRRD file that maps each circuit voxel to a subtarget ids
+        corresponding to a flatmap column.The subtarget ids should be mapped to the subtargets
+        they refer to in a dataframe provided as the input `info`.
+      input:
+        circuit:
+        - "Bio_M"
+      kwargs:
+        path: "/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/column_identities.nrrd"
+        info: "/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/voxel-based-hex-grid-info.h5"
+      loader:
+        source: connsense.define_subtargets.flatmap
+        method: load_nrrd
+
+#+end_src
+
+This step will save data under the references
+
+1. ~["define-subtargets", "flatmap-columns/name"]~ that are names of each ~subtarget~
+2. ~["define-subtargets", "flatmap-columns/info"]~ that is the ~info~ for each ~subtarget~
+3. ~["define-subtargets", "flatmap-columns"]~ that are the gids contained in each ~subtarget~
+
+
+*** Extract Nodes
+
+We will need node properties for each of the subtargets. We follow /SONATA/ to extract ~node-populations~ from the circuit.
+
+#+name: config-extract-node-populations
+#+begin_src yaml
+extract-node-populations:
+  description: >-
+      Specify the populations to extract from a circuit.
+  populations:
+    default:
+      description: >-
+        The default population will be that of neurons in the SSCx.
+        To extract the neurons we will use a `connsense` method that uses ~bluepy~.
+      input:
+        subtarget:
+          dataset:  ["define-subtargets", "flatmap-columns"]
+          circuit:
+            - "Bio_M"
+      kwargs:
+        properties:
+          - region
+          - layer
+          - x
+          - y
+          - z
+          - depth
+          - synapse_class
+          - mtype
+          - etype
+          - morphology
+      extractor:
+        source: connsense.extract_nodes.bluepy
+        method: extract_node_properties
+      output: "pandas.DataFrame"
+#+end_src
+
+The configuration above can be used as a template to understand the general /syntax/ that ~connsense-TAP~ uses to interpret ~parameters~ entries. Each step is that of a ~computation-type~. A ~computation-type~ will have key associated with values that is a list of the ~quantities~ that will be computed.
+
+For example, to extract nodes, we have listed ~populations~ whose nodes will be extracted. For the SSCx circuits we have only one population of biophysical cells that we named ~default~.
+
+For each ~quantity~ to be computed, ~connsense-TAP~ will need to load it's input. In our case the inputs are the ~flatmap-columns~ that we have referenced as shown in the config. We may have more than one circuit to analyze, so that too goes in the ~inputs~. The workhorse will be the ~extractor~ specified above --- a method within ~connsense~ ---. The ~inputs~ are the arguments to the referenced ~Python~ method, and ~kwargs~ it's key-word arguments. We follow the convention that ~inputs~ can be loaded from other ~connsense-TAP~ steps and hence entered as /implicity/ references, while ~kwargs~ are some other parameters that the scientist will need to enter /explitcitly/. In the example of ~extract-node-populations~ we have specified extraction of cell properties. The ~output~ type of the method used is required by ~connsense-TAP~ to format the saved data.
+
+*** Extract edges
+
+We will extract subtarget edges as ~scipy.sparse~ adjacency matrices. This choice is driven mostly by the computational requirement of network topology algorithms that use adjacency matrices.
+
+#+name: config-extract-edge-populations
+#+begin_src yaml
+extract-edge-populations:
+  description: >-
+    Specify the connectomes to extract from.
+    Connections will be extracted for each subtarget as an adjacency matrix, with or without connection-strengths.
+    A connection is between a pair of source and target nodes, and may be a multi-edge connection.
+    We will also specify a set of edge-properties to extract from the circuit.
+  populations:
+    local:
+      input:
+        subtarget:
+          dataset:  ["define-subtargets", "flatmap-columns"]
+          circuit:
+            - "Bio_M"
+          connectome:
+            - "local"
+      kwargs:
+        sources: "intrinsic"
+      extractor:
+        source: connsense.extract_connectivity.bluepy
+        method: extract_adj
+      output: "sparse.spmatrix"
+    #+end_src
+
+There is nothing new here, other than the details of the computation. We specify that the inputs will be ~(subtarget, circuit, connectome)~ with their values or references. In ~kwargs~ we have set ~sources~ as /intrinsic/ which allows the ~extractor~ to distinguish extraction of connections among the /biophysical/ SSCx population from an extraction where the ~sources~ are extrinsic, for example the virtual thalamic cells defined in the reconstruction.
+
+*** Analyze Connectivity
+
+We can have several ~analyzes-computation-types~, each motivated by the needs of the computations required by specific circuit phenomena. The scientist can choose their own name prefixed by ~analyze-~.  For our case, a study of the circuit's network topology we are interested in ~analyze-connectivity~,
+
+#+name: config-analyze-connectivity
+#+begin_src yaml
+analyze-connectivity:
+  description: >-
+    Configure each analyses' parameters, as a mapping under section `analyses`.
+#+end_src
+
+We can list as many analyses as we want. Let us start with a computationally simple one,
+
+**** Simplex counts
+
+To configure a ~connsense-TAP~ computation of ~simplex-counts~ over all the subtargets,
+
+#+name: config-analyze-connectivity-simplex-counts
+#+begin_src yaml
+simplex-counts:
+  description: >-
+    Number of simplices by dimension.
+
+  index:
+    subtarget:
+      dataset: ["define-subtargets", "flatmap-columns"]
+    circuit:
+      - "Bio_M"
+    connectome:
+      - "local"
+
+  input:
+    adjacency:
+      dataset: ["extract-edge-populations", "local"]
+
+  computation:
+    source: "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py"
+    method: "simplex_counts"
+
+  output: "pandas.Series"
+#+end_src
+
+It is important to separate a ~computation~'s ~index~ from it's ~input~. The entries in ~input~ are the arguments of the ~computation-method~ entry, while ~index~ is an instruction to ~connsense-TAP~ to which subtargets the computation should be applied to. For ~simplex-counts~ we want to apply all the ~flatmap-columns~ in circuit /Bio_M/'s /local/ connectome. There are 240 of them, but one is empty, and another has only 1 node.
+
+Using the index configured for a computation, ~connsense-TAP~ will load the inputs as configured for ~input~, a
+
+#+begin_src example
+~Mapping Argument --> DataReference~
+#+end_src
+
+We can reference a ~connsense-TAP-Dataset~ by combining ~[computation-type, of_quantity]~. For ~simplex-counts~ we want the input to be the adjacency matrices loaded from the dataset resulting from extraction of the local edge population:
+#+begin_src yaml
+  input:
+    adjacency:
+      dataset: ["extract-edge-populations", "local"]
+#+end_src
+
+~connsense-TAP~ will use the subset of this dataset that applies to the configured ~index~.
+
+*** Result
+
+We can write the configuration to a YAML,
+
+#+begin_src yaml :tangle configs/pipeline.yaml :noweb yes
+<<config-header>>
+
+<<config-paths>>
+
+<<config-parameters>>
+
+  <<config-define-subtargets>>
+
+  <<config-extract-node-populations>>
+
+  <<config-extract-edge-populations>>
+
+  <<config-analyze-connectivity>>
+    analyses:
+      <<config-analyze-connectivity-simplex-counts>>
+
+#+end_src
+
+* TAP environment
+
+
+A CLI environment will allow the scientist to setup, run, and interpret a TAP instance of their circuit analysis.
+
+#+begin_example
+
+$ tap ?
+
+>> What may I analyze for you today?
+
+   1. anatomy
+   2. physiology
+
+#+end_example
+
+To which the scientist can respond,
+
+#+begin_example
+
+-- anatomy
+
+>> What aspect of anatomy?
+
+   1. composition
+   2. connectivity
+   3. something else that I am not aware of?
+
+#+end_example
+
+We want to study the connectivity of flatmap columns,
+
+#+begin_example
+
+-- connectivity
+
+#+end_example
+
+ ~tap-env~ will look for any connectivity analyses in it's configuration, and not finding any definitions,
+
+ #+begin_example
+ >> I did not find any connectivity analyses. Do you want to configure one? (yes/no)
+ #+end_example
+
+ Let us say /yes/,
+
+ #+begin_example
+
+ -- yes
+
+ >> What is the name of your analysis?
+
+ -- simplex-counts
+
+ >> Can you describe *simplex-counts*?
+
+ -- Number of simplices in a network by dimension.
+
+ >> Where can I find a method to compute *simplex-counts* ? It should be a path to a Python source file.
+
+ --  path/to/source.py
+
+ >> Which method in *path/to/source.py* should I use?
+
+ -- simplex_counts
+
+ >> What data-type does the method return?
+
+ -- pandas.Series
+
+ >> I have sufficient information to configure an analysis of circuit connectivity *simplex-count*
+
+ #+end_example
+
+~tap-env~ can use the information provided to define a YAML cell,
+
+ #+name: config-analysis-connectivity-simplex-counts
+ #+begin_src yaml
+  simplex-counts:
+  description: >-
+    Number of simplices in a network by dimension, /i.e./ the number of nodes in the simplex.
+  source: "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py"
+  method: "simplex_counts"
+  output: "pandas.DataFrame"
+#+end_src
+
+#+begin_example
+>> Which circuit subtargets do you want to compute?
+
+-- flatmap-columns
+
+>> I do not about *flatmap-columns* subtargets. Should we configure them? (yes/no)
+
+-- yes
+#+end_example
+
+The scientist can now configure the computation of ~flatmap-columns~,
+
+#+begin_example
+>> What should we call these subtargets?
+
+-- flatmap-columns
+
+>> Can you describe *flatmap-columns*?
+
+-- Conical columns, straight up along cortical layers, one per a hex-grid defined in the circuit's flatmap.
+
+#+end_example

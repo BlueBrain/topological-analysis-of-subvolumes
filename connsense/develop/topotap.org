@@ -1,0 +1,728 @@
+#+PROPERTY: header-args:jupyter-python :session ~/Library/Jupyter/runtime/active-1-ssh.json
+#+PROPERTY: header-args:jupyter :session ~/Library/Jupyter/runtime/active-1-ssh.json
+#+title: Topotap
+
+* Setup
+
+In our discussion we will develop scientific concepts to measure the circuit, and implement Python functions to compute them. Here we setup a notebook template to test and explore, and the structure of a ~Python~ package for add our methods.
+
+** A notebook template to explore and develop
+
+Let us setup an interactive ~Python~ session where we can run the code developed here.
+
+#+begin_src jupyter
+print("Welcome to EMACS Jupyter")
+#+end_src
+
+#+RESULTS:
+: Welcome to EMACS Jupyter
+
+#+name: notebook-init
+#+begin_src jupyter-python
+from importlib import reload
+from collections.abc import Mapping
+from collections import OrderedDict
+from pprint import pprint, pformat
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+import matplotlib
+
+reload(matplotlib)
+from matplotlib import pylab as plt
+import seaborn as sbn
+GOLDEN = (1. + np.sqrt(5.))/2.
+
+from IPython.display import display
+
+from bluepy import Synapse, Cell, Circuit
+
+print("We will plot golden aspect ratios: ", GOLDEN)
+#+end_src
+
+
+We have run ~connsense-CRAP~ for the SSCx dissemination variant /Bio-M/, extracting data that we will use to compute the factology. Here is a list of workspaces we will need to generate factsheets.
+
+#+name: notebook-workspaces
+#+begin_src jupyter-python
+from connsense.pipeline import pipeline
+from connsense.pipeline.parallelization import parallelization as prl
+from connsense.pipeline.store import store as tap_store
+
+ROOTSPACE = Path("/")
+PROJSPACE = ROOTSPACE / "gpfs/bbp.cscs.ch/project/proj83"
+CONNSPACE = PROJSPACE / "home/sood" / "topological-analysis-subvolumes/test/v2"
+#+end_src
+
+While test-developing it will be good to have direct access to the ~connsense-TAP-store~ we will use,
+
+#+name: notebook-connsense-tap
+#+begin_src jupyter-python
+topaz = pipeline.TopologicalAnalysis(CONNSPACE/"pipeline.yaml", CONNSPACE/"runtime.yaml")
+tap = tap_store.HDFStore(topaz._config)
+circuit = tap.get_circuit("Bio_M")
+print("Available analyses: ")
+pprint(tap.analyses)
+#+end_src
+
+We can collect the code above in a ~Pyhton~ template file that can be used to generate notebooks,
+
+#+name: notebook-reloads
+#+begin_src jupyter-python
+import connsense.pipeline.pipeline
+import connsense.pipeline.store.store
+
+def reload_modules():
+    """..."""
+    reload(connsense.pipeline.pipeline)
+    reload(connsense.pipeline.store.store)
+
+#+end_src
+
+Finally, here is a template that we can use to start test-developing. We will deposit the code in a sub-directory, of the directory holding this file.
+
+#+begin_src jupyter-python :tangle develop_topotap.py :comments no :noweb yes :padline yes
+# %% [markdown]
+"""# Test Develop a Circuit Factology
+"""
+
+# %% [code]
+<<notebook-init>>
+
+<<notebook-workspaces>>
+
+<<notebook-connsense-tap>>
+
+<<notebook-reloads>>
+
+
+#+end_src
+
+
+* HDFStore
+
+The long-range connectivity in the SSCx circuit is based on a topographical mapping connections between subregions.
+The mapping projects each voxel in the circuit atlas to a /pixel/ in the circuit's /flatmap/. This ~voxel-->pixel~ map, from the circuit's physical space to it's ~flatmap~ space, is used to compute neighborhoods of /intra-SSCx/ white-matter (WM) projections. WM projections are expected to enter the cortex from under layer 6 and proceed upwards along cortical layers. Thalamo-cortical (TC) projections follow similar trajectories. We want to analyze local connectivity in such cortical columns.
+
+We want an interface to a ~connsense-TAP~ instance developed for topological network analyses of a brain circuit. Here we implement o replacement of ~connsense.pipeline.store.store.HDFStore~ adding methods for simpler interaction with the pipeline's data.
+
+#+name: tap-imports
+#+begin_src python
+"""Interface to the HD5-store where the pipeline stores it's data.
+"""
+from collections.abc import Iterable, Mapping
+from collections import OrderedDict, defaultdict
+from copy import deepcopy
+from pprint import pformat
+from lazy import lazy
+from pathlib import Path
+import h5py
+
+import pandas as pd
+
+from connsense import plugins
+from connsense.define_subtargets.config import SubtargetsConfig
+from connsense import analyze_connectivity as anzconn
+from connsense.analyze_connectivity import matrices
+from connsense.io import read_config
+from connsense.io.write_results import (read as read_dataset,
+                                        read_subtargets,
+                                        read_node_properties,
+                                        read_toc_plus_payload)
+from connsense.io import logging
+from connsense.pipeline import ConfigurationError, NotConfiguredError, COMPKEYS
+from connsense.pipeline.parallelization import parallelization as prl
+
+LOG = logging.get_logger(__name__)
+#+end_src
+
+Paths are specified in ~connsense-TAP~ condiguration, using which we can locate the H5 file with the data that results from running ~connsense-TAP~. The configuration provides paths to the H5 file, and the keys in the data-store for each of the computations / steps in the configuration. An HDFStore interface will need these paths,
+
+#+name: tap-locate
+#+begin_src python
+def locate_store(config, in_connsense_h5=None):
+    """..."""
+    if not in_connsense_h5:
+        return Path(config["paths"]["input"]["store"])
+    return Path(in_connsense_h5)
+
+
+def group_steps(config):
+    """..."""
+    inputs = config["paths"]["input"]["steps"]
+    return {step: group for step, (_, group) in inputs.items()}
+
+#+end_src
+
+~connsense-TAP~ store data with integer IDs in the index, while saving the names for the entries in H5. The names for IDs used are,
+
+#+name: tap-connsense-index
+#+begin_src python
+SUBTARGET_ID = "subtarget_id"
+CIRCUIT_ID = "circuit_id"
+CONNECTOME_ID = "connectome_id"
+MTYPE_ID = "mtype_id"
+MORPHOLOGY_ID = "morphology_id"
+
+from connsense.pipeline import COMPKEYS, PARAMKEY, ConfigurationError, NotConfiguredError
+#+end_src
+
+Each individual configured of computation is entered in a list under a key that depends on it's computation type. Here is a list of these parameter keys for each computation type that ~connsense-TAP~ knows about,
+
+#+begin_src python
+PARAMKEY = {"define-subtargets": "definitions",
+            "extract-voxels": "annotations",
+            "extract-node-types": "modeltypes",
+            "extract-edge-types": "models",
+            "create-index": "variables",
+            "extract-node-populations": "populations",
+            "extract-edge-populations": "populations",
+            "sample-edge-populations": "analyses",
+            "randomize-connectivity": "algorithms",
+            "configure-inputs": "analyses",
+            "analyze-geometry": "analyses",
+            "analyze-node-types": "analyses",
+            "analyze-composition": "analyses",
+            "analyze-connectivity": "analyses",
+            "analyze-physiology": "analyses"}
+#+end_src
+
+#+RESULTS:
+: None
+
+We can instantiate an HDFStore interface instance with a path to the ~pipeline~ config, or the ~config~ itself. The ~config~ should contain a path to the H5 file that contains ~connsense-TAP~ data, or we can pass one as a second argument,
+
+#+name: tap-connsense-hdfstore-init
+#+begin_src python
+class HDFStore:
+    """An interface to the H5 data extracted by connsense-TAP.
+    """
+    def __init__(self, config, in_connsense_h5=None):
+        """Initialize an instance of connsense-TAP HDFStore.
+
+        config: Path to a YAML / JSON file that configures the pipeline, or a Mapping resulting from reading
+        ~       such a config file.
+        in_consense_h5: Path to the connsense-TAP H5 store if different from the one configured
+        ~               This can be used for testing the data produced in individual compute-nodes during
+        ~               a pipeline run.
+        """
+        self._config = read_config.read(config) if not isinstance(config, Mapping) else config
+        self._root = locate_store(config, in_connsense_h5)
+        self._groups = group_steps(config)
+
+#+end_src
+
+Once we have an object to interface with a ~connsense-TAP~, we will want to load datasets to further analyze them. Information about the configured computations are in the section ~parameters~,
+
+#+name: tap-parameters
+#+begin_src python
+@lazy
+def parameters(tap):
+    """Section `parameters` of the config, loaded without `create-index`.
+    """
+    return {param: config for param, config in tap._config["parameters"].items() if param != "create-index"}
+
+#+end_src
+
+Each parameters entry is for a ~computation-type~ that may have multiple quantities under it. Each ~(computation-type, of_quantity)~ is a dataset that ~connsense-TAP~ can provide usWe can ask ~connsense-TAP~ to describe these computations. The quantities for a ~parameters~ entry are provided under a key,
+
+#+name: tap-paramkey
+#+begin_src python
+def get_paramkey(tap, computation_type):
+    """..."""
+    return PARAMKEY[computation_type]
+
+#+end_src
+
+Here we have assumed that the computations are valid, /i.e/ they have a ~paramkey~ entry known to ~connsense-TAP~. We should check the configured ~computation-types~ against ~connsense-TAP~ when ~HDFStore~ is initialized (TODO).
+
+#+name: tap-describe
+#+begin_src python
+def describe(tap, computation_type=None, of_quantity=None):
+    """...Describe the dataset associated with a `(computation_type, of_quantity)`.
+
+    computation_type: should be an entry in the configuration section parameters,
+    ~                 if not provided, all computation-types
+    of_quantity: should be an entry under argued `computation_type`
+    ~            if not provided, all quantities under `computation_type`
+    """
+    if not computation_type:
+        assert not of_quantity, "because a quantity without a computation-type does not make sense."
+        return {c: tap.describe(computation_type=c) for c in tap.parameters}
+
+    try:
+        config = tap.parameters[computation_type]
+    except KeyError as kerr:
+        LOG.error("computation-type %s not configured! Update the config, or choose from \n%s",
+                  computation_type, pformat(tap.parameters.keys()))
+        raise NotConfiguredError(computation_type) from kerr
+
+    paramkey = tap.get_paramkey(computation_type)
+    try:
+        config = config[paramkey]
+    except KeyError as kerr:
+        LOG.error("Missing %s entries in %s config.", paramkey, computation_type)
+        raise ConfigurationError(f"{paramkey} entries for {computation_type}")
+
+    def describe_quantity(q):
+        return {"description": config[q].get("description", None), "dataset": (computation_type, q)}
+
+    if not of_quantity:
+        return [describe_quantity(q) for q in config]
+
+    return describe_quantity(q=of_quantity)
+
+
+#+end_src
+
+Data formats used by ~connsense-TAP~ may different between ~computation-types~.
+
+#+name: tap-pour-dataset
+#+begin_src python
+
+def get_path(tap, computation_type):
+    """..."""
+    return (tap._root, tap._groups[computation_type])
+
+def pour_dataset(tap, computation_type, of_quantity):
+    """..."""
+    connsense_h5, hdf_group = tap.get_path(computation_type)
+    dataset = '/'.join([hdf_group, of_quantity])
+
+    with h5py.File(tap._root, 'r') as hdf:
+        if "data" in hdf[dataset]:
+            dataset = '/'.join([dataset, "data"])
+
+    if computation_type == "extract-node-populations":
+        return matrices.get_store(connsense_h5, dataset, pd.DataFrame).toc
+
+    if computation_type == "extract-edge-populations":
+        return read_toc_plus_payload((connsense_h5, dataset), "extract-edge-populations")
+
+    if computation_type.startswith("analyze-"):
+        return tap.pour_analyses(computation_type, of_quantity)
+
+    return read_dataset((connsense_h5, dataset), computation_type)
+
+def pour(tap, dataset):
+    """For convenience, allow queries with tuples (computation_type, of_quantity).
+    """
+    return tap.pour_dataset(*dataset)
+
+#+end_src
+
+Analyses ~computation-type~ should be of the form ~analyze-phenomenon~. This allows us to have a method to ~pour-analyses~,
+#+name: tap-pour-analyses
+#+begin_src python
+
+def decompose(self, computation_type, of_quantity):
+    """Some computations may have components.
+    We need to strip computation keys from the config, and return the resulting dict.
+    """
+    parameters = prl.parameterize(computation_type, of_quantity, self._config)
+    return {var: val for var, val in parameters.items() if var not in COMPKEYS}
+
+
+def pour_analyses(tap, computation_type, quantity):
+    """Pour the results of running an analysis computation.
+    """
+    LOG.info("Pour analyses for %s", computation_type)
+    connsense_h5, hdf_group = tap.get_path(computation_type)
+    dataset = '/'.join([hdf_group, quantity])
+    paramkey = tap.get_paramkey(computation_type)
+
+    def pour_component(c, parameters):
+        """..."""
+        LOG.info("Pour %s %s component %s: \n%s\n from store %s", computation_type, quantity, c, pformat(parameters),
+                 (connsense_h5, '/'.join([dataset, c])))
+        store = matrices.get_store(connsense_h5, '/'.join([dataset, c]), parameters["output"], in_mode='r')
+        return store.toc if store else None
+
+    components = tap.decompose(computation_type, quantity)
+    if not components:
+        parameters = tap.parameters[computation_type][paramkey][quantity]
+        store = matrices.get_store(connsense_h5, dataset, parameters["output"], in_mode='r')
+        return store.toc if store else None
+
+    return {'/'.join([quantity, c]): pour_component(c, parameters) for c, parameters in components.items()}
+
+
+#+end_src
+
+
+With methods to pour datasets from a ~connsense-TAP~, we can provide some convenient interfaces to get subtargets, nodes, adjacencies, analyses. In its H5 data, ~connsense-TAP~ will index the computations using the configuration entry for ~parameters/create-index~,
+
+#+name: tap-create-index
+#+begin_src python
+def create_index(tap, variable):
+    """..."""
+    described = tap._config["parameters"]["create-index"]["variables"][variable]
+
+    if isinstance(described, pd.Series):
+        values = descibed.values
+    elif isinstance(described, Mapping):
+        try:
+            dataset = described["dataset"]
+        except KeyError as kerr:
+            LOG.error("Cannot create an index for %s of no dataset in config.", variable)
+            raise ConfigurationError("No create-index %s dataset", variable)
+        return tap.pour(dataset)
+    elif isinstance(described, Iterable):
+        values = list(described)
+    else:
+        raise ConfigurationError(f"create-index %s using config \n%s", pformat(described))
+
+    return pd.Series(values, name=variable, index=pd.RangeIndex(0, len(values), 1, name=f"{variable}_id"))
+
+
+#+end_src
+
+#+name: tap-subtargets
+#+begin_src python
+@lazy
+def subtargets(tap):
+    """Subtargets in connsense-TAP
+    """
+    definitions = tap.describe("define-subtargets")
+    pour_subtargets = lambda dataset: tap.pour(("define-subtargets", dataset))
+
+    if len(definitions) == 0:
+        LOG.warning("No subtargets configured!")
+        return None
+
+    def of_(definition):
+        """..."""
+        LOG.info("Load dataset %s: \n%s", definition["dataset"], pformat(definition["description"]))
+        _, group = definition["dataset"]
+        subtargets = pour_subtargets(f"{group}/name")
+        info = pour_subtargets(f"{group}/info")
+        return pd.concat([subtargets, info], axis=1)
+
+    if len(definitions) == 1:
+        return of_(definitions[0])
+    return {definition["dataset"][1]: of_(definition) for definition in definitions}
+
+
+#+end_src
+
+#+name: tap-nodes
+#+begin_src python
+@lazy
+def nodes(tap):
+    """Nodes in connsense-TAP
+    """
+    populations = tap.describe("extract-node-populations")
+
+    if len(populations) == 0:
+        LOG.warning("No populations configured!")
+        return None
+
+    def of_(population):
+        """..."""
+        LOG.info("Load dataset %s: \n%s", population["dataset"], pformat(population["description"]))
+        return TapDataset(tap, population["dataset"])
+
+    if len(populations) == 1:
+        return of_(populations[0])
+    return {population["dataset"][1]: of_(population) for population in populations}
+
+
+#+end_src
+
+
+#+name: tap-dataset
+#+begin_src python
+
+
+class TapDataset:
+    """A dataset computed by connsense-TAP.
+    """
+    def __init__(self, tap, dataset):
+        """..."""
+        self._tap = tap
+        self._dataset = dataset
+
+    def index(self, variable):
+        """..."""
+        try:
+            series = tap.create_index(variable)
+        except KeyError:
+            LOG.warn("No values for %s in TAP at %s", variable, tap._root)
+            return None
+
+        return pd.Series(series.index.values, name=f"{series.name}_id",
+                         index=pd.Index(series.values, name=series.name))
+
+    @lazy
+    def id_subtargets(self):
+        """..."""
+        return self.index("subtarget")
+    @lazy
+    def id_circuits(self):
+        """..."""
+        return self.index("circuit")
+    @lazy
+    def id_connectomes(self):
+        """..."""
+        return self.index("connectome")
+
+    @property
+    def dataset(self):
+        """..."""
+        return self._tap.pour(self._dataset).sort_index()
+
+    def index(self, subtarget, circuit=None, connectome=None):
+        """Get `connsense-TAP`index for the arguments.
+        """
+        subtarget_id = self.id_subtargets.loc[subtarget]
+
+        if not circuit:
+            assert not connectome, f"connectome must be of a circuit"
+            return (subtarget_id,)
+
+        circuit_id = self.id_circuits.loc[circuit]
+
+        if not connectome:
+            return (subtarget_id, circuit_id)
+
+        connectome_id = self.id_connectomes.loc[connectome]
+        return (subtarget_id, circuit_id, connectome_id)
+
+
+    def __call__(self, subtarget, circuit=None, connectome=None):
+        """Call to get data using the names for (subtarget, circuit, connectome).
+        """
+        result = self.dataset.loc[self.index(subtarget, circuit, connectome)]
+
+        try:
+            evaluate = result.get_value
+        except AttributeError:
+            pass
+        else:
+            return evaluate()
+
+        if len(result) == 1:
+            return result.iloc[0].get_value()
+        return result
+
+
+#+end_src
+
+#+RESULTS: eap-dataset
+: None
+
+
+#+name: tap-adjacency
+#+begin_src python
+@lazy
+def adjacency(tap):
+    """Adjacency matrices of subtargets in connsense-TAP
+    """
+    populations = tap.describe("extract-edge-populations")
+
+    if len(populations) == 0:
+        LOG.warning("No populations configured!")
+        return None
+
+    def of_(population):
+        """..."""
+        LOG.info("Load dataset %s: \n%s", population["dataset"], pformat(population["description"]))
+        return TapDataset(tap, population["dataset"])
+
+    if len(populations) == 1:
+        return of_(populations[0])
+    return {population["dataset"][1]: of_(population) for population in populations}
+
+#+end_src
+
+
+For analyses we have an additional level, of phenomenon.
+
+#+name: tap-analyses
+#+begin_src python
+def get_phenomenon(tap, computation_type):
+    """..."""
+    analysis = computation_type.split('-')
+    if analysis[0] != "analyze":
+        LOG.warn("%s is not an analysis", computaiton_tyoe)
+        return None
+
+    return '-'.join(analysis[1:])
+
+def find_analyses(tap, phenomenon=None):
+    """Find all analyses of phenomenon in the config.
+    """
+
+    if phenomenon:
+        analyzed = tap.parameters[f"analyze-{phenomenon}"]
+        return analyzed["analyses"]
+
+    return {p: tap.find_analyses(phenomenon=p) for p in tap.phenomena}
+
+@property
+def phenomena(tap):
+    """The analyze phenomena.
+    """
+    return [tap.get_phenomenon(computation_type=c) for c in tap.parameters if c.startswith("analyze-")]
+
+def describe_analyses(tap, phenomenon=None):
+    """..."""
+    analyze = "analyze-{}".format
+    if phenomenon:
+        return tap.describe(analyze(phenomenon))
+    return {p: tap.describe(analyze(p)) for p in tap.phenomena}
+
+@lazy
+def analyses(tap):
+    """..."""
+    analyses = tap.describe_analyses()
+    return {phenomenon: {q["dataset"][1]: TapDataset(tap, q["dataset"])}
+            for phenomenon, quantities in analyses.items() for q in quantities}
+
+#+end_src
+
+#+begin_src python
+
+
+    def describe_analyses(self, phenomenon):
+        """Describe analyses..."""
+        computation_type = f"analyze-{phenomenon}"
+        raise NotImplementedError("INPROGRESS")
+
+    def find_datasets(self, computation_type=None, of_quantity=None, available=False):
+        """Show datasets, either the configured ones, or those that have been computed
+
+        computation_type: name of the computation to show datasets for,
+        ~                 or all of the datasets
+        of_quantity: name of the quantity in the entries of computation_type to show datasets,
+        ~            or all the datasets of `computation_type`
+        available: show only the datasets that have been computed.
+        """
+        if available:
+            raise NotImplementedError("INPROGRESS")
+
+        if computation_type:
+            if of_quantity:
+                description = self.describe(computation_type, of_quantity)
+                return description.get("description", None)
+
+            description = self.describe(computation_type)
+            return [((computation_type, q), self.find_datasets(computation_type, q))
+                    for q in description[PARAMKEY[computation_type]]]
+
+        assert not of_quantity, f"Missing computation-type {of_quantity}"
+
+        description = self.describe()
+        return {c: self.find_datasets(computation_type=c) for c in self.describe()}
+
+    def find_analyses(self, phenomenon, quantity):
+        """Show datasets for anayses of a phenomenon, quantity.
+        connsense-TAP will look for analyses configured for dataset reference [analyze-phenomenon, quantity]
+        """
+        return find_datasets(f"analyze-{phenomenon}", quantity)
+
+    def get_path(self, computation_type):
+        """..."""
+        return (self._root, self._groups[computation_type])
+
+    @lazy
+    def analysis_phenomena(self):
+        """..."""
+        return ['-'.join(key.split('-')[1:]) for key in self.parameters if key.startswith("analyze-")]
+
+    def pour_analyses(self, phenomenon, quantity=None):
+        """..."""
+        if phenomenon not in self.analysis_phenomena:
+            LOG.error(f"Unknown analyze-{phenomenon}. Update connsense-TAP, or choose from \n%s",
+                      pformat(self.analysis_phenomena))
+            raise NotConfiguredError(f"analyze-{phenomenon}")
+
+        computation_type = f"analyze-{phenomenon}"
+        dataset = lambda q: [computation_type, q]
+
+
+        raise NotImplementedError
+
+    @lazy
+    def analyses(self):
+        """Datasets for configured analyses."""
+        return {p: self.pour_analyses(phenomenon=p) for p in self.analysis_phenomena}
+
+    def pour_dataset(self, computation, of_quantity):
+        """..."""
+        h5, group = self.get_path(computation)
+
+        if computation.startswith("analyze-"):
+            dataset = self.analyses['-'.join(computation.split('-')[1:])].get(of_quantity, None)
+        elif computation == "extract-node-populations":
+            dataset = matrices.get_store(h5, group+'/'+of_quantity, pd.DataFrame).toc
+        elif computation == "extract-edge-populations":
+            dataset = read_toc_plus_payload(h5, group+'/'+of_quantity, computation).sort_index()
+        else:
+            raise KeyError(f"Unknown {computation}")
+        return dataset
+
+    def pour(self, dataset):
+        """Pour a dataset loaded from the H5 store.
+
+        dataset: (computation_type, of_quantity)
+        """
+        from connsense.pipeline.parallelization import parallelization as prl
+        computation_type, of_quantity = prl.describe(dataset)
+
+        with h5py.File(self._root, 'r') as hdf_store:
+            _, group = self.get_path(computation_type)
+            key = '/'.join([group, of_quantity])
+            datakey = of_quantity + "/data" if "data" in hdf_store[key] else of_quantity
+
+        return self.pour_dataset(computation_type, datakey)
+
+#+end_src
+
+We want to get the datasets without a knowledge of what is in the config. We can etpose the common computation types as ~tap-attributes~, with helpful logging and error-messages. All the configured computations follow a convention that allows us to define a ~TapDataset~,
+
+#+name: tap-nodes
+#+begin_src python
+@lazy
+def nodes(tap):
+    """Nodes that were extracted
+    """
+    return TapDataset(self, "extract-node-populations")
+#+end_src
+
+
+Finally, let us collect the code in a module,
+
+#+begin_src python :tangle topotap.py :comments org :padline yes :noweb yes
+<<tap-imports>>
+
+<<tap-locate>>
+
+<<tap-connsense-index>>
+
+<<tap-dataset>>
+
+<<tap-connsense-hdfstore-init>>
+
+    <<tap-parameters>>
+
+    <<tap-paramkey>>
+
+    <<tap-describe>>
+
+    <<tap-pour-dataset>>
+
+    <<tap-pour-analyses>>
+
+    <<tap-create-index>>
+
+    <<tap-subtargets>>
+
+    <<tap-nodes>>
+
+    <<tap-adjacency>>
+
+    <<tap-analyses>>
+#+end_src

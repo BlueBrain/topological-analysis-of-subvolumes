@@ -1,0 +1,767 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+<head>
+<!-- 2022-10-04 Tue 14:43 -->
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>(sub) Target Analysis Pipeline</title>
+<meta name="author" content="Vishal Sood" />
+<meta name="generator" content="Org Mode" />
+<style>
+  #content { max-width: 60em; margin: auto; }
+  .title  { text-align: center;
+             margin-bottom: .2em; }
+  .subtitle { text-align: center;
+              font-size: medium;
+              font-weight: bold;
+              margin-top:0; }
+  .todo   { font-family: monospace; color: red; }
+  .done   { font-family: monospace; color: green; }
+  .priority { font-family: monospace; color: orange; }
+  .tag    { background-color: #eee; font-family: monospace;
+            padding: 2px; font-size: 80%; font-weight: normal; }
+  .timestamp { color: #bebebe; }
+  .timestamp-kwd { color: #5f9ea0; }
+  .org-right  { margin-left: auto; margin-right: 0px;  text-align: right; }
+  .org-left   { margin-left: 0px;  margin-right: auto; text-align: left; }
+  .org-center { margin-left: auto; margin-right: auto; text-align: center; }
+  .underline { text-decoration: underline; }
+  #postamble p, #preamble p { font-size: 90%; margin: .2em; }
+  p.verse { margin-left: 3%; }
+  pre {
+    border: 1px solid #e6e6e6;
+    border-radius: 3px;
+    background-color: #f2f2f2;
+    padding: 8pt;
+    font-family: monospace;
+    overflow: auto;
+    margin: 1.2em;
+  }
+  pre.src {
+    position: relative;
+    overflow: auto;
+  }
+  pre.src:before {
+    display: none;
+    position: absolute;
+    top: -8px;
+    right: 12px;
+    padding: 3px;
+    color: #555;
+    background-color: #f2f2f299;
+  }
+  pre.src:hover:before { display: inline; margin-top: 14px;}
+  /* Languages per Org manual */
+  pre.src-asymptote:before { content: 'Asymptote'; }
+  pre.src-awk:before { content: 'Awk'; }
+  pre.src-authinfo::before { content: 'Authinfo'; }
+  pre.src-C:before { content: 'C'; }
+  /* pre.src-C++ doesn't work in CSS */
+  pre.src-clojure:before { content: 'Clojure'; }
+  pre.src-css:before { content: 'CSS'; }
+  pre.src-D:before { content: 'D'; }
+  pre.src-ditaa:before { content: 'ditaa'; }
+  pre.src-dot:before { content: 'Graphviz'; }
+  pre.src-calc:before { content: 'Emacs Calc'; }
+  pre.src-emacs-lisp:before { content: 'Emacs Lisp'; }
+  pre.src-fortran:before { content: 'Fortran'; }
+  pre.src-gnuplot:before { content: 'gnuplot'; }
+  pre.src-haskell:before { content: 'Haskell'; }
+  pre.src-hledger:before { content: 'hledger'; }
+  pre.src-java:before { content: 'Java'; }
+  pre.src-js:before { content: 'Javascript'; }
+  pre.src-latex:before { content: 'LaTeX'; }
+  pre.src-ledger:before { content: 'Ledger'; }
+  pre.src-lisp:before { content: 'Lisp'; }
+  pre.src-lilypond:before { content: 'Lilypond'; }
+  pre.src-lua:before { content: 'Lua'; }
+  pre.src-matlab:before { content: 'MATLAB'; }
+  pre.src-mscgen:before { content: 'Mscgen'; }
+  pre.src-ocaml:before { content: 'Objective Caml'; }
+  pre.src-octave:before { content: 'Octave'; }
+  pre.src-org:before { content: 'Org mode'; }
+  pre.src-oz:before { content: 'OZ'; }
+  pre.src-plantuml:before { content: 'Plantuml'; }
+  pre.src-processing:before { content: 'Processing.js'; }
+  pre.src-python:before { content: 'Python'; }
+  pre.src-R:before { content: 'R'; }
+  pre.src-ruby:before { content: 'Ruby'; }
+  pre.src-sass:before { content: 'Sass'; }
+  pre.src-scheme:before { content: 'Scheme'; }
+  pre.src-screen:before { content: 'Gnu Screen'; }
+  pre.src-sed:before { content: 'Sed'; }
+  pre.src-sh:before { content: 'shell'; }
+  pre.src-sql:before { content: 'SQL'; }
+  pre.src-sqlite:before { content: 'SQLite'; }
+  /* additional languages in org.el's org-babel-load-languages alist */
+  pre.src-forth:before { content: 'Forth'; }
+  pre.src-io:before { content: 'IO'; }
+  pre.src-J:before { content: 'J'; }
+  pre.src-makefile:before { content: 'Makefile'; }
+  pre.src-maxima:before { content: 'Maxima'; }
+  pre.src-perl:before { content: 'Perl'; }
+  pre.src-picolisp:before { content: 'Pico Lisp'; }
+  pre.src-scala:before { content: 'Scala'; }
+  pre.src-shell:before { content: 'Shell Script'; }
+  pre.src-ebnf2ps:before { content: 'ebfn2ps'; }
+  /* additional language identifiers per "defun org-babel-execute"
+       in ob-*.el */
+  pre.src-cpp:before  { content: 'C++'; }
+  pre.src-abc:before  { content: 'ABC'; }
+  pre.src-coq:before  { content: 'Coq'; }
+  pre.src-groovy:before  { content: 'Groovy'; }
+  /* additional language identifiers from org-babel-shell-names in
+     ob-shell.el: ob-shell is the only babel language using a lambda to put
+     the execution function name together. */
+  pre.src-bash:before  { content: 'bash'; }
+  pre.src-csh:before  { content: 'csh'; }
+  pre.src-ash:before  { content: 'ash'; }
+  pre.src-dash:before  { content: 'dash'; }
+  pre.src-ksh:before  { content: 'ksh'; }
+  pre.src-mksh:before  { content: 'mksh'; }
+  pre.src-posh:before  { content: 'posh'; }
+  /* Additional Emacs modes also supported by the LaTeX listings package */
+  pre.src-ada:before { content: 'Ada'; }
+  pre.src-asm:before { content: 'Assembler'; }
+  pre.src-caml:before { content: 'Caml'; }
+  pre.src-delphi:before { content: 'Delphi'; }
+  pre.src-html:before { content: 'HTML'; }
+  pre.src-idl:before { content: 'IDL'; }
+  pre.src-mercury:before { content: 'Mercury'; }
+  pre.src-metapost:before { content: 'MetaPost'; }
+  pre.src-modula-2:before { content: 'Modula-2'; }
+  pre.src-pascal:before { content: 'Pascal'; }
+  pre.src-ps:before { content: 'PostScript'; }
+  pre.src-prolog:before { content: 'Prolog'; }
+  pre.src-simula:before { content: 'Simula'; }
+  pre.src-tcl:before { content: 'tcl'; }
+  pre.src-tex:before { content: 'TeX'; }
+  pre.src-plain-tex:before { content: 'Plain TeX'; }
+  pre.src-verilog:before { content: 'Verilog'; }
+  pre.src-vhdl:before { content: 'VHDL'; }
+  pre.src-xml:before { content: 'XML'; }
+  pre.src-nxml:before { content: 'XML'; }
+  /* add a generic configuration mode; LaTeX export needs an additional
+     (add-to-list 'org-latex-listings-langs '(conf " ")) in .emacs */
+  pre.src-conf:before { content: 'Configuration File'; }
+
+  table { border-collapse:collapse; }
+  caption.t-above { caption-side: top; }
+  caption.t-bottom { caption-side: bottom; }
+  td, th { vertical-align:top;  }
+  th.org-right  { text-align: center;  }
+  th.org-left   { text-align: center;   }
+  th.org-center { text-align: center; }
+  td.org-right  { text-align: right;  }
+  td.org-left   { text-align: left;   }
+  td.org-center { text-align: center; }
+  dt { font-weight: bold; }
+  .footpara { display: inline; }
+  .footdef  { margin-bottom: 1em; }
+  .figure { padding: 1em; }
+  .figure p { text-align: center; }
+  .equation-container {
+    display: table;
+    text-align: center;
+    width: 100%;
+  }
+  .equation {
+    vertical-align: middle;
+  }
+  .equation-label {
+    display: table-cell;
+    text-align: right;
+    vertical-align: middle;
+  }
+  .inlinetask {
+    padding: 10px;
+    border: 2px solid gray;
+    margin: 10px;
+    background: #ffffcc;
+  }
+  #org-div-home-and-up
+   { text-align: right; font-size: 70%; white-space: nowrap; }
+  textarea { overflow-x: auto; }
+  .linenr { font-size: smaller }
+  .code-highlighted { background-color: #ffff00; }
+  .org-info-js_info-navigation { border-style: none; }
+  #org-info-js_console-label
+    { font-size: 10px; font-weight: bold; white-space: nowrap; }
+  .org-info-js_search-highlight
+    { background-color: #ffff00; color: #000000; font-weight: bold; }
+  .org-svg { }
+</style>
+</head>
+<body>
+<div id="content" class="content">
+<h1 class="title">(sub) Target Analysis Pipeline</h1>
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#org176c89a">1. To analyze sub-targets in a circuit.</a>
+<ul>
+<li><a href="#orgb62e07f">1.1. PROBLEM</a></li>
+<li><a href="#orga34bfbc">1.2. SOLUTION: TAP</a>
+<ul>
+<li><a href="#org5a2cc6d">1.2.1. <code>tap-env</code>: Circuit Analysis Compute Environemnt</a></li>
+<li><a href="#org3237b2c">1.2.2. <code>tap-store</code>: A HDFstore to hold the analysis data</a></li>
+<li><a href="#orga71ffa2">1.2.3. <code>tap-config</code>: A Reporducible document in the form of a YAML / JSON config file</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#orgadf7e52">2. ANALYSIS</a></li>
+<li><a href="#org164d752">3. SUBTARGET</a></li>
+<li><a href="#org6b3f386">4. TAP Config</a>
+<ul>
+<li><a href="#org366fc9a">4.1. Paths</a></li>
+<li><a href="#org360e818">4.2. Parameters</a>
+<ul>
+<li><a href="#org466c201">4.2.1. Define Subtargets</a></li>
+<li><a href="#orgcdbd366">4.2.2. Extract Nodes</a></li>
+<li><a href="#orgd36aee5">4.2.3. Extract edges</a></li>
+<li><a href="#orgf5ee282">4.2.4. Analyze Connectivity</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#orgb93a331">5. TAP environment</a></li>
+</ul>
+</div>
+</div>
+
+<div id="outline-container-org176c89a" class="outline-2">
+<h2 id="org176c89a"><span class="section-number-2">1.</span> To analyze sub-targets in a circuit.</h2>
+<div class="outline-text-2" id="text-1">
+<p>
+<b>connsense-TAP</b>  offers a solution to a problem,
+</p>
+</div>
+
+<div id="outline-container-orgb62e07f" class="outline-3">
+<h3 id="orgb62e07f"><span class="section-number-3">1.1.</span> PROBLEM</h3>
+<div class="outline-text-3" id="text-1-1">
+<p>
+Our circuits are as detailed as the current state of the art experimental data and algorithms allow. Circuit data artefacts are complex and ridden with neuroscience and informatics jargon &#x2014; both of which can be a hurdle in analyzing a circuit reconstruction.
+</p>
+
+<ol class="org-ol">
+<li>Physically large circuit &#x2014; analyses, unless parallelized, can be slow</li>
+
+<li>Book-keeping analyses results can be a head-ache</li>
+
+<li>Too much neuroscientific and informatic jargon to load a circuit to analyze</li>
+</ol>
+</div>
+</div>
+
+
+<div id="outline-container-orga34bfbc" class="outline-3">
+<h3 id="orga34bfbc"><span class="section-number-3">1.2.</span> SOLUTION: TAP</h3>
+<div class="outline-text-3" id="text-1-2">
+</div>
+<div id="outline-container-org5a2cc6d" class="outline-4">
+<h4 id="org5a2cc6d"><span class="section-number-4">1.2.1.</span> <code>tap-env</code>: Circuit Analysis Compute Environemnt</h4>
+<div class="outline-text-4" id="text-1-2-1">
+<p>
+Follow conventions to provide methods on individual <code>circuit-subtargets</code> that <code>TAP</code> will parallelize.
+</p>
+</div>
+</div>
+
+<div id="outline-container-org3237b2c" class="outline-4">
+<h4 id="org3237b2c"><span class="section-number-4">1.2.2.</span> <code>tap-store</code>: A HDFstore to hold the analysis data</h4>
+<div class="outline-text-4" id="text-1-2-2">
+<p>
+Use an interface to interact with the analyzed data and generate reports
+</p>
+</div>
+</div>
+
+<div id="outline-container-orga71ffa2" class="outline-4">
+<h4 id="orga71ffa2"><span class="section-number-4">1.2.3.</span> <code>tap-config</code>: A Reporducible document in the form of a YAML / JSON config file</h4>
+<div class="outline-text-4" id="text-1-2-3">
+<p>
+Use the config to reproduce analyses on existing or new circuits.
+</p>
+</div>
+</div>
+</div>
+</div>
+
+
+<div id="outline-container-orgadf7e52" class="outline-2">
+<h2 id="orgadf7e52"><span class="section-number-2">2.</span> ANALYSIS</h2>
+</div>
+
+
+<div id="outline-container-org164d752" class="outline-2">
+<h2 id="org164d752"><span class="section-number-2">3.</span> SUBTARGET</h2>
+<div class="outline-text-2" id="text-3">
+<p>
+An analysis will be that of the entire circuit, or a <code>circuit-subtarget</code> that can be represented simply as a collection of neurons. We may parcellate the brain&rsquo;s physical shape into constituent blocks and study how a brain circuit phenomenon varies across these <code>subtargets</code>.
+</p>
+
+<p>
+The rat-SSCx circuit has 8 subregions, with a total of 4.5 million neurons. The upcoming mouse-IsoCortex will have the entire neocortex with more than 10 million neurons. We may define each region as a <code>subtarget</code> and analyze the distribution of neurons across them.
+</p>
+
+<p>
+Or we may be interested in a brain-circuit parcellation that arises from a biological phenomenon, and define <code>subtargets</code> accordingly. Parcellation of the SSCx into conical <code>subtargets</code> oriented along cortical layers can be used to study the composition and connectivity of these columnar <code>subtargets</code> in relation to white-matter innervation that follows a similar columnar pattern.
+</p>
+</div>
+</div>
+
+
+<div id="outline-container-org6b3f386" class="outline-2">
+<h2 id="org6b3f386"><span class="section-number-2">4.</span> TAP Config</h2>
+<div class="outline-text-2" id="text-4">
+<p>
+Let us start by configuring a <code>connsense-TAP</code>. We will write a <code>YAML</code> config, starting with a header to help us track our progress.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-yaml"><span style="color: #BA36A5;">description</span>: &gt;-
+  <span style="color: #008000;">Configure a connsense subTarget Analysis Pipeline to analyze your circuit.</span>
+<span style="color: #BA36A5;">version</span>: 0.0.0
+<span style="color: #BA36A5;">date</span>: 20221003
+</pre>
+</div>
+
+<p>
+There are two <code>TAP</code> config sections we need to fill,
+</p>
+</div>
+
+<div id="outline-container-org366fc9a" class="outline-3">
+<h3 id="org366fc9a"><span class="section-number-3">4.1.</span> Paths</h3>
+<div class="outline-text-3" id="text-4-1">
+<p>
+We need to first describe the input / output paths to <code>connsense-TAP</code>. We need a path to the circuits we will analyze. <code>TAP</code> assumes that all of these circuits are the same <i>brain-model</i>.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-yaml"><span style="color: #BA36A5;">paths</span>:
+  <span style="color: #BA36A5;">description</span>: &gt;-
+    <span style="color: #008000;">The ~connsense~ pipeline needs paths to the input data to load from, and output paths to store data.</span>
+<span style="color: #008000;">    Paths to the circuit must be provided along with paths to the HDF5 archive that will store the pipeline's</span>
+<span style="color: #008000;">    results.</span>
+  <span style="color: #BA36A5;">format</span>: relative
+  <span style="color: #BA36A5;">circuit</span>:
+    <span style="color: #BA36A5;">root</span>: <span style="color: #008000;">"/gpfs/bbp.cscs.ch/project/proj83/circuits"</span>
+    <span style="color: #BA36A5;">files</span>:
+      <span style="color: #BA36A5;">Bio_M</span>: <span style="color: #008000;">"Bio_M/20200805/CircuitConfig_TC_WM"</span>
+  <span style="color: #BA36A5;">pipeline</span>:
+    <span style="color: #BA36A5;">root</span>: <span style="color: #008000;">"/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2"</span>
+    <span style="color: #BA36A5;">input</span>:
+      <span style="color: #BA36A5;">store</span>: <span style="color: #008000;">"connsense.h5"</span>
+    <span style="color: #BA36A5;">output</span>:
+      <span style="color: #BA36A5;">store</span>: <span style="color: #008000;">"connsense.h5"</span>
+    <span style="color: #BA36A5;">steps</span>:
+      <span style="color: #BA36A5;">define-subtargets</span>: <span style="color: #008000;">"subtargets"</span>
+      <span style="color: #BA36A5;">extract-node-populations</span>: <span style="color: #008000;">"nodes/populations"</span>
+      <span style="color: #BA36A5;">extract-edge-populations</span>: <span style="color: #008000;">"edges/populations"</span>
+      <span style="color: #BA36A5;">analyze-connectivity</span>: <span style="color: #008000;">"analyses/connectivity"</span>
+
+</pre>
+</div>
+
+<p>
+As the config above suggests, we will have four distinct steps in our <code>connsense-TAP</code> run. We can add steps as we progress. Let us look at the four steps that we have configured.
+</p>
+</div>
+</div>
+
+<div id="outline-container-org360e818" class="outline-3">
+<h3 id="org360e818"><span class="section-number-3">4.2.</span> Parameters</h3>
+<div class="outline-text-3" id="text-4-2">
+<p>
+The second section concerns with the parameters that <code>connsense-TAP</code> will use to run computations. The starting point will be the definitions of <code>circuit-subtargets</code>. We consider spatially defined subtargets, hexagonal prism shaped columns defined using a mapping to the circuit&rsquo;s <code>flatmap</code>. To track the computations as the pipeline progresses, <code>connsense-TAP</code> will use an indexing scheme. We need to declare the variables to use in the index. Here we want to study a circuit&rsquo;s connectivity &#x2014; so the circuit&rsquo;s connectome will be one of the variables. We will have <code>subtargets</code> within the circuit connectome that we want to study as indpendent circuits.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-yaml"><span style="color: #BA36A5;">parameters</span>:
+  <span style="color: #BA36A5;">create-index</span>:
+    <span style="color: #BA36A5;">description</span>:
+      Create tap-store indices by listing datasets for each index variable.
+    <span style="color: #BA36A5;">variables</span>:
+      <span style="color: #BA36A5;">circuit</span>:
+        - <span style="color: #008000;">"Bio_M"</span>
+      <span style="color: #BA36A5;">connectome</span>:
+        - <span style="color: #008000;">"local"</span>
+      <span style="color: #BA36A5;">subtarget</span>:
+        <span style="color: #BA36A5;">dataset</span>: [<span style="color: #008000;">"define-subtargets"</span>, <span style="color: #008000;">"flatmap-columns/name"</span>]
+
+</pre>
+</div>
+
+<p>
+We have used a  reference to a dataset that our <code>connsense-TAP</code> instance is expected to have when it needs that dataset to create an index for <code>subtargets</code>. The reference can be read as <code>(computation-type dataset)</code>. So here we refered to the dataset that is the result of <code>define-subtargets</code> dataset <code>flatmap-columns/name</code>.
+</p>
+
+<p>
+We have entered this <i>zeroth</i> <code>step</code> because it is not really a <code>computation</code> that is run independently. The information is used within <code>connsense-TAP</code> for indexing.
+</p>
+
+<p>
+Let us look at the steps that contain science,
+</p>
+</div>
+
+
+<div id="outline-container-org466c201" class="outline-4">
+<h4 id="org466c201"><span class="section-number-4">4.2.1.</span> Define Subtargets</h4>
+<div class="outline-text-4" id="text-4-2-1">
+<p>
+The <i>first</i> step is to define the <code>subtargets</code>. Each <code>subtarget</code> will have a name, and a set of <code>gids</code> associated with it. There is a variety of specifications that <code>connsense-TAP</code> understands. For our use we will specify path to an <code>NRRD</code> that maps <code>voxel --&gt; subtarget_id</code>, with information that maps <code>subtarget_id --&gt; subtarget info</code>. Along with paths to data <code>connsense-TAP</code> will need a method that <i>defines</i> the subtargets. We point to a method within <code>connsense</code>.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-yaml">  <span style="color: #BA36A5;">define-subtargets</span>:
+    <span style="color: #BA36A5;">description</span>: &gt;-
+      <span style="color: #008000;">Configure how subtargets are defined.</span>
+    <span style="color: #BA36A5;">definitions</span>:
+      <span style="color: #BA36A5;">flatmap-columns</span>:
+        <span style="color: #BA36A5;">description</span>: &gt;-
+          <span style="color: #008000;">Hexaongal prism like columns oriented along cortical layers, from white-matter to pia.</span>
+<span style="color: #008000;">          The data is loaded from an NRRD file that maps each circuit voxel to a subtarget ids</span>
+<span style="color: #008000;">          corresponding to a flatmap column.The subtarget ids should be mapped to the subtargets</span>
+<span style="color: #008000;">          they refer to in a dataframe provided as the input `info`.</span>
+        <span style="color: #BA36A5;">input</span>:
+          <span style="color: #BA36A5;">circuit</span>:
+            - <span style="color: #008000;">"Bio_M"</span>
+        <span style="color: #BA36A5;">kwargs</span>:
+          <span style="color: #BA36A5;">path</span>: <span style="color: #008000;">"/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/column_identities.nrrd"</span>
+          <span style="color: #BA36A5;">info</span>: <span style="color: #008000;">"/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/voxel-based-hex-grid-info.h5"</span>
+        <span style="color: #BA36A5;">loader</span>:
+          <span style="color: #BA36A5;">source</span>: connsense.define_subtargets.flatmap
+          <span style="color: #BA36A5;">method</span>: load_nrrd
+
+</pre>
+</div>
+
+<p>
+This step will save data under the references
+</p>
+
+<ol class="org-ol">
+<li><code>["define-subtargets", "flatmap-columns/name"]</code> that are names of each <code>subtarget</code></li>
+<li><code>["define-subtargets", "flatmap-columns/info"]</code> that is the <code>info</code> for each <code>subtarget</code></li>
+<li><code>["define-subtargets", "flatmap-columns"]</code> that are the gids contained in each <code>subtarget</code></li>
+</ol>
+</div>
+</div>
+
+
+<div id="outline-container-orgcdbd366" class="outline-4">
+<h4 id="orgcdbd366"><span class="section-number-4">4.2.2.</span> Extract Nodes</h4>
+<div class="outline-text-4" id="text-4-2-2">
+<p>
+We will need node properties for each of the subtargets. We follow <i>SONATA</i> to extract <code>node-populations</code> from the circuit.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-yaml">  <span style="color: #BA36A5;">extract-node-populations</span>:
+    <span style="color: #BA36A5;">description</span>: &gt;-
+      <span style="color: #008000;">Specify the populations to extract from a circuit.</span>
+    <span style="color: #BA36A5;">populations</span>:
+      <span style="color: #BA36A5;">default</span>:
+        <span style="color: #BA36A5;">description</span>: &gt;-
+          <span style="color: #008000;">The default population will be that of neurons in the SSCx.</span>
+<span style="color: #008000;">          To extract the neurons we will use a `connsense` method that uses ~bluepy~.</span>
+        <span style="color: #BA36A5;">input</span>:
+          <span style="color: #BA36A5;">subtarget</span>:
+            <span style="color: #BA36A5;">dataset</span>:  [<span style="color: #008000;">"define-subtargets"</span>, <span style="color: #008000;">"flatmap-columns"</span>]
+          <span style="color: #BA36A5;">circuit</span>:
+            - <span style="color: #008000;">"Bio_M"</span>
+        <span style="color: #BA36A5;">kwargs</span>:
+          <span style="color: #BA36A5;">properties</span>:
+            - region
+            - layer
+            - x
+            - <span style="color: #D0372D;">y</span>
+            - z
+            - depth
+            - synapse_class
+            - mtype
+            - etype
+            - morphology
+        <span style="color: #BA36A5;">extractor</span>:
+          <span style="color: #BA36A5;">source</span>: connsense.extract_nodes.bluepy
+          <span style="color: #BA36A5;">method</span>: extract_node_properties
+        <span style="color: #BA36A5;">output</span>: <span style="color: #008000;">"pandas.DataFrame"</span>
+</pre>
+</div>
+
+<p>
+The configuration above can be used as a template to understand the general <i>syntax</i> that <code>connsense-TAP</code> uses to interpret <code>parameters</code> entries. Each step is that of a <code>computation-type</code>. A <code>computation-type</code> will have key associated with values that is a list of the <code>quantities</code> that will be computed.
+</p>
+
+<p>
+For example, to extract nodes, we have listed <code>populations</code> whose nodes will be extracted. For the SSCx circuits we have only one population of biophysical cells that we named <code>default</code>.
+</p>
+
+<p>
+For each <code>quantity</code> to be computed, <code>connsense-TAP</code> will need to load it&rsquo;s input. In our case the inputs are the <code>flatmap-columns</code> that we have referenced as shown in the config. We may have more than one circuit to analyze, so that too goes in the <code>inputs</code>. The workhorse will be the <code>extractor</code> specified above &#x2014; a method within <code>connsense</code> &#x2014;. The <code>inputs</code> are the arguments to the referenced <code>Python</code> method, and <code>kwargs</code> it&rsquo;s key-word arguments. We follow the convention that <code>inputs</code> can be loaded from other <code>connsense-TAP</code> steps and hence entered as <i>implicity</i> references, while <code>kwargs</code> are some other parameters that the scientist will need to enter <i>explitcitly</i>. In the example of <code>extract-node-populations</code> we have specified extraction of cell properties. The <code>output</code> type of the method used is required by <code>connsense-TAP</code> to format the saved data.
+</p>
+</div>
+</div>
+
+<div id="outline-container-orgd36aee5" class="outline-4">
+<h4 id="orgd36aee5"><span class="section-number-4">4.2.3.</span> Extract edges</h4>
+<div class="outline-text-4" id="text-4-2-3">
+<p>
+We will extract subtarget edges as <code>scipy.sparse</code> adjacency matrices. This choice is driven mostly by the computational requirement of network topology algorithms that use adjacency matrices.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-yaml">  <span style="color: #BA36A5;">extract-edge-populations</span>:
+    <span style="color: #BA36A5;">description</span>: &gt;-
+      <span style="color: #008000;">Specify the connectomes to extract from.</span>
+<span style="color: #008000;">      Connections will be extracted for each subtarget as an adjacency matrix, with or without connection-strengths.</span>
+<span style="color: #008000;">      A connection is between a pair of source and target nodes, and may be a multi-edge connection.</span>
+<span style="color: #008000;">      We will also specify a set of edge-properties to extract from the circuit.</span>
+    <span style="color: #BA36A5;">populations</span>:
+      <span style="color: #BA36A5;">local</span>:
+        <span style="color: #BA36A5;">input</span>:
+          <span style="color: #BA36A5;">subtarget</span>:
+            <span style="color: #BA36A5;">dataset</span>:  [<span style="color: #008000;">"define-subtargets"</span>, <span style="color: #008000;">"flatmap-columns"</span>]
+          <span style="color: #BA36A5;">circuit</span>:
+            - <span style="color: #008000;">"Bio_M"</span>
+          <span style="color: #BA36A5;">connectome</span>:
+            - <span style="color: #008000;">"local"</span>
+        <span style="color: #BA36A5;">kwargs</span>:
+          <span style="color: #BA36A5;">sources</span>: <span style="color: #008000;">"intrinsic"</span>
+        <span style="color: #BA36A5;">extractor</span>:
+          <span style="color: #BA36A5;">source</span>: connsense.extract_connectivity.bluepy
+          <span style="color: #BA36A5;">method</span>: extract_adj
+        <span style="color: #BA36A5;">output</span>: <span style="color: #008000;">"sparse.spmatrix"</span>
+</pre>
+</div>
+
+<p>
+There is nothing new here, other than the details of the computation. We specify that the inputs will be <code>(subtarget, circuit, connectome)</code> with their values or references. In <code>kwargs</code> we have set <code>sources</code> as <i>intrinsic</i> which allows the <code>extractor</code> to distinguish extraction of connections among the <i>biophysical</i> SSCx population from an extraction where the <code>sources</code> are extrinsic, for example the virtual thalamic cells defined in the reconstruction.
+</p>
+</div>
+</div>
+
+<div id="outline-container-orgf5ee282" class="outline-4">
+<h4 id="orgf5ee282"><span class="section-number-4">4.2.4.</span> Analyze Connectivity</h4>
+<div class="outline-text-4" id="text-4-2-4">
+<p>
+We can have several <code>analyzes-computation-types</code>, each motivated by the needs of the computations required by specific circuit phenomena. The scientist can choose their own name prefixed by <code>analyze-</code>.  For our case, a study of the circuit&rsquo;s network topology we are interested in <code>analyze-connectivity</code>,
+</p>
+
+<div class="org-src-container">
+<pre class="src src-yaml" id="org59a1411"><span style="color: #BA36A5;">analyze-connectivity</span>:
+  <span style="color: #BA36A5;">description</span>: &gt;-
+    <span style="color: #008000;">Configure each analyses' parameters, as a mapping under section `analyses`.</span>
+  <span style="color: #BA36A5;">analyses</span>:
+</pre>
+</div>
+
+<p>
+We can list as many analyses as we want. Let us start with a computationally simple one,
+</p>
+</div>
+
+<ol class="org-ol">
+<li><a id="orgc4d4ae1"></a>Simplex counts<br />
+<div class="outline-text-5" id="text-4-2-4-1">
+<p>
+To configure a <code>connsense-TAP</code> computation of <code>simplex-counts</code> over all the subtargets,
+</p>
+
+<div class="org-src-container">
+<pre class="src src-yaml" id="orgebaaefd"><span style="color: #BA36A5;">simplex-counts</span>:
+  <span style="color: #BA36A5;">description</span>: &gt;-
+    <span style="color: #008000;">Number of simplices by dimension.</span>
+
+  <span style="color: #BA36A5;">index</span>:
+    <span style="color: #BA36A5;">subtarget</span>:
+      <span style="color: #BA36A5;">dataset</span>: [<span style="color: #008000;">"define-subtargets"</span>, <span style="color: #008000;">"flatmap-columns"</span>]
+    <span style="color: #BA36A5;">circuit</span>:
+      - <span style="color: #008000;">"Bio_M"</span>
+    <span style="color: #BA36A5;">connectome</span>:
+      - <span style="color: #008000;">"local"</span>
+
+  <span style="color: #BA36A5;">input</span>:
+    <span style="color: #BA36A5;">adjacency</span>:
+      <span style="color: #BA36A5;">dataset</span>: [<span style="color: #008000;">"extract-edge-populations"</span>, <span style="color: #008000;">"local"</span>]
+
+  <span style="color: #BA36A5;">computation</span>:
+    <span style="color: #BA36A5;">source</span>: <span style="color: #008000;">"/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py"</span>
+    <span style="color: #BA36A5;">method</span>: <span style="color: #008000;">"simplex_counts"</span>
+
+  <span style="color: #BA36A5;">output</span>: <span style="color: #008000;">"pandas.DataFrame"</span>
+</pre>
+</div>
+
+<p>
+It is important to separate a <code>computation</code>&rsquo;s <code>index</code> from it&rsquo;s <code>input</code>. The entries in <code>input</code> are the arguments of the <code>computation-method</code> entry, while <code>index</code> is an instruction to <code>connsense-TAP</code> to which subtargets the computation should be applied to. For <code>simplex-counts</code> we want to apply all the <code>flatmap-columns</code> in circuit <i>Bio<sub>M</sub></i>&rsquo;s <i>local</i> connectome. There are 240 of them, but one is empty, and another has only 1 node.
+</p>
+
+<p>
+Using the index configured for a computation, <code>connsense-TAP</code> will load the inputs as configured for <code>input</code>, a
+</p>
+
+<div class="org-src-container">
+<pre class="src src-example">~Mapping Argument --&gt; DataReference~
+</pre>
+</div>
+
+<p>
+We can reference a <code>connsense-TAP-Dataset</code> by combining <code>[computation-type, of_quantity]</code>. For <code>simplex-counts</code> we want the input to be the adjacency matrices loaded from the dataset resulting from extraction of the local edge population:
+</p>
+<div class="org-src-container">
+<pre class="src src-yaml">  <span style="color: #BA36A5;">input</span>:
+    <span style="color: #BA36A5;">adjacency</span>:
+      <span style="color: #BA36A5;">dataset</span>: [<span style="color: #008000;">"extract-edge-populations"</span>, <span style="color: #008000;">"local"</span>]
+</pre>
+</div>
+
+<p>
+<code>connsense-TAP</code> will use the subset of this dataset that applies to the configured <code>index</code>.
+</p>
+</div>
+</li>
+</ol>
+</div>
+</div>
+</div>
+
+
+<div id="outline-container-orgb93a331" class="outline-2">
+<h2 id="orgb93a331"><span class="section-number-2">5.</span> TAP environment</h2>
+<div class="outline-text-2" id="text-5">
+<p>
+A CLI environment will allow the scientist to setup, run, and interpret a TAP instance of their circuit analysis.
+</p>
+
+<pre class="example" id="orge3d5d91">
+
+$ tap ?
+
+&gt;&gt; What may I analyze for you today?
+
+   1. anatomy
+   2. physiology
+
+</pre>
+
+<p>
+To which the scientist can respond,
+</p>
+
+<pre class="example" id="org696060d">
+
+-- anatomy
+
+&gt;&gt; What aspect of anatomy?
+
+   1. composition
+   2. connectivity
+   3. something else that I am not aware of?
+
+</pre>
+
+<p>
+We want to study the connectivity of flatmap columns,
+</p>
+
+<pre class="example" id="org357819d">
+
+-- connectivity
+
+</pre>
+
+<p>
+<code>tap-env</code> will look for any connectivity analyses in it&rsquo;s configuration, and not finding any definitions,
+</p>
+
+<pre class="example" id="orgef884ee">
+ &gt;&gt; I did not find any connectivity analyses. Do you want to configure one? (yes/no)
+</pre>
+
+<p>
+Let us say <i>yes</i>,
+</p>
+
+<pre class="example" id="org12762e0">
+
+ -- yes
+
+ &gt;&gt; What is the name of your analysis?
+
+ -- simplex-counts
+
+ &gt;&gt; Can you describe *simplex-counts*?
+
+ -- Number of simplices in a network by dimension.
+
+ &gt;&gt; Where can I find a method to compute *simplex-counts* ? It should be a path to a Python source file.
+
+ --  path/to/source.py
+
+ &gt;&gt; Which method in *path/to/source.py* should I use?
+
+ -- simplex_counts
+
+ &gt;&gt; What data-type does the method return?
+
+ -- pandas.Series
+
+ &gt;&gt; I have sufficient information to configure an analysis of circuit connectivity *simplex-count*
+
+</pre>
+
+<p>
+<code>tap-env</code> can use the information provided to define a YAML cell,
+</p>
+
+<div class="org-src-container">
+<pre class="src src-yaml" id="orgc2fd9ee">  <span style="color: #BA36A5;">simplex-counts</span>:
+  <span style="color: #BA36A5;">description</span>: &gt;-
+    <span style="color: #008000;">Number of simplices in a network by dimension, /i.e./ the number of nodes in the simplex.</span>
+  <span style="color: #BA36A5;">source</span>: <span style="color: #008000;">"/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py"</span>
+  <span style="color: #BA36A5;">method</span>: <span style="color: #008000;">"simplex_counts"</span>
+  <span style="color: #BA36A5;">output</span>: <span style="color: #008000;">"pandas.DataFrame"</span>
+</pre>
+</div>
+
+<pre class="example" id="org6b56f8c">
+&gt;&gt; Which circuit subtargets do you want to compute?
+
+-- flatmap-columns
+
+&gt;&gt; I do not about *flatmap-columns* subtargets. Should we configure them? (yes/no)
+
+-- yes
+</pre>
+
+<p>
+The scientist can now configure the computation of <code>flatmap-columns</code>,
+</p>
+
+<pre class="example" id="orgb8d4bcd">
+&gt;&gt; What should we call these subtargets?
+
+-- flatmap-columns
+
+&gt;&gt; Can you describe *flatmap-columns*?
+
+-- Conical columns, straight up along cortical layers, one per a hex-grid defined in the circuit's flatmap.
+
+</pre>
+</div>
+</div>
+</div>
+<div id="postamble" class="status">
+<p class="author">Author: Vishal Sood</p>
+<p class="date">Created: 2022-10-04 Tue 14:43</p>
+</div>
+</body>
+</html>
