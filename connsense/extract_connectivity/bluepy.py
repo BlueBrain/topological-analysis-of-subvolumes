@@ -57,7 +57,7 @@ def iter_connections(in_subtarget, connectome_labeled, of_circuit):
 
     try:
         gids = in_subtarget["gids"]
-    except (KeyError, IndexError):
+    except (KeyError, IndexError, TypeError):
         gids = in_subtarget
 
     return connectome.iter_connections(gids if edges_are_intrinsic else None, gids, return_synapse_count=True)

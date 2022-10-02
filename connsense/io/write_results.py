@@ -35,7 +35,8 @@ def write(extracted, to_path, append=False, format=None, metadata=None, min_item
         extracted.to_pickle(to_path)
         return to_path
 
-    LOG.info("Write %s extracted data to path %s with format %s", len(extracted), to_path, format)
+    LOG.info("Write %s extracted data to path %s with format %s: \n%s", len(extracted), to_path, format,
+             extracted.describe())
 
     extracted.to_hdf(path_hdf_store, key=group_identifier, mode="a", append=append, format=(format or "table"),
                      min_itemsize=min_itemsize)

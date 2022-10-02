@@ -82,8 +82,8 @@ def extract_node_properties(circuit, subtarget, properties):
         try:
             circuit_cells_depths = circuit.cells.depths
         except AttributeError:
-            from connsense.define_subtargets.config import attribute_depths
-            circuit_cells_depths = attribute_depths(circuit)
+            from connsense.define_subtargets.config import measure_cell_depths
+            circuit_cells_depths = measure_cell_depths(circuit)
             depths = circuit_cells_depths.reindex(subtarget)
         else:
             depths = circuit_cells_depths(subtarget)

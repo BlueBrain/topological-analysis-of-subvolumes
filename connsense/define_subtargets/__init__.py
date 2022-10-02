@@ -334,8 +334,9 @@ def input_circuits(definition, in_config, tap):
 
 def extract_subtargets(definition, in_config, tap):
     """..."""
-    members = in_config.get("members", in_config["definitions"][definition].get("members", None))
-    _, load = plugins.import_module(in_config["definitions"][definition]["loader"])
+    defparams = in_config["definitions"][definition]
+    members = in_config.get("members", defparams.get("members", None))
+    _, load = plugins.import_module(defparams["loader"])
 
     def index_subtarget(values):
         """..."""
@@ -349,17 +350,28 @@ def extract_subtargets(definition, in_config, tap):
         return load(circuit=c)
 
     circuits = input_circuits(definition, in_config, tap).apply(tap.get_circuit)
+    kwargs = defparams.get("kwargs", {})
 
-    if isinstance(members, list):
-        subtargets = index_subtarget(members)
-        circuit_gidses = (pd.concat([subtargets.apply(lambda s: load(c, s)).rename("gids") for c in circuits],
-                                    axis=0, keys=circuits.index.values, names=[circuits.index.name])
+    if not members:
+        from .flatmap import read_subtargets, load_nrrd
+        subtargets_with_info = read_subtargets(kwargs["info"])
+        subtargets = subtargets_with_info["subtarget"]
+        subtarget_info = subtargets_with_info.drop(columns="subtarget")
+        circuit_gidses = (pd.concat([load(circuit=c, path=kwargs["path"]).reindex(subtargets.index, fill_value=[])
+                                     for c in circuits], axis=0,
+                                    keys=circuits.index.values, names=circuits.index.names)
                           .reorder_levels(["subtarget_id", "circuit_id"]))
-
+    elif isinstance(members, list):
+        subtargets = index_subtarget(members)
+        subtarget_info = None
+        circuit_gidses = (pd.concat([subtargets.apply(lambda s: load(c, s, **kwargs)).rename("gids")
+                                     for c in circuits], axis=0,
+                                     keys=circuits.index.values, names=[circuits.index.name])
+                          .reorder_levels(["subtarget_id", "circuit_id"]))
     else:
         raise NotImplementedError(f"NOT-YET when members of type {type(members)}")
 
-    return (subtargets, circuit_gidses)
+    return (subtargets, subtarget_info, circuit_gidses)
 
 
 def run(config, substep=None, in_mode=None, output=None, **kwargs):
@@ -378,12 +390,15 @@ def run(config, substep=None, in_mode=None, output=None, **kwargs):
     to_define_subtargets_in = workspace.locate_base(in_rundir, for_step=STEP)
     LOG.warning("\tworking in %s", to_define_subtargets_in)
 
-    subtargets, gidses = extract_subtargets(definition, in_config=parameters, tap=TapStore(config))
+    subtargets, subtarget_info, gidses = extract_subtargets(definition, in_config=parameters,
+                                                            tap=TapStore(config))
 
     connsense_h5, define_subtargets = output_specified_in(output_paths, and_argued_to_be=output)
     under_group = define_subtargets + "/" + definition
 
     subtargets.to_hdf(connsense_h5, key=under_group+"/name")
+    if subtarget_info is not None:
+        subtarget_info.to_hdf(connsense_h5, key=under_group+"/info")
     gidses.to_hdf(connsense_h5, key=under_group+"/data")
 
     return (connsense_h5, under_group)

@@ -17,6 +17,20 @@ from ..io import read_config, logging
 LOG = logging.get_logger("define-subtargets")
 
 
+def measure_cell_depths(circuit):
+    """..."""
+    from voxcell import VoxcellError
+    LOG.info("RUN neuron depths extraction")
+    from flatmap_utility import supersampled_neuron_locations
+    orient = circuit.atlas.load_data("orientation")
+    try:
+        flatmap = circuit.atlas.load_data("flatmap")
+    except VoxcellError as err:
+        LOG.warning("No flatmap found for circuit %s", circuit.variant)
+        return circuit
+
+    return supersampled_neuron_locations(circuit, flatmap, orient, include_depths=True)[["depth"]]
+
 class SubtargetsConfig:
     """Define and load subtargets in a circuit's flatmap."""
 

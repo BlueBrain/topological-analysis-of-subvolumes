@@ -132,13 +132,15 @@ def batch_multinode(process_of, inputs, computation, in_config, at_path, using_p
 
         assignment = pd.concat([batches, compute_nodes], axis=1)
         assignment_h5, dataset = COMPUTE_NODE_ASSIGNMENT
-        assignment.to_hdf(at_path/assignment_h5, key=dataset)
 
-        if assignment.compute_node.max() <= max_launch_submissions:
+        if assignment.compute_node.nunique() <= max_launch_submissions:
+            assignment.to_hdf(at_path/assignment_h5, key=dataset)
             return assignment
 
-        submissions = assignment.compute_node.apply(lambda n: int(n / max_launch_submissions))
-        return assignment.assign(submission=submissions)
+        submit = lambda compute_node: int(compute_node / max_launch_submissions)
+        submissions = assignment.assign(submission=assignment.compute_node.apply(submit))
+        submissions.to_hdf(at_path/assignment_h5, key=dataset)
+        return submissions
 
     if process_of == collect_multinode:
         return read_compute_nodes_assignment(at_path)
@@ -196,26 +198,39 @@ def setup_compute_node(c, inputs, for_computation, using_configs):
         assert len(submission) == 1
         launchscript = to_stage / f"launchscript-{submission[0]}.sh"
 
+    command_lines = ["#!/bin/bash",
+                     (f"########################## LAUNCH {computation_type} for chunk {c}"
+                      f" of {len(inputs)} _inputs. #######################################"),
+                     f"pushd {for_compute_node}",
+                     f"sbatch {of_executable.name} run {computation_type} {for_quantity} \\",
+                     cmd_configs(),
+                     cmd_options(),
+                     f"--input={inputs_to_read} \\",
+                     f"--output={output_h5}",
+                     "popd"]
+
     with open(launchscript, 'a') as to_launch:
 
-        def write(aline):
-            if aline:
-                to_launch.write(aline + '\n')
+        to_launch.write('\n'.join(l for l in command_lines if l) + "\n")
 
-        write("#!/bin/bash")
+        # def write(aline):
+        #     if aline:
+        #         to_launch.write(aline + '\n')
 
-        write(f"########################## LAUNCH {computation_type} for chunk {c}"
-             f" of {len(inputs)} _inputs. #######################################")
-        write(f"pushd {for_compute_node}")
+        # write("#!/bin/bash")
 
-        sbatch = f"sbatch {of_executable.name} run {computation_type} {for_quantity} \\"
-        write(sbatch)
-        write(cmd_configs())
-        write(cmd_options())
-        write(f"--input={inputs_to_read} \\")
-        write(f"--output={output_h5}")
+        # write(f"########################## LAUNCH {computation_type} for chunk {c}"
+        #      f" of {len(inputs)} _inputs. #######################################")
+        # write(f"pushd {for_compute_node}")
 
-        write("popd")
+        # sbatch = f"sbatch {of_executable.name} run {computation_type} {for_quantity} \\"
+        # write(sbatch)
+        # write(cmd_configs())
+        # write(cmd_options())
+        # write(f"--input={inputs_to_read} \\")
+        # write(f"--output={output_h5}")
+
+        # write("popd")
 
     setup = {"dirpath": for_compute_node, "sbatch": of_executable, "input": inputs_to_read, "output": output_h5}
 
@@ -378,7 +393,8 @@ def collect_edge_population(setup, from_dirpath, in_connsense_store):
         """..."""
         LOG.info("Collect adjacencies compute-node %s output %s", of_compute_node, output)
         adj = read_toc_plus_payload(output, for_step="extract-edge-populations")
-        return write_toc_plus_payload(adj, (connsense_h5, hdf_edge_population), append=True, format="table")
+        return write_toc_plus_payload(adj, (connsense_h5, hdf_edge_population), append=True, format="table",
+                                      min_itemsize={"values": 100})
         #return write_toc_plus_payload(adj, (in_connsense_store, hdf_edge_population), append=True, format="table")
 
     LOG.info("Collect adjacencies")
@@ -1734,6 +1750,7 @@ def load_kwargs(parameters, to_tap, on_compute_node):
     if isinstance(workdir, str):
         path = Path(workdir)/on_compute_node.relative_to(to_tap._root.parent)
         path.mkdir(parents=True, exist_ok=True)
+        on_compute_node.joinpath("workdir").symlink_to(path)
         kwargs["workdir"] = path
         return kwargs
 
@@ -1797,8 +1814,8 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node, 
         def to_subtarget(s):
             """..."""
             r = execute_one(lazy_subtarget=s)
-            LOG.info("store one lazy subtarget %s result \n%s", r)
-            LOG.info("Result data types %s", r.info())
+            LOG.info("store one lazy subtarget %s result \n%s", s, r)
+            LOG.info("Result data types %s", r.describe())
             return to_store_one(in_hdf.format(index), result=r)
 
         if to_store_batch:
@@ -1809,7 +1826,7 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node, 
         else:
             result = to_store_one(in_hdf.format(index), update=of_input.apply(to_subtarget))
 
-        if in_bowl:
+        if in_bowl is not None:
             in_bowl[index] = result
         return result
 
@@ -2158,7 +2175,8 @@ def collect_batched_edge_population(p, results, on_compute_node, hdf_group):
         """.."""
         LOG.info("collect batch %s of adjacencies at %s output %s ", batch, on_compute_node, output)
         adjmats = read_toc_plus_payload(output, for_step="extract-edge-populations")
-        return write_toc_plus_payload(adjmats, hdf_edge_population, append=True, format="table")
+        return write_toc_plus_payload(adjmats, hdf_edge_population, append=True, format="table",
+                                      min_itemsize={"values": 100})
 
     LOG.info("collect batched extraction of edges at compute node %s", on_compute_node)
     for batch, output in results.items():
