@@ -662,6 +662,7 @@ def pour(tap, variables):
 
     def load_dataset(var, values):
         """..."""
+        LOG.info("To pour, load %s dataset ", var)
         dataset = tap.pour_dataset(var, values["dataset"]).apply(unpack)
 
         if not "reindex" in values:
@@ -979,6 +980,10 @@ def assign_batches_to(inputs, upto_number, return_load=False):
                 return 1.
             first = next(v for v in input_data.values())
             return estimate_load(first)
+
+        if isinstance(input_data, pd.Series):
+            return input_data.apply(estimate_load).sum()
+
         try:
             shape = input_data.shape
         except AttributeError:
@@ -1065,8 +1070,20 @@ def load_kwargs(parameters, to_tap, on_compute_node):
 
     if isinstance(workdir, str):
         path = Path(workdir)/on_compute_node.relative_to(to_tap._root.parent)
-        path.mkdir(parents=True, exist_ok=True)
-        on_compute_node.joinpath("workdir").symlink_to(path)
+        try:
+            path.mkdir(parents=True, exist_ok=False)
+        except FileExistsError as ferr:
+            LOG.WARNING("Path %s already exists! Please check that you have not run the pipeline previously."
+                        " If so, provide a clean workdir", str(path))
+            raise FileExistsError(f"{str(path)} exists --- workdir not clean") from ferr
+
+        try:
+            on_compute_node.joinpath("workdir").symlink_to(path)
+        except FileExistsError as ferr:
+            LOG.WARNING("Symlink to workdir compute-node %s already exists, most probably from a previous run"
+                        " Please cleanup before re-run", str(on_compute_node))
+            raise FileExistsError(f"{str(on_compute_node)/workdir} already existed.") from ferr
+
         kwargs["workdir"] = path
         return kwargs
 

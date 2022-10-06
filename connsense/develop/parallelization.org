@@ -1,4 +1,5 @@
 #+title: Parallelization
+
 We have a parallelization scheme in place that we used to parallelize the computations of analyses.
 With multi-population nodes and edges, and to start the support of multiple circuit variants,
 definitions of subtargets, extraction of neuron properties, and extraction of connectivity should also
@@ -149,6 +150,7 @@ def batch_multinode(process_of, inputs, computation, in_config, at_path, using_p
 
 #+end_src
 
+
 * Setup computation
 For setting up each compute node,
 To ~setup_compute_node(c)~, we will need to generate inputs of the computation as described in the input config.
@@ -249,6 +251,7 @@ def write_multinode_setup(compute_nodes, inputs, at_dirpath):
                                 to_json=at_dirpath/"setup.json")
 
 #+end_src
+
 
 * Collect results
 The collected results must be written the ~connsense-TAP~ store,
@@ -488,6 +491,7 @@ Consider ~computation="analyze-connectivity/degree"~, which should run analyses 
 as specified in the configurcation. In general, following this convention, a computation will look like
 ~<pipelin   e-step>/<substep>~.
 
+
 * Worspace for a computation
 The location where a single computation, /i.e./ a computation on a single cluster node, is nested under the
 ~connsense~ pipeline's root.
@@ -503,6 +507,7 @@ def get_workspace(for_computation, in_config, for_control=None, making_subgraphs
     return (basedir, rundir)
 
 #+end_src
+
 * Write configs: The different types of computations
 There are as many different types of computations in the ~connsense~ pipeline as there are steps.
 So we must provide methods used in ~configure_multinode~ for each of these steps.
@@ -740,6 +745,7 @@ def symlink_pipeline_subgraphs(to_config, at_dirpath):
 
 #+end_src
 
+
 * Inputs
 The inputs to a ~computation~ will also depend on the pipeline step that the ~copmutation~ is at.
 If the computation is to extract an edge population, the inputs will be subtargets.
@@ -958,6 +964,7 @@ def pour(tap, variables):
 
     def load_dataset(var, values):
         """..."""
+        LOG.info("To pour, load %s dataset ", var)
         dataset = tap.pour_dataset(var, values["dataset"]).apply(unpack)
 
         if not "reindex" in values:
@@ -1443,6 +1450,7 @@ def parameterize(computation_type, of_quantity, in_config):
     return deepcopy(in_config["parameters"]["define-subtargets"])
 #+end_src
 
+
 * Configure runtime
 The results of ~configure_multinode~ will be written to a Slurm configuration and listed in a launchscript.
 The Slurm configuration of a computation can be read from the runtimr config.
@@ -1637,6 +1645,10 @@ def assign_batches_to(inputs, upto_number, return_load=False):
                 return 1.
             first = next(v for v in input_data.values())
             return estimate_load(first)
+
+        if isinstance(input_data, pd.Series):
+            return input_data.apply(estimate_load).sum()
+
         try:
             shape = input_data.shape
         except AttributeError:
@@ -1672,6 +1684,9 @@ def assign_batches_to(inputs, upto_number, return_load=False):
     #return batches.loc[inputs.index]
 
 #+end_src
+
+#+RESULTS: develop-parallelization-configure-runtime-batch-assignment
+: None
 
 *** Compute nodes
 To run a multi-compute-node copmutation we will assign compute nodes,
@@ -1749,8 +1764,20 @@ def load_kwargs(parameters, to_tap, on_compute_node):
 
     if isinstance(workdir, str):
         path = Path(workdir)/on_compute_node.relative_to(to_tap._root.parent)
-        path.mkdir(parents=True, exist_ok=True)
-        on_compute_node.joinpath("workdir").symlink_to(path)
+        try:
+            path.mkdir(parents=True, exist_ok=False)
+        except FileExistsError as ferr:
+            LOG.WARNING("Path %s already exists! Please check that you have not run the pipeline previously."
+                        " If so, provide a clean workdir", str(path))
+            raise FileExistsError(f"{str(path)} exists --- workdir not clean") from ferr
+
+        try:
+            on_compute_node.joinpath("workdir").symlink_to(path)
+        except FileExistsError as ferr:
+            LOG.WARNING("Symlink to workdir compute-node %s already exists, most probably from a previous run"
+                        " Please cleanup before re-run", str(on_compute_node))
+            raise FileExistsError(f"{str(on_compute_node)/workdir} already existed.") from ferr
+
         kwargs["workdir"] = path
         return kwargs
 
@@ -1864,7 +1891,7 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node, 
     results = {key: value for key, value in bowl.items()}
     LOG.info("Computation %s results %s", of_computation, len(results))
 
-    read_pipeline.write(results, to_json=on_compute_node/"batched_output.h5")
+    read_pipeline.write(results, to_json=on_compute_node/"batched_output.json")
 
     _, output_paths = read_pipeline.check_paths(in_config, step=computation_type)
     _, hdf_group = output_paths["steps"][computation_type]

@@ -289,8 +289,7 @@ class DataFrameHelper:
         under_key = lambda key: '/'.join([under_group, dataset, key])
         columns = pd.read_hdf(at_path, under_key("columns"))
         index = pd.read_hdf(at_path, under_key("index"))
-        LOG.info("read dataset %s under group %s at path %s", dataset, under_group, in_hdf_store_at_path)
-        print(f"read dataset {dataset} under group {under_group} at path {in_hdf_store_at_path}")
+        LOG.debug("read dataset %s under group %s at path %s", dataset, under_group, in_hdf_store_at_path)
         if len(index.columns) == 1:
             return columns.set_index(pd.Index(index[index.columns[0]]))
         return columns.set_index(pd.MultiIndex.from_frame(index))
@@ -302,8 +301,9 @@ class SeriesHelper:
     @staticmethod
     def write(series, to_hdf_store_at_path, under_group, as_dataset):
         """..."""
-        LOG.info("SeriesHelper write series %s to %s under %s as dataset %s",
-                 series.index, to_hdf_store_at_path, under_group, as_dataset)
+        LOG.info("SeriesHelper write series at %s group %s as dataset %s: \n%s",
+                 to_hdf_store_at_path, under_group, as_dataset, series.describe())
+
         at_path = to_hdf_store_at_path
         under_key = lambda key: '/'.join([under_group, as_dataset, key] if key else [under_group, as_dataset])
 
