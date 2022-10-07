@@ -15,7 +15,7 @@ LOG_CONFIG = {'version':1,
                                         'formatter': 'info',
                                         'level': logging.INFO},
                             'file':{'class': 'logging.FileHandler',
-                                    'filename': Path.cwd()/"topology_analysis.log",
+                                    'filename': Path.cwd()/"connsense_tap.err",
                                     'formatter': 'error',
                                     'level': logging.ERROR}},
                 'root':{'handlers':('console', 'file')}}

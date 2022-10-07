@@ -5,6 +5,7 @@
 
 from collections.abc import Mapping
 from copy import deepcopy
+import shutil
 from pathlib import Path
 from pprint import pformat
 
@@ -21,7 +22,7 @@ from connsense.extract_connectivity import read_results
 from connsense.extract_connectivity import extract as extract_connectivity
 from connsense.pipeline import workspace
 from connsense.pipeline import PARAMKEY, COMPKEYS
-from connsense.io import logging, read_config as read_pipeline
+from connsense.io import logging, time, read_config as read_pipeline
 from connsense.io.slurm import SlurmConfig
 from connsense.io.write_results import read_toc_plus_payload, write_toc_plus_payload
 from connsense.pipeline.workspace import find_base
@@ -51,6 +52,8 @@ COMPUTE_NODE_SUBTARGETS = ("inputs.h5", "subtargets")
 INPUTS = ("inputs.h5", "subtargets")
 COMPUTE_NODE_ASSIGNMENT = ("subtargets.h5", "compute_node")
 
+INPROGRESS = "INPROGRESS"
+DONE = "DONE"
 
 class IllegalParallelComputationError(ValueError):
     """..."""
@@ -1070,19 +1073,32 @@ def load_kwargs(parameters, to_tap, on_compute_node):
 
     if isinstance(workdir, str):
         path = Path(workdir)/on_compute_node.relative_to(to_tap._root.parent)
-        try:
-            path.mkdir(parents=True, exist_ok=False)
-        except FileExistsError as ferr:
-            LOG.WARNING("Path %s already exists! Please check that you have not run the pipeline previously."
-                        " If so, provide a clean workdir", str(path))
-            raise FileExistsError(f"{str(path)} exists --- workdir not clean") from ferr
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        if path.exists():
+            LOG.warning("Compute node has been run before, leaving a workdir:\n%s", path)
+            archive = path.parent / "history"
+            archive.mkdir(parents=False, exist_ok=True)
+
+            history = archive / path.name
+            if history.exists():
+                LOG.warning("Previous runs exist in %s history at \n%s", path.name, history)
+            history.mkdir(parents=False, exist_ok=True)
+
+            to_archive = history/ time.stamp(now=False)
+            if to_archive.exists():
+                LOG.warning("There is a previous run with the same time stamp as now!!!\n%s"
+                            "\n It will be removed", to_archive)
+
+            path.rename(to_archive)
+
+        path.mkdir(parents=False, exist_ok=True)
 
         try:
             on_compute_node.joinpath("workdir").symlink_to(path)
         except FileExistsError as ferr:
-            LOG.WARNING("Symlink to workdir compute-node %s already exists, most probably from a previous run"
+            LOG.warn("Symlink to workdir compute-node %s already exists, most probably from a previous run"
                         " Please cleanup before re-run", str(on_compute_node))
-            raise FileExistsError(f"{str(on_compute_node)/workdir} already existed.") from ferr
 
         kwargs["workdir"] = path
         return kwargs
@@ -1096,8 +1112,49 @@ def load_kwargs(parameters, to_tap, on_compute_node):
     raise NotImplementedError(f"What to do with workdir type {type(workdir)}")
 
 
+def run_cleanup(on_compute_node):
+    """..."""
+    previously = on_compute_node/"previously"
+
+
+def run_cleanup(on_compute_node):
+    """..."""
+    if on_compute_node.joinpath(INPROGRESS).exists() or on_compute_node.joinpath(DONE).exists():
+        LOG.warning("Compute node has been run before: %s", on_compute_node)
+
+        archive = on_compute_node.parent / "history"
+        archive.mkdir(parents=False, exist_ok=True)
+
+        history_compute_node = archive/on_compute_node.name
+        if history_compute_node.exists():
+            LOG.warning("Other than the existing run, there were previous ones too: \n%s",
+                        list(history_compute_node.glob('*')))
+
+        to_archive = history_compute_node/time.stamp(now=True)
+        if to_archive.exists():
+            LOG.warning("The last run archived at \n %s \n"
+                        "must have been within the last minute of now (%s) and may be overwritten",
+                        to_archive, time.stamp(now=True))
+        shutil.copytree(on_compute_node, to_archive,
+                        symlinks=False, ignore_dangling_symlinks=True, dirs_exist_ok=True)
+
+    files_to_remove = ([on_compute_node / path for path in ("batched_output.json", "output.json",
+                                                            INPROGRESS, DONE)]
+                       + list(on_compute_node.glob("connsense*.h5")))
+    LOG.info("On compute node %s, cleanup by removing files \n%s", on_compute_node.name, files_to_remove)
+    for to_remove in files_to_remove:
+        to_remove.unlink(missing_ok=True)
+
+    return on_compute_node
+
+
 def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node, inputs=None):
     """..."""
+    on_compute_node = run_cleanup(on_compute_node)
+
+    run_in_progress = on_compute_node.joinpath(INPROGRESS)
+    run_in_progress.touch(exist_ok=False)
+
     execute, to_store_batch, to_store_one = configure_execution(of_computation, in_config, on_compute_node)
 
     assert to_store_batch or to_store_one
@@ -1197,7 +1254,7 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node, 
     results = {key: value for key, value in bowl.items()}
     LOG.info("Computation %s results %s", of_computation, len(results))
 
-    read_pipeline.write(results, to_json=on_compute_node/"batched_output.h5")
+    read_pipeline.write(results, to_json=on_compute_node/"batched_output.json")
 
     _, output_paths = read_pipeline.check_paths(in_config, step=computation_type)
     _, hdf_group = output_paths["steps"][computation_type]
@@ -1205,6 +1262,10 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node, 
 
     collected = collect_batches(of_computation, results, on_compute_node, hdf_group, of_output_type)
     read_pipeline.write(collected, to_json=on_compute_node/"output.json")
+
+    run_in_progress.unlink()
+    on_compute_node.joinpath(DONE).touch(exist_ok=False)
+
     return collected
 
 
