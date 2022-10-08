@@ -62,7 +62,7 @@ class TapDataset:
         self._tap = tap
         self._dataset = dataset
 
-    def index(self, variable):
+    def index_ids(self, variable):
         """..."""
         try:
             series = tap.create_index(variable)
@@ -76,15 +76,15 @@ class TapDataset:
     @lazy
     def id_subtargets(self):
         """..."""
-        return self.index("subtarget")
+        return self.index_ids("subtarget")
     @lazy
     def id_circuits(self):
         """..."""
-        return self.index("circuit")
+        return self.index_ids("circuit")
     @lazy
     def id_connectomes(self):
         """..."""
-        return self.index("connectome")
+        return self.index_ids("connectome")
 
     @property
     def dataset(self):

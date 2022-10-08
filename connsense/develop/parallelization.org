@@ -898,6 +898,7 @@ def filter_input_datasets(described):
     return {var: val for var, val in described.items() if (var not in ("circuit", "connectome")
                                                            and isinstance(val, Mapping) and "dataset" in val)}
 
+
 def generate_inputs_of(computation, in_config, on_compute_node=None, by_subtarget=False):
     """..."""
     LOG.info("Generate inputs for %s %s %s", computation,
@@ -1741,18 +1742,20 @@ The input stored on each ~compute-node~ contains batch index for each subtarget.
 #+name: parallelize-single-node
 #+begin_src python
 
-def load_kwargs(parameters, to_tap, on_compute_node):
+def load_kwargs(parameters, to_tap, on_compute_node, consider_input=False):
     """..."""
-    def load(value):
-        if not isinstance(value, Mapping) or "dataset" not in value:
-            return value
-        return to_tap.read_dataset(value["dataset"])
+    def load_dataset(value):
+        """..."""
+        return (to_tap.read_dataset(value["dataset"]) if isinstance(value, Mapping) and "dataset" in value
+                else value)
 
     kwargs = parameters.get("kwargs", {})
-    kwargs.update({var: load(value) for var, value in parameters.items() if var not in COMPKEYS})
-    kwargs.update({var: value for var, value in parameters.get("input", {}).items()
-                   if var not in ("circuit", "connectome") and (
-                           not isinstance(value, Mapping) or "dataset" not in value)})
+    kwargs.update({var: load_dataset(value) for var, value in kwargs.items() if var not in COMPKEYS})
+
+    if consider_input:
+        kwargs.update({var: value for var, value in parameters.get("input", {}).items()
+                       if var not in ("circuit", "connectome") and (
+                               not isinstance(value, Mapping) or "dataset" not in value)})
 
     try:
         workdir = kwargs["workdir"]
@@ -1776,12 +1779,16 @@ def load_kwargs(parameters, to_tap, on_compute_node):
                 LOG.warning("Previous runs exist in %s history at \n%s", path.name, history)
             history.mkdir(parents=False, exist_ok=True)
 
-            to_archive = history/ time.stamp(now=False)
+            to_archive = history/ time.stamp(now=True)
             if to_archive.exists():
                 LOG.warning("There is a previous run with the same time stamp as now!!!\n%s"
                             "\n It will be removed", to_archive)
-
-            path.rename(to_archive)
+                shutil.copytree(path, to_archive,
+                                symlinks=True, ignore_dangling_symlinks=True, dirs_exist_ok=True)
+                for filepath in path.glob('*'):
+                    filepath.unlink()
+            else:
+                path.rename(to_archive)
 
         path.mkdir(parents=False, exist_ok=True)
 
@@ -1881,6 +1888,7 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node, 
         def unpack(value):
             if isinstance(value, pd.Series):
                 assert len(value) == 1
+                LOG.info("Execute one single lazy subtarget %s", value.index[0])
                 return value.iloc[0]
             return value
 
