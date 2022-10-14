@@ -1,65 +1,63 @@
+#+startup: overview
+
 #+title: A pipeline to analyze networks with multiple populations and /multi-edge/ connections.
 
 The brain circuit's connections are mediated via multiple-synapses, and may consitute of multiple node populations.
 Here we develop features in ~connsense~ to handle such features of a brain network.
 
-We have moved beyond the simpler brain reconstructions with neurons composed of two types: the /biophyscal/
-neurons in the network and the virtual ones that represented the thalamic inputs.
-We now have circuits with multiple node-types that can be mixed to define a /node-population/.
-Each /node-type/ has a homoegenous namespace that contains the information that is necessary to build a model
-for each neuron in the circuit of that /node-type/. A single /node-population/ may consist of several /node-types/.
+* Introduction
+
+Moving on from the simpler brain reconstructions, we are now building circuits with neurons composed of two types: the /biophyscal/ neurons in the network and the virtual ones that represented the thalamic inputs. We now have circuits with multiple node-types that can be mixed to define a /node-population/. Each /node-type/ has a homoegenous namespace that contains the information that is necessary to build a model for each neuron in the circuit of that /node-type/. A single /node-population/ may consist of several /node-types/.
 In the SSCX circuit, we define the /default/ node-populattion to be that of the SSCx biophysical neurons.
 
-To track multiple  populations of nodes and edges, we will need to make changes to ~connsense~'s ~HDFstore~
-Let us decide that a given ~connsense~'s ~tap~ will run only for subtargets that belong to a single /node-population/
-in the circuit. We can enter this information in the ~config parameter~'s section ~define-subtargets~,
-and add it as an attribute to the ~HDFstore-group~ for step ~define-subtargets~.
+To track multiple  populations of nodes and edges, we will need to make changes to ~connsense~'s ~HDFstore~. We define the ~circuit-subtargets~ at the level of the brain region that an analyzed ~circuit~ models. We can think of several ~definitions~ of ~circuit-subtargets~ to study. Let us decide that a given ~connsense~'s ~tap~ will run only for a single definition of ~circuit-subtargets~. We can enter this information in the ~config parameter~'s section ~define-subtargets~, and add it as an attribute to the ~HDFstore-group~ for step ~define-subtargets~.
 
-So the entire suite of analyses set up by ~connsense-tap~ will be of a single node-population.
-However that does not mean we will leave other node-populations untouched. To compare the number of
-extrinsic /versus/ intrinsic inputs to a node in the circuit we will need extact the edges from the
-extrinsic /node-population/. While this requires us to implement multiple-edge populations, we might
-as well implement multiple population for the extraction of node properties.
 
-So if the ~connsense~'s ~HDFstore~ does not need a new index level or a datagroup for ~node-population~,
-it will do so for storing the extraction of nodes and edges. We will put this data in ~HDFstore~ data grooups
-named by the ~node-population~ or ~edge-population~ that are read from the configuration.
+* Pipeline steps
 
-This will need a rewrite of ~extract-nodes~ and ~extract-connectivity~ steps. While we do that, we will use
-an option for parallelization configured in ~runtime~ config file.
-We will also work towards extracting ~edge-properties~ that could be done either during the extraction
-of connections or as a separate step. Each subtarget's edge properties will be saved in the ~HDFstore~
-as a ~pandas.DataFrame~. The benefit of extracting edge properties in the ~extract-connectivity~ run
-is that we can extract the edges (/i.e./ synapses) from the circuit and then convert that into a weighted
-adjacency matrix and save both to the ~HDFstore~ under seperate groups ~adjmat~ and ~edges~, thus saving
-compute time. This cannot be
+To study a system, the /zeroth/ step is to ~define~ the ~subtargets~ of our ~study~. To ~analyze~ a particular ~phenomenon/quantity~ we will need to /first/ ~extract~ the data required for the analysis. Once analyzed we will ~report~ or ~summarize~ the result. Thus we can see a computational pipeline would follow these steps,
 
-However this does not fit intuitively with how we deal with the extraction of node properties that happens
-after the defintiion of subtargets. Extraction of neurons as a separate step would make sense if all the circuit's
-node's properties were extracted at once instead of by subtarget. We could then rely on the ~HDFstore-TAP~ to provide
-us properly indexed data frames and series for the subtarget nodes.
+0. ~define~ subtargets of study
+1. ~extract~ circuit data
+2. ~analyze~ ~quantity~ that measures a circuit ~phenomenon~
+3. ~summarize~ the analysis ~measurement~
 
-We cannot extract edge-properties for all the edges in the circuit. Extraction of edge properties nested inside
-extraction of connectivity will also reduce the amount of configuration. As a separation step, we will need to add
-a section to the config. The pipeline ~connsense-TAP~ works by running a step for each subtarget, with data input from
-those of previous pipeline steps. We will have several edge-populations in the circuit,  We could configure
-only the properties in ~extract-edge-properties~ assuming that these properties will apply to all the edge-populations
-listed in ~extract-connectivity~. However this assumption may not generalize. While the subtargets are in the same
-node-population, the edges are allowed to be to or from an /extrinsic/ node-population and in principal could have
-different namespaces that will need separate config sections. This will double the amount configuration required.
-Thus we have decided to extract edge properties for an edge-population if a list of properties are entered in it's
-config section.
+We can also /scheme/
+#+begin_src elisp
 
-We will also work towards implementing an extraction of morphological properties of neurons.
-Extraction of morphological properties requires special treatment compared to the other cell properties.
-We will load the morphology database and compute the configured metrics as a dataframe, saving it to the
-~connsense-HDFstore~ indexed by the morphology. Each morphological property such as axon-length will be computted
-and included in ~node-properties~ data-frame as a column.
+(defun define (subtargets info computation)
+  "Define a computation to compute subtarget members with info.")
 
-** TODO Refactor ~extract-nodes~ to extract all the nodes at once,
-and update ~connsense-TAP~ to return per subtarget nodes
+(defun extract (phenomenon quantity computation)
+  "Extract raw or recalibrated data for defined subtargets.")
+
+(defun analyze (phenomenon quantity computation)
+  "Analyze quantity associated with a circuit phenomenon,")
+
+(defun summarize (phenomenon quantity computation)
+  "Summarize analysis of a quantity measuring a circuit phenomenon.")
+
+#+end_src
+
+Each of ~extract~, ~analyze~, or ~summarize~, is defined by ~(phenomemnon quantity computation)~, in which ~(phenomenon quantity)~ classifies the computation as that of a quantity of a phenomenon, while ~computation~  is a ~method~  that runs the computation. We can consider ~define~ in the same form,
+
+#+begin_src elisp
+(defun define (phenomenon quantity computation)
+  "Define a quantity measuring a circuit-phenomenon")
+#+end_src
+
+What we mean is to ~define~ the phenomenon of ~subtargets~ using the ~quantity~ of their ~gids~. Or maybe,
+#+begin_src elisp
+(defun define-subtargets (phenomenon quantity computation)
+  "Define subtargets to study a phenomenon in terms of a quantity that captures the subtargets.")
+#+end_src
+which we can use to define subtargets in the phenomenon of /circuit/ in terms of the quantity of ~gid~.
+
+In any case, each step of a computational pipeline can be described as a ~computation~ that we will discuss further in section *concepts*, and develop in *computations.org*.
+
 
 * Of types and populations
+
 A brain circuit reconstruction is a model that is composed of elements that are themselves models.
 Each neuron in the circuit is an instance of a /node-type/. that is defined as a union of types of cell features.
 
@@ -105,6 +103,7 @@ nodes:
       virtual_pom: Dataset(pandas.DataFrame)
 #+end_src
 
+
 ** Edges
 
 *** Edge type
@@ -141,10 +140,10 @@ edges:
 
 Let us see how to implement these ideas by developing a ~connsense-TAP~ config.
 
+
 * Pipeline Config
-Let us configure a suite of analyses of the circuit's structure, the results of which we will use
-as a reference database for assembling a factology of the SSCX circuit. In the next section we will go discuss
-and implement the changes that each pipeline stepp will need.
+
+Let us configure a suite of analyses of the circuit's structure, the results of which we will use as a reference database for assembling a factology of the SSCX circuit. In the next section we will go discuss and implement the changes that each pipeline step will need.
 
 #+name: pipeline-config-init
 #+begin_src yaml :tangle no :noweb yes :padline no
@@ -157,6 +156,7 @@ date: 20220720
 There will be two sections in the /pipeline/ config.
 
 ** Paths
+
 The section ~paths~ configures the locations of the circuit to analyze, and HDF5 paths for the ~TAP-store~~.
 Let us review the paths for each pipeline step.
 
@@ -171,6 +171,7 @@ paths:
 #+end_src
 
 ** Parameters
+
 Parameters for ~connsense-TAP~ steps are entered in the config section ~parameters~.
 
 #+name: pipeline-config-parameters
@@ -183,6 +184,7 @@ parameters:
 Let us configure the paths and parameters for the circuits and the ~connsense-TAP~ steps to /tap/.
 
 ** Circuits
+
 We can configure more than one circuit,
 
 #+name: pipeline-config-paths-circuits
@@ -202,6 +204,7 @@ circuit:
 #+end_src
 
 ** Pipeline steps
+
 Paths are set for each step of the pipeline in config section ~paths~.
 Let us configure the location of the ~connsense-HDFstore~'s HDF5 file. We need path to the folder where ~connsense-TAP~
 will run, and the name of the files to input from and output to --- which will be the same in our config.
@@ -251,7 +254,7 @@ define-subtargets:
       parameters:
       origin: [0.0, 0.0, 0.0]
       radius: 230.0
-      base_target: "Mosaic"
+      base_target: "Mosaic      "
     hexgrid-voxels:
       description: >-
         A hexagonal grid in the circuit's flatmap space (a.k.a flatspace),
@@ -839,6 +842,7 @@ However before we will have to refactor ~connsense~ to define subtargers,
 extract neurons, and connectivity using the configs defined above.
 
 ** Read the config
+
 Let us reimplement the ~connsense-TAP~ config reader.
 
 #+name: read-pipeline-config
@@ -849,7 +853,9 @@ def read_config(for_pipeline):
     return read(for_pipeline)
 #+end_src
 
+
 * Concepts
+
 The code will blow up if we were to implement the various pipeline steps described above.
 Now we begin to digest what we have learned about computational pipelines.
 We begin at the end of a computation, what does it do?
@@ -907,6 +913,7 @@ Each step in the pipeline is a computation, that we can describe with code
 #+name: what-is-a-computation?
 #+begin_src scheme
 #+end_src
+
 * Results
 The result of our discussion are the YAML configurations.
 

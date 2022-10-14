@@ -1,5 +1,12 @@
 #+title: (sub) Target Analysis Pipeline
 
+
+* Feedback
+** from last <2022-10-04 Tue>
+*** Thu Oct 13 10:36:27 2022
+I felt that it is possible to motivate a problem-domain-specific schema can be developed. But we have to find the right balance between parts of the configuration that go into the ~pipeline-config~ file and those that go into the ~methods~ that execute pipeline computations. Above all, the ~pipeline-config~ file should tell a story about what the scientist wants.
+
+
 * To analyze sub-targets in a circuit.
 
 *connsense-TAP*  offers a solution to a problem,
@@ -302,6 +309,7 @@ We can write the configuration to a YAML,
       <<config-analyze-connectivity-simplex-counts>>
 
 #+end_src
+
 
 * TAP environment
 

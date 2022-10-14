@@ -1,0 +1,570 @@
+description: >-
+  Configure a `connsense` pipeline
+version: 3.0.0
+date: 20220815
+paths:
+  description: >-
+    The ~connsense~ pipeline needs paths to the input data to load from, and output paths to store data.
+    Paths to the circuit must be provided along with paths to the HDF5 archive that will store the pipeline's
+    results.
+  format: relative
+  circuit:
+    root: "/gpfs/bbp.cscs.ch/project/proj83/circuits"
+    files:
+      Bio_M: "Bio_M/20200805/CircuitConfig_TC_WM"
+  pipeline:
+    root: "/gpfs/bbp.cscs.ch/project/proj83/home/sood/portal/develop/factology-v2/analyses/connsense/redefine-subtargets/create-index/morphology-mtypes"
+    input:
+      store: "connsense.h5"
+    output:
+      store: "connsense.h5"
+    steps:
+      define-subtargets: "subtargets"
+      extract-voxels: "atlas"
+      extract-node-types: "nodes/modeltypes"
+      extract-node-populations: "nodes/populations"
+      evaluate-subtargets: "subtarget_quality"
+      extract-edge-types: "edges/modeltypes"
+      extract-edge-populations: "edges/populations"
+      sample-edge-populations: "edges/samples"
+      randomize-connectivity: "edges/randomizations"
+      analyze-node-types: "analyses/modeltypes"
+      analyze-composition: "analyses/composition"
+      analyze-connectivity: "analyses/connectivity"
+      analyze-physiology: "analyses/physiology"
+
+parameters:
+  define-subtargets:
+    description: >-
+      Configure how subtargets are defined.
+    definitions:
+      regions:
+        description: >-
+          The 8 sub-regions in the SSCx.
+        members:
+          - "S1DZO"
+          - "S1DZ"
+          - "S1FL"
+          - "S1HL"
+          - "S1J"
+          - "S1Sh"
+          - "S1Tr"
+          - "S1ULp"
+        input:
+          circuit: ["Bio_M"]
+        loader:
+          source: connsense.define_subtargets.bluepy
+          method: start_target
+        output: pandas.Series
+      central-columns:
+        description: >-
+          The pre-defined subtargets' node-ids  must be available in the circuit's data.
+          The entries should be of the form `<group>/<member>` such that the entry can be used the subtarget's
+          NRRD mask from `circuit.atlas`. Subtargets will be defined using a `connsense` method that uses `bluepy`
+          to extract each subtarget's GIDs from the circuit.
+        members:
+          - "S1DZO_Column"
+          - "S1DZ_Column"
+          - "S1FL_Column"
+          - "S1HL_Column"
+          - "S1J_Column"
+          - "S1Sh_Column"
+          - "S1Tr_Column"
+          - "S1ULp_Column"
+        input:
+          circuit: ["Bio_M"]
+        loader:
+          source: connsense.define_subtargets.bluepy
+          method: start_target
+        output: pandas.Series
+
+  extract-node-types:
+    description: >-
+      Extract node-type data
+    modeltypes:
+      biophysical:
+        description: >-
+          The biophysical nodes...
+        mtype:
+          input:
+            circuit: "Bio_M"
+          extractor:
+            source: connsense.extract_node_types.bluepy
+            method: extract_mtypes
+          output: "pandas.Series"
+        morphology:
+          input:
+            circuit: "Bio_M"
+          extractor:
+            source: connsense.extract_node_types.bluepy
+            method: extract_morphologies_by_mtype
+          output: "pandas.DataFrame"
+          collector:
+            source: connsense.extract_node_types.bluepy
+            method: collect_modeltype
+        etype:
+          input:
+            circuit: "Bio_M"
+          extractor:
+            source: connsense.extract_node_types.bluepy
+            method: extract_etypes
+          output: "pandas.Series"
+        electrophysiology:
+          input:
+            circuit: "Bio_M"
+          extractor:
+            source: connsense.extract_node_types.bluepy
+            method: extract_electrophysiologies
+          output: "pandas.DataFrame"
+          collector:
+            source: connsense.extract_node_types.bluepy
+            method: collect_modeltype
+
+  analyze-node-types:
+     description:
+       Analyze each node type --- like morphometrics
+     analyses:
+       morphometrics:
+         description: >-
+           Measurements of a morphologies neurites.
+         index:
+           mtype:
+             dataset: ["extract-node-types", "biophysical/mtype"]
+         input:
+           morphologies:
+             dataset: ["extract-node-types", "biophysical/morphology/subtargets"]
+         kwargs:
+           morphdb:
+             dataset: ["extract-node-types", "biophysical/morphology/data"]
+         computation:
+           source: sscx_dissemination.v2.circuit.factology.connsense.modeltypes.analyze.morphologies
+           method: measure
+         output: pandas.DataFrame
+
+  create-index:
+    description:
+      Create tap-store indices by listing datasets for each index variable.
+    variables:
+      circuit:
+        - "Bio_M"
+      connectome:
+        - "local"
+        - "intra_SSCX_midrange_wm"
+        - "Thalamocortical_input_VPM"
+        - "Thalamocortical_input_POM"
+
+      subtarget:
+        dataset: ["define-subtargets", "central-columns/name"]
+      mtype:
+        dataset: ["extract-node-types", "biophysical/mtype"]
+      source_mtype:
+        dataset: ["extract-node-types", "biophysical/mtype"]
+      target_mtype:
+        dataset: ["extract-node-types", "biophysical/mtype"]
+      morphology:
+        dataset: ["extract-node-types", "biophysical/morphology/name"]
+      etype:
+         dataset: ["extract-node-types", "biophysical/etype"]
+      emodel:
+        dataset: ["extract-node-types", "biophysical/electrophysiology/name"]
+
+
+  extract-node-populations:
+    description: >-
+      Specify the populations to extract from a circuit.
+    populations:
+      default:
+        description: >-
+          The default population will be that of neurons in the SSCx.
+          To extract the neurons we will use a `connsense` method that uses ~bluepy~.
+        input:
+          subtarget:
+            dataset:  ["define-subtargets", "central-columns"]
+          circuit:
+            - "Bio_M"
+        kwargs:
+          properties:
+            - region
+            - layer
+            - x
+            - y
+            - z
+            - depth
+            - synapse_class
+            - mtype
+            - etype
+            - morphology
+        extractor:
+          source: connsense.extract_nodes.bluepy
+          method: extract_node_properties
+        output: "pandas.DataFrame"
+        collector:
+          source: connsense.extract_nodes.bluepy
+          method: collect_node_properties
+
+  extract-edge-populations:
+    description: >-
+      Specify the connectomes to extract from.
+      Connections will be extracted for each subtarget as an adjacency matrix, with or without connection-strengths.
+      A connection is between a pair of source and target nodes, and may be a multi-edge connection.
+      We will also specify a set of edge-properties to extract from the circuit.
+    populations:
+      local:
+        input:
+          subtarget:
+            dataset:  ["define-subtargets", "central-columns"]
+          circuit:
+            - "Bio_M"
+          connectome:
+            - "local"
+        kwargs:
+          sources: "intrinsic"
+        extractor:
+          source: connsense.extract_connectivity.bluepy
+          method: extract_adj
+        output: "sparse.spmatrix"
+      long-range:
+        description: >-
+          The long-range intra-SSCx white-matter connectome as instrinsic Subtarget --> Subtarget edges.
+        input:
+          subtarget:
+            dataset:  ["define-subtargets", "central-columns"]
+          circuit:
+            - "Bio_M"
+          connectome:
+            - "intra_SSCX_midrange_wm"
+        kwargs:
+          sources: "intrinsic"
+        extractor:
+          source: connsense.extract_connectivity.bluepy
+          method: extract_adj
+        output: "sparse.spmatrix"
+      white-matter:
+        description: >-
+          The long-range intra-SSCx white-matter connectome as extrinsic Any --> Subtarget edges.
+        input:
+          subtarget:
+            dataset:  ["define-subtargets", "central-columns"]
+          circuit:
+            - "Bio_M"
+          connectome:
+            - "intra_SSCX_midrange_wm"
+        kwargs:
+          sources: "extrinsic"
+        extractor:
+          source: connsense.extract_connectivity.bluepy
+          method: extract_adj
+        output: "sparse.spmatrix"
+      thalamic-vpm:
+        input:
+          subtarget:
+            dataset:  ["define-subtargets", "central-columns"]
+          circuit:
+            -  "Bio_M"
+          connectome:
+            -  "Thalamocortical_input_VPM"
+        kwargs:
+          sources: "extrinsic"
+        extractor:
+          source: connsense.extract_connectivity.bluepy
+          method: extract_adj
+        output: "sparse.spmatrix"
+      thalamic-pom:
+        input:
+          subtarget:
+             dataset: ["define-subtargets", "central-columns"]
+          circuit:
+            -  "Bio_M"
+          connectome:
+            - "Thalamocortical_input_POM"
+        kwargs:
+          sources: "extrinsic"
+        extractor:
+          source: connsense.extract_connectivity.bluepy
+          method: extract_adj
+        output: "sparse.spmatrix"
+
+  sample-edge-populations:
+    description: >-
+      Sample populations of edges for analyses
+    analyses:
+      psp:
+        description: >-
+          Generate samples of connections per pathway to run PSP simulations
+        index:
+          subtarget:
+            dataset: ["define-subtargets", "central-columns"]
+          circuit:
+            - "Bio_M"
+          connectome:
+            - "local"
+        input:
+          adjacency:
+            dataset: ["extract-edge-populations", "local"]
+          source_types:
+            dataset: ["extract-node-populations", "default"]
+            properties: ["mtype"]
+          target_types:
+            dataset: ["extract-node-populations", "default"]
+            properties: ["mtype"]
+        kwargs:
+          sample_size: 100
+        generator:
+          source: sscx_dissemination.v2.circuit.factology.connsense.connectivity.connectivity
+          method: sample_connections
+        output: pandas.DataFrame
+
+  analyze-composition:
+    description: >-
+      Configure analyses of circuit composition
+    analyses:
+      synapse-morphology-locations:
+        description : >-
+          Locations of synapses on the pre and post synaptic morphologies, and in physical space.
+        index:
+          subtarget:
+            dataset: ["define-subtargets", "central-columns"]
+          circuit:
+            - "Bio_M"
+          connectome:
+            - "local"
+        input:
+          source_nodes:
+            dataset: ["define-subtargets", "central-columns"]
+          target_nodes:
+            dataset: ["define-subtargets", "central-columns"]
+        kwargs:
+          morphologies:
+            dataset: ["extract-node-types", "biophysical/"]
+        computation:
+          source: sscx_dissemination.v2.circuit.factology.connsense.composition.synapses
+          method: locate
+        output: pandas.DataFrame
+      synapse-properties:
+        description : >-
+          Synapse properties such as G_SYNX, U_SYN, D_SYN, F_SYN
+        index:
+          subtarget:
+            dataset: ["define-subtargets", "central-columns"]
+          circuit:
+            - "Bio_M"
+          connectome:
+            - "local"
+        input:
+          circuit:
+            - "Bio_M"
+          connectome:
+            - "local"
+          subtarget:
+            dataset: ["define-subtargets", "central-columns"]
+        computation:
+          source: sscx_dissemination.v2.circuit.factology.connsense.composition.synapses
+          method: measure_synapses
+        output: pandas.DataFrame
+
+
+  analyze-connectivity:
+    description: >-
+      -
+      Configure each analyses' parameters, as a mapping under section `analyses`.
+    analyses:
+      pathway-strength:
+        description: >-
+          Compute the pathway strength as the number of connections, total number of synapses, and the sum-square
+          of number of synapses, grouped by pre-mtype and post-mtype
+        index:
+          subtarget:
+            dataset: ["define-subtargets", "central-columns"]
+          circuit:
+            - "Bio_M"
+          connectome:
+            -  "local"
+        input:
+          adjacency:
+            dataset:  ["extract-edge-populations", "local"]
+          source_types:
+            dataset: ["extract-node-populations", "default"]
+            properties: ["mtype"]
+          target_types:
+            dataset: ["extract-node-populations", "default"]
+            properties: ["mtype"]
+        computation:
+          source: sscx_dissemination.v2.circuit.factology.connsense.connectivity
+          method: measure_pathway_strength
+        output: pandas.DataFrame
+      pathway-strength-metype:
+        description: >-
+          Compute the pathway strength as the number of connections, total number of synapses, and the sum-square
+          of number of synapses, grouped by pre-mtype and post-mtype
+        index:
+          subtarget:
+            dataset: ["define-subtargets", "central-columns"]
+          circuit:
+            - "Bio_M"
+          connectome:
+            -  "local"
+        input:
+          adjacency:
+            dataset:  ["extract-edge-populations", "local"]
+          source_types:
+            dataset: ["extract-node-populations", "default"]
+            properties: ["mtype", "etype"]
+          target_types:
+            dataset: ["extract-node-populations", "default"]
+            properties: ["mtype", "etype"]
+          kwargs:
+            ptype: "metype"
+        computation:
+          source: sscx_dissemination.v2.circuit.factology.connsense.connectivity
+          method: measure_pathway_strength
+        output: pandas.DataFrame
+      pair-counts-by-soma-distance:
+        description: >-
+          Distribution of number of pairs in a mtype-->mtype pathway binned by soma-distance
+        index:
+          subtarget:
+            dataset: ["define-subtargets", "central-columns"]
+          circuit:
+            - "Bio_M"
+          connectome:
+            - "local"
+        input:
+          source_nodes:
+            dataset: ["define-subtargets", "central-columns"]
+          target_nodes:
+            dataset: ["define-subtargets", "central-columns"]
+        computation:
+          source: sscx_dissemination.v2.circuit.factology.connsense.connectivity
+          method: pair_distribution
+        output: pandas.DataFrame
+      common-neighbor-biases:
+        description: >-
+          Compute the common neighbor biases for adjacencies.
+        index:
+          subtarget:
+            dataset: ["define-subtargets", "central-columns"]
+          circuit:
+            - "Bio_M"
+          connectome:
+            -  "local"
+        input:
+          adjacency:
+            dataset:  ["extract-edge-populations", "local"]
+          source_types:
+            dataset: ["extract-node-populations", "default"]
+            properties: ["mtype"]
+          target_types:
+            dataset: ["extract-node-populations", "default"]
+            properties: ["mtype"]
+        computation:
+          source: sscx_dissemination.v2.circuit.factology.connsense.connectivity
+          method: measure_cn_biases
+        output: pandas.DataFrame
+
+  configure-inputs:
+    description: >-
+      Set inputs for analyses read from filepaths provided in this config's path section.
+    analyses:
+      phsyiology:
+        psp:
+          protocols:
+            description: >-
+              One protocol for each pathway to simulate PSPs.
+            input:
+              pathways:
+                dataset: ["analyze-connectivity", "viable-pathways"]
+            kwargs:
+              filepath: "/gpfs/bbp.cscs.ch/project/proj83/home/sood/portal/develop/factology-v2/analyses/connsense/redefine-subtargets/create-index/morphology-mtypes/parameters/psp/protocols.csv"
+              default: true
+            reader:
+              source: connsense.analyze_physiology.psp.io
+              method: read_protocols
+            output: pandas.DataFrame
+
+  analyze-physiology:
+    description: >-
+      Analyze the physiology by setting up simulations, launching them, and analyzing the traces.
+    analyses:
+      psp:
+        description: >-
+          Analyze synapse physiology.
+        connections:
+          description: >-
+            Sample connections to run PSPs for.
+          index:
+            subtarget:
+              dataset: ["define-subtargets", "central-columns"]
+            circuit:
+              - "Bio_M"
+            connectome:
+              - "local"
+          input:
+            adjacency:
+              dataset:  ["extract-edge-populations", "local"]
+            source_types:
+              dataset: ["extract-node-populations", "default"]
+              properties: ["gid", "mtype"]
+            target_types:
+              dataset: ["extract-node-populations", "default"]
+              properties: ["gid", "mtype"]
+          reindex:
+            source_mtype: "mtype"
+            target_mtype: "mtype"
+          kwargs:
+            sample_size: 100
+            use_gids: true
+          computation:
+            source: sscx_dissemination.v2.circuit.factology.connsense.connectivity.connectivity
+            method: sample_connections
+          output: pandas.DataFrame
+        traces:
+          index:
+            subtarget:
+              dataset: ["define-subtargets", "central-columns"]
+            circuit:
+              - "Bio_M"
+            connectome:
+              - "local"
+            source_mtype:
+              dataset: ["extract-node-types", "biophysical/mtype"]
+            target_mtype:
+              dataset: ["extract-node-types", "biophysical/mtype"]
+          input:
+            connections:
+              dataset: ["analyze-physiology", "psp/connections"]
+              reindex:
+                source_mtype:
+                  dataset: ["extract-node-types", "biophysical/mtype"]
+                target_mtype:
+                  dataset: ["extract-node-types", "biophysical/mtype"]
+          kwargs:
+            ntrials: -1
+            circuit_config: "/gpfs/bbp.cscs.ch/project/proj83/circuits/Bio_M/20200805/CircuitConfig_TC_WM"
+            protocol:
+              hold_V: -70.0
+              post_ttx: false
+              record_dt: 0.1
+              t_stim: 800.0
+              t_stop: 1000.0
+            workdir: "/gpfs/bbp.cscs.ch/project/proj83/home/sood/portal/develop/factology-v2/analyses/simsense/psps/v2"
+          computation:
+            source: sscx_dissemination.v2.circuit.factology.connsense.physiology.psp
+            method: simulate_traces
+          output: pandas.DataFrame
+        features:
+          descrption: >-
+            Compute features of PSP traces, per-connection
+          index:
+            subtarget:
+              dataset: ["define-subtargets", "central-columns"]
+            circuit:
+              - "Bio_M"
+            connectome:
+              - "local"
+          input:
+            traces:
+              dataset: ["analyze-physiology", "psp/traces"]
+          computation:
+            source: sscx_dissemination.v2.circuit.factology.connsense.physiology.psp
+            method: analyze_traces
+          output: pandas.DataFrame

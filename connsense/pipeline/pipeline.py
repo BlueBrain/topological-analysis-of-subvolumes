@@ -164,9 +164,9 @@ class TopologicalAnalysis:
         """..."""
         return self._data_groups.get(step)
 
-    def initialize(self, step=None, substep=None, subgraphs=None, controls=None, mode=None):
+    def initialize(self, step=None, substep=None, mode=None):
         """..."""
-        current = workspace.initialize((self._config, self._path_config), step, substep, subgraphs, controls, mode,
+        current = workspace.initialize((self._config, self._path_config), step, substep, mode,
                                         (self._parallelize, self._path_parallelize))
         LOG.info("Workspace initialized at %s", current)
 
@@ -174,7 +174,7 @@ class TopologicalAnalysis:
             self._data.create_index()
         return current
 
-    def setup(self, step, substep=None, subgraphs=None, controls=None, **kwargs):
+    def setup(self, step, substep=None, **kwargs):
         """Setup the pipeline, one step and if defined one substep at a time.
         We can chain all the steps together later.
         """
@@ -192,7 +192,7 @@ class TopologicalAnalysis:
                                    "In mode inspect, there is no action to do,\n"
                                    " so use action=None or action='inspect'")
 
-        result = self.__steps__[step].setup(self._config, substep=substep, subgraphs=subgraphs, controls=controls,
+        result = self.__steps__[step].setup(self._config, substep=substep,
                                             parallelize=self._parallelize, tap=self.data, **kwargs)
 
         LOG.warning("DONE setup for pipeline step %s %s", step, substep)
@@ -200,7 +200,7 @@ class TopologicalAnalysis:
         return result
 
 
-    def run(self, step, substep=None, in_mode=None, subgraphs=None, controls=None, inputs=None, **kwargs):
+    def run(self, step, substep=None, in_mode=None, inputs=None, **kwargs):
         """Run the pipeline, one (computation_type, of_quantity) at a time.
         """
         LOG.warning("RUN pipeline for step %s %s ", step, substep)
@@ -210,7 +210,7 @@ class TopologicalAnalysis:
                                         on_compute_node=inputs.parent, inputs=inputs)
 
 
-    def collect(self, step, substep=None, in_mode=None, subgraphs=None, controls=None):
+    def collect(self, step, substep=None, in_mode=None):
         """Collect the batched results generated in a single step.
         """
         computation = '/'.join([step, substep] if substep else [step])
@@ -223,5 +223,4 @@ class TopologicalAnalysis:
         else:
             LOG.info("Use to gather results: %s", gather)
 
-        return gather(computation, in_config=self._config, using_runtime=self._parallelize,
-                      for_control=controls, making_subgraphs=subgraphs)
+        return gather(computation, in_config=self._config, using_runtime=self._parallelize)

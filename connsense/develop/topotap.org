@@ -1,10 +1,10 @@
-#+PROPERTY: header-args:jupyter-python :session ~/Library/Jupyter/runtime/active-1-ssh.json
-#+PROPERTY: header-args:jupyter :session ~/Library/Jupyter/runtime/active-1-ssh.json
+#+PROPERTY: header-args:jupyter-python :session ~/Library/Jupyter/runtime/active-ssh.json
+#+PROPERTY: header-args:jupyter :session ~/Library/Jupyter/runtime/active-ssh.json
 #+title: Topotap
 
 * Setup
 
-In our discussion we will develop scientific concepts to measure the circuit, and implement Python functions to compute them. Here we setup a notebook template to test and explore, and the structure of a ~Python~ package for add our methods.
+In our discussion we will develop scientific concepts to measure the circuit, and implement Python functions to compute them. Here we setup a notebook template to test and explore, and the structure of a ~Python~ package for our methods.
 
 ** A notebook template to explore and develop
 
@@ -42,7 +42,6 @@ from bluepy import Synapse, Cell, Circuit
 print("We will plot golden aspect ratios: ", GOLDEN)
 #+end_src
 
-
 We have run ~connsense-CRAP~ for the SSCx dissemination variant /Bio-M/, extracting data that we will use to compute the factology. Here is a list of workspaces we will need to generate factsheets.
 
 #+name: notebook-workspaces
@@ -58,16 +57,25 @@ CONNSPACE = PROJSPACE / "home/sood" / "topological-analysis-subvolumes/test/v2"
 
 While test-developing it will be good to have direct access to the ~connsense-TAP-store~ we will use,
 
+We can collect the code above in a ~Pyhton~ template file that can be used to generate notebooks,
+
 #+name: notebook-connsense-tap
 #+begin_src jupyter-python
 topaz = pipeline.TopologicalAnalysis(CONNSPACE/"pipeline.yaml", CONNSPACE/"runtime.yaml")
 tap = tap_store.HDFStore(topaz._config)
 circuit = tap.get_circuit("Bio_M")
 print("Available analyses: ")
-pprint(tap.analyses)
 #+end_src
 
-We can collect the code above in a ~Pyhton~ template file that can be used to generate notebooks,
+#+RESULTS: notebook-connsense-tap
+:  2022-10-11 13:20:04,005: Configure slurm for create-index
+:  2022-10-11 13:20:04,005: No runtime configured for computation type create-index
+:  2022-10-11 13:20:04,006: Configure slurm for define-subtargets
+:  2022-10-11 13:20:04,006: Configure slurm for extract-node-populations
+:  2022-10-11 13:20:04,007: Configure slurm for extract-edge-populations
+:  2022-10-11 13:20:04,007: Configure slurm for analyze-connectivity
+:  2022-10-11 13:20:04,008: Load circuit Bio_M
+: Available analyses:
 
 #+name: notebook-reloads
 #+begin_src jupyter-python
@@ -99,6 +107,343 @@ Finally, here is a template that we can use to start test-developing. We will de
 
 
 #+end_src
+
+#+RESULTS:
+:  2022-10-11 13:20:11,066: Configure slurm for create-index
+:  2022-10-11 13:20:11,066: No runtime configured for computation type create-index
+:  2022-10-11 13:20:11,067: Configure slurm for define-subtargets
+:  2022-10-11 13:20:11,067: Configure slurm for extract-node-populations
+:  2022-10-11 13:20:11,068: Configure slurm for extract-edge-populations
+:  2022-10-11 13:20:11,069: Configure slurm for analyze-connectivity
+:  2022-10-11 13:20:11,069: Load circuit Bio_M
+: We will plot golden aspect ratios:  1.618033988749895
+: Available analyses:
+
+
+* Introduction
+
+ While the ~Python-environment~ setup above loads the other packages that we will need, we will be most interested in discussing a layer for topological-analyses,
+
+#+name: notebook-connsense-topotap
+#+begin_src jupyter-python
+# %% [markdown]
+"""Load a connsense-TAP to analyze topology of a circuit
+"""
+# %% [code]
+
+from connsense.develop import topotap as topotap_store
+reload(topotap_store)
+topotap = topotap_store.HDFStore(CONNSPACE/"pipeline.yaml")
+print("Available analyses: ")
+pprint(topotap.analyses)
+#+end_src
+
+#+RESULTS: notebook-connsense-topotap
+: Available analyses:
+: {'connectivity': {'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7ffe13331520>}}
+
+Let us analyze degrees of the subtargets. To get to the data about circuit edges / adjacency, we start by looking at the ~circuit-subtargets~ that we are analyzed,
+
+#+name: notebook-connsense-subtargets
+#+begin_src jupyter-python
+# %% [markdown]
+"""## Subtargets in connsense-TAP
+"""
+# %% [code]
+
+topotap.subtargets
+#+end_src
+
+#+RESULTS: notebook-connsense-subtargets
+:RESULTS:
+:  2022-10-11 14:24:39,186: Load dataset ('define-subtargets', 'flatmap-columns'):
+: ('Hexaongal prism like columns oriented along cortical layers, from '
+:  'white-matter to pia. The data is loaded from an NRRD file that maps each '
+:  'circuit voxel to a subtarget ids corresponding to a flatmap column.The '
+:  'subtarget ids should be mapped to the subtargets they refer to in a '
+:  'dataframe provided as the input `info`.')
+#+begin_example
+             subtarget  flat_i  flat_j        flat_x  flat_y
+subtarget_id
+1               R18;C0     -27      27  3.802528e-13  6210.0
+2               R19;C0     -28      29  1.991858e+02  6555.0
+3               R18;C1     -26      28  3.983717e+02  6210.0
+4               R19;C1     -27      30  5.975575e+02  6555.0
+5               R16;C0     -24      24  3.380025e-13  5520.0
+...                ...     ...     ...           ...     ...
+236             R4;C12       6      18  4.780460e+03  1380.0
+237             R9;C15       2      29  6.174761e+03  3105.0
+238            R15;C13      -9      36  5.378018e+03  5175.0
+239             R3;C11       7      16  4.581274e+03  1035.0
+240            R15;C15      -7      38  6.174761e+03  5175.0
+
+[240 rows x 5 columns]
+#+end_example
+:END:
+
+This is the information that was provided in the configured definition of subtargets. In the earlier version of ~connsense-TAP~ this information was part of each ~connsense-dataset~'s index. However it does not need to. We can get the data from ~connsense-TAP~ store for analyses that need it.
+
+For each subtarget, ~connsense-TAP~ saves the ~circuit-cell-gids~ as a list. We do not expect each user to need this list --- ~connsense-TAP~ hides that information. However the ~gids~ are avaialble among the node properties.
+
+#+name: notebook-connsense-nodes
+#+begin_src jupyter-python
+# %% [markdown]
+"""## Nodes in connsense-TAP
+"""
+# %% [code]
+
+topotap.nodes.dataset
+#+end_src
+
+#+RESULTS: notebook-connsense-nodes
+:RESULTS:
+:  2022-10-11 14:24:43,041: Load dataset ('extract-node-populations', 'default'):
+: ('The default population will be that of neurons in the SSCx. To extract the '
+:  'neurons we will use a `connsense` method that uses ~bluepy~.')
+:  2022-10-11 14:24:43,043: Initialize a DataFrameStore matrix store loading / writing data at /gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/connsense.h5 / nodes/populations/default
+#+begin_example
+subtarget_id  circuit_id
+1             0             <connsense.analyze_connectivity.matrices.BeLaz...
+2             0             <connsense.analyze_connectivity.matrices.BeLaz...
+3             0             <connsense.analyze_connectivity.matrices.BeLaz...
+4             0             <connsense.analyze_connectivity.matrices.BeLaz...
+5             0             <connsense.analyze_connectivity.matrices.BeLaz...
+                                                  ...
+235           0             <connsense.analyze_connectivity.matrices.BeLaz...
+236           0             <connsense.analyze_connectivity.matrices.BeLaz...
+237           0             <connsense.analyze_connectivity.matrices.BeLaz...
+238           0             <connsense.analyze_connectivity.matrices.BeLaz...
+239           0             <connsense.analyze_connectivity.matrices.BeLaz...
+Length: 239, dtype: object
+#+end_example
+:END:
+
+The contents for each ~circuit-subtarget~ entry are a mysterious object ~BeLazy~ which is nothing more than an instruction to load the data,
+
+#+name: notebook-connsense-nodes-load-lazy
+#+begin_src jupyter-python
+# %% [markdown]
+"""Contents of nodes
+"""
+# %% [code]
+
+topotap.nodes.dataset.iloc[0].get_value().info()
+#+end_src
+
+#+RESULTS: notebook-connsense-nodes-load-lazy
+#+begin_example
+ 2022-10-11 14:24:48,329: Initialize a DataFrameStore matrix store loading / writing data at /gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/connsense.h5 / nodes/populations/default
+<class 'pandas.core.frame.DataFrame'>
+Int64Index: 4570 entries, 0 to 4569
+Data columns (total 11 columns):
+ #   Column         Non-Null Count  Dtype
+---  ------         --------------  -----
+ 0   gid            4570 non-null   int64
+ 1   region         4570 non-null   category
+ 2   layer          4570 non-null   int64
+ 3   x              4570 non-null   float64
+ 4   y              4570 non-null   float64
+ 5   z              4570 non-null   float64
+ 6   synapse_class  4570 non-null   category
+ 7   mtype          4570 non-null   category
+ 8   etype          4570 non-null   category
+ 9   morphology     4570 non-null   category
+ 10  depth          4570 non-null   float64
+dtypes: category(5), float64(4), int64(2)
+memory usage: 3.0 MB
+#+end_example
+
+Lazy-data is necessary to track all the subtargets in a dataset as each can be big. However we can interact with ~connsense-TAP~ without having to know about laziness of the data,
+
+#+name: notebook-connsense-nodes-subtarget-circuit
+#+begin_src jupyter-python
+# %% [markdown]
+"""Contents of nodes
+"""
+# %% [code]
+
+topotap.nodes(subtarget="R19;C0", circuit="Bio_M").info()
+#+end_src
+
+#+RESULTS: notebook-connsense-nodes-subtarget-circuit
+#+begin_example
+ 2022-10-11 14:24:51,876: Initialize a DataFrameStore matrix store loading / writing data at /gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/connsense.h5 / nodes/populations/default
+<class 'pandas.core.frame.DataFrame'>
+Int64Index: 1823 entries, 0 to 1822
+Data columns (total 11 columns):
+ #   Column         Non-Null Count  Dtype
+---  ------         --------------  -----
+ 0   gid            1823 non-null   int64
+ 1   region         1823 non-null   category
+ 2   layer          1823 non-null   int64
+ 3   x              1823 non-null   float64
+ 4   y              1823 non-null   float64
+ 5   z              1823 non-null   float64
+ 6   synapse_class  1823 non-null   category
+ 7   mtype          1823 non-null   category
+ 8   etype          1823 non-null   category
+ 9   morphology     1823 non-null   category
+ 10  depth          1823 non-null   float64
+dtypes: category(5), float64(4), int64(2)
+memory usage: 2.9 MB
+#+end_example
+
+
+We don't have to provide the circuit,
+
+#+name: notebook-connsense-nodes-subtarget
+#+begin_src jupyter-python
+# %% [markdown]
+"""Nodes of a subtarget
+"""
+# %% [code]
+
+topotap.nodes(subtarget="R19;C0").info()
+#+end_src
+
+#+RESULTS: notebook-connsense-nodes-subtarget
+#+begin_example
+ 2022-10-11 14:24:55,305: Initialize a DataFrameStore matrix store loading / writing data at /gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/connsense.h5 / nodes/populations/default
+<class 'pandas.core.frame.DataFrame'>
+Int64Index: 1823 entries, 0 to 1822
+Data columns (total 11 columns):
+ #   Column         Non-Null Count  Dtype
+---  ------         --------------  -----
+ 0   gid            1823 non-null   int64
+ 1   region         1823 non-null   category
+ 2   layer          1823 non-null   int64
+ 3   x              1823 non-null   float64
+ 4   y              1823 non-null   float64
+ 5   z              1823 non-null   float64
+ 6   synapse_class  1823 non-null   category
+ 7   mtype          1823 non-null   category
+ 8   etype          1823 non-null   category
+ 9   morphology     1823 non-null   category
+ 10  depth          1823 non-null   float64
+dtypes: category(5), float64(4), int64(2)
+memory usage: 2.9 MB
+#+end_example
+
+We can access the adjacencies,
+
+#+name: notebook-connsense-adjacency
+#+begin_src jupyter-python
+# %% [markdown]
+"""## Adjacency datasets
+"""
+# %% [code]
+topotap.adjacency.dataset
+#+end_src
+
+#+RESULTS: notebook-connsense-adjacency
+:RESULTS:
+:  2022-10-11 14:24:58,723: Load dataset ('extract-edge-populations', 'local'):
+: None
+#+begin_example
+subtarget_id  circuit_id  connectome_id
+1             0           0                <connsense.io.write_results.LazyMatrix object ...
+2             0           0                <connsense.io.write_results.LazyMatrix object ...
+3             0           0                <connsense.io.write_results.LazyMatrix object ...
+4             0           0                <connsense.io.write_results.LazyMatrix object ...
+5             0           0                <connsense.io.write_results.LazyMatrix object ...
+                                                                 ...
+235           0           0                <connsense.io.write_results.LazyMatrix object ...
+236           0           0                <connsense.io.write_results.LazyMatrix object ...
+237           0           0                <connsense.io.write_results.LazyMatrix object ...
+238           0           0                <connsense.io.write_results.LazyMatrix object ...
+239           0           0                <connsense.io.write_results.LazyMatrix object ...
+Length: 239, dtype: object
+#+end_example
+:END:
+
+That behaves similarly to ~topotap.nodes~ with an additional level for connectome. We have only one connectome that allows us to get adjacencies,
+
+#+name: notebook-connsense-adjacency-load
+#+begin_src jupyter-python
+# %% [markdown]
+""" Adjacency of a subtarget
+"""
+# %% [code]
+topotap.adjacency.dataset
+topotap.adjacency("R19;C0")
+#+end_src
+
+#+RESULTS: notebook-connsense-adjacency-load
+: <1823x1823 sparse matrix of type '<class 'numpy.int64'>'
+: 	with 88675 stored elements in Compressed Sparse Row format>
+
+
+And we have simplex-counts
+#+name: notebook-connsense-analyses
+#+begin_src jupyter-python
+# %% [markdown]
+"""## Analyses
+"""
+# %% [code]
+pprint(topotap.analyses)
+#+end_src
+
+#+RESULTS: notebook-connsense-analyses
+: {'connectivity': {'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7ffe13331520>}}
+
+that we can access using the same indexing scheme,
+
+#+name: notebook-connsense-analyses-load
+#+begin_src jupyter-python
+# %% [markdown]
+"""Simplex counts
+"""
+# %% [code]
+simplex_counts = topotap.analyses["connectivity"]["simplex-counts"]
+simplex_counts.dataset
+#+end_src
+
+#+RESULTS: notebook-connsense-analyses-load
+:RESULTS:
+:  2022-10-11 14:25:10,392: Pour analyses for analyze-connectivity
+:  2022-10-11 14:25:10,393: Initialize a SeriesStore matrix store loading / writing data at /gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/connsense.h5 / analyses/connectivity/simplex-counts
+#+begin_example
+subtarget_id  circuit_id  connectome_id
+1             0           0                <connsense.analyze_connectivity.matrices.BeLaz...
+2             0           0                <connsense.analyze_connectivity.matrices.BeLaz...
+3             0           0                <connsense.analyze_connectivity.matrices.BeLaz...
+4             0           0                <connsense.analyze_connectivity.matrices.BeLaz...
+5             0           0                <connsense.analyze_connectivity.matrices.BeLaz...
+                                                                 ...
+235           0           0                <connsense.analyze_connectivity.matrices.BeLaz...
+236           0           0                <connsense.analyze_connectivity.matrices.BeLaz...
+237           0           0                <connsense.analyze_connectivity.matrices.BeLaz...
+238           0           0                <connsense.analyze_connectivity.matrices.BeLaz...
+239           0           0                <connsense.analyze_connectivity.matrices.BeLaz...
+Length: 239, dtype: object
+#+end_example
+:END:
+
+That also responds to calls,
+
+#+name: notebook-connsense-simplex-counts-load
+#+begin_src jupyter-python
+# %% [markdown]
+"""Simplex counts
+"""
+# %% [code]
+simplex_counts = topotap.analyses["connectivity"]["simplex-counts"]
+simplex_counts("R19;C0")
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+:  2022-10-11 14:26:40,429: Pour analyses for analyze-connectivity
+:  2022-10-11 14:26:40,431: Initialize a SeriesStore matrix store loading / writing data at /gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/connsense.h5 / analyses/connectivity/simplex-counts
+: dim
+: 0      1823
+: 1     88675
+: 2    276930
+: 3     85837
+: 4      3495
+: 5        21
+: Name: simplex_count, dtype: int64
+:END:
 
 
 * HDFStore
@@ -209,8 +554,8 @@ class HDFStore:
         ~               a pipeline run.
         """
         self._config = read_config.read(config) if not isinstance(config, Mapping) else config
-        self._root = locate_store(config, in_connsense_h5)
-        self._groups = group_steps(config)
+        self._root = locate_store(self._config, in_connsense_h5)
+        self._groups = group_steps(self._config)
 
 #+end_src
 
@@ -447,7 +792,7 @@ class TapDataset:
     def index_ids(self, variable):
         """..."""
         try:
-            series = tap.create_index(variable)
+            series = self._tap.create_index(variable)
         except KeyError:
             LOG.warn("No values for %s in TAP at %s", variable, tap._root)
             return None
@@ -726,3 +1071,120 @@ Finally, let us collect the code in a module,
 
     <<tap-analyses>>
 #+end_src
+
+and also the notebook,
+
+#+begin_src jupyter-python :tangle develop_topotap.py :comments no :noweb yes :padline yes
+<<notebook-connsense-topotap>>
+
+<<notebook-connsense-subtargets>>
+
+<<notebook-connsense-nodes>>
+
+<<notebook-connsense-nodes-load-lazy>>
+
+<<notebook-connsense-nodes-subtarget-circuit>>
+
+<<notebook-connsense-nodes-subtarget>>
+
+<<notebook-connsense-adjacency>>
+
+<<notebook-connsense-adjacency-load>>
+
+<<notebook-connsense-analyses>>
+
+<<notebook-connsense-analyses-load>>
+
+<<notebook-connsense-simplex-counts-load>>
+
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+#+begin_example
+ 2022-10-11 14:30:33,388: Load dataset ('define-subtargets', 'flatmap-columns'):
+('Hexaongal prism like columns oriented along cortical layers, from '
+ 'white-matter to pia. The data is loaded from an NRRD file that maps each '
+ 'circuit voxel to a subtarget ids corresponding to a flatmap column.The '
+ 'subtarget ids should be mapped to the subtargets they refer to in a '
+ 'dataframe provided as the input `info`.')
+ 2022-10-11 14:30:33,403: Load dataset ('extract-node-populations', 'default'):
+('The default population will be that of neurons in the SSCx. To extract the '
+ 'neurons we will use a `connsense` method that uses ~bluepy~.')
+ 2022-10-11 14:30:33,404: Initialize a DataFrameStore matrix store loading / writing data at /gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/connsense.h5 / nodes/populations/default
+ 2022-10-11 14:30:33,413: Initialize a DataFrameStore matrix store loading / writing data at /gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/connsense.h5 / nodes/populations/default
+Available analyses:
+{'connectivity': {'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7ffe18be9a60>}}
+ 2022-10-11 14:30:33,637: Initialize a DataFrameStore matrix store loading / writing data at /gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/connsense.h5 / nodes/populations/default
+<class 'pandas.core.frame.DataFrame'>
+Int64Index: 4570 entries, 0 to 4569
+Data columns (total 11 columns):
+ #   Column         Non-Null Count  Dtype
+---  ------         --------------  -----
+ 0   gid            4570 non-null   int64
+ 1   region         4570 non-null   category
+ 2   layer          4570 non-null   int64
+ 3   x              4570 non-null   float64
+ 4   y              4570 non-null   float64
+ 5   z              4570 non-null   float64
+ 6   synapse_class  4570 non-null   category
+ 7   mtype          4570 non-null   category
+ 8   etype          4570 non-null   category
+ 9   morphology     4570 non-null   category
+ 10  depth          4570 non-null   float64
+dtypes: category(5), float64(4), int64(2)
+memory usage: 3.0 MB
+ 2022-10-11 14:30:33,904: Initialize a DataFrameStore matrix store loading / writing data at /gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/connsense.h5 / nodes/populations/default
+<class 'pandas.core.frame.DataFrame'>
+Int64Index: 1823 entries, 0 to 1822
+Data columns (total 11 columns):
+ #   Column         Non-Null Count  Dtype
+---  ------         --------------  -----
+ 0   gid            1823 non-null   int64
+ 1   region         1823 non-null   category
+ 2   layer          1823 non-null   int64
+ 3   x              1823 non-null   float64
+ 4   y              1823 non-null   float64
+ 5   z              1823 non-null   float64
+ 6   synapse_class  1823 non-null   category
+ 7   mtype          1823 non-null   category
+ 8   etype          1823 non-null   category
+ 9   morphology     1823 non-null   category
+ 10  depth          1823 non-null   float64
+dtypes: category(5), float64(4), int64(2)
+memory usage: 2.9 MB
+ 2022-10-11 14:30:34,133: Load dataset ('extract-edge-populations', 'local'):
+None
+ 2022-10-11 14:30:34,200: Pour analyses for analyze-connectivity
+ 2022-10-11 14:30:34,200: Initialize a SeriesStore matrix store loading / writing data at /gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/connsense.h5 / analyses/connectivity/simplex-counts
+ 2022-10-11 14:30:34,211: Pour analyses for analyze-connectivity
+ 2022-10-11 14:30:34,212: Initialize a SeriesStore matrix store loading / writing data at /gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/connsense.h5 / analyses/connectivity/simplex-counts
+<class 'pandas.core.frame.DataFrame'>
+Int64Index: 1823 entries, 0 to 1822
+Data columns (total 11 columns):
+ #   Column         Non-Null Count  Dtype
+---  ------         --------------  -----
+ 0   gid            1823 non-null   int64
+ 1   region         1823 non-null   category
+ 2   layer          1823 non-null   int64
+ 3   x              1823 non-null   float64
+ 4   y              1823 non-null   float64
+ 5   z              1823 non-null   float64
+ 6   synapse_class  1823 non-null   category
+ 7   mtype          1823 non-null   category
+ 8   etype          1823 non-null   category
+ 9   morphology     1823 non-null   category
+ 10  depth          1823 non-null   float64
+dtypes: category(5), float64(4), int64(2)
+memory usage: 2.9 MB
+{'connectivity': {'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7ffe18be9a60>}}
+#+end_example
+: dim
+: 0      1823
+: 1     88675
+: 2    276930
+: 3     85837
+: 4      3495
+: 5        21
+: Name: simplex_count, dtype: int64
+:END:

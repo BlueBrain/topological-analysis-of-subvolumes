@@ -65,7 +65,7 @@ class TapDataset:
     def index_ids(self, variable):
         """..."""
         try:
-            series = tap.create_index(variable)
+            series = self._tap.create_index(variable)
         except KeyError:
             LOG.warn("No values for %s in TAP at %s", variable, tap._root)
             return None
@@ -140,8 +140,8 @@ class HDFStore:
         ~               a pipeline run.
         """
         self._config = read_config.read(config) if not isinstance(config, Mapping) else config
-        self._root = locate_store(config, in_connsense_h5)
-        self._groups = group_steps(config)
+        self._root = locate_store(self._config, in_connsense_h5)
+        self._groups = group_steps(self._config)
 
 
     @lazy

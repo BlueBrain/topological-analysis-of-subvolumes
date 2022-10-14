@@ -100,7 +100,6 @@ SUBSTEPS = OrderedDict([("define-subtargets", "definitions"),
                         ("evaluate-subtargets", "metrics"),
                         ("extract-edge-populations", "populations"),
                         ("sample-edge-populations", "analyses"),
-                        ("randomize-connectivity", "controls"),
                         ("analyze-node-types", "analyses"),
                         ("analyze-composition", "analyses"),
                         ("analyze-connectivity", "analyses"),
@@ -162,11 +161,10 @@ def check_mode(argued):
     return argued.mode
 
 
-def get_current(action, mode, config, step, substep, subgraphs=None, controls=None,
-                with_parallelization=None):
+def get_current(action, mode, config, step, substep, with_parallelization=None):
     """..."""
     current_run = workspace.initialize if is_to_init(action) else workspace.current
-    return current_run(config, step, substep, subgraphs, controls, mode, with_parallelization)
+    return current_run(config, step, substep, None, None, mode, with_parallelization)
 
 
 def main(argued=None):
@@ -195,7 +193,6 @@ def main(argued=None):
     check_mode(argued)
     current_run = get_current(action=argued.action, mode=argued.mode, config=(topaz._config, at_pipeline),
                               step=argued.step, substep=argued.substep,
-                              subgraphs=argued.subgraphs, controls=argued.controls,
                               with_parallelization=(topaz._parallelize, at_runtime))
     LOG.info("Workspace initialized at %s", current_run)
 
@@ -216,8 +213,7 @@ def main(argued=None):
             raise ValueError("Provide a step to run: ")
 
         result = topaz.setup(step=argued.step, substep=argued.substep, in_mode=argued.mode,
-                             subgraphs=argued.subgraphs, controls=argued.controls, input=argued.input,
-                             sample=argued.sample, output=argued.output, dry_run=argued.test)
+                             input=argued.input, sample=argued.sample, output=argued.output, dry_run=argued.test)
 
         LOG.info("DONE running pipeline")
 
@@ -277,7 +273,6 @@ def main(argued=None):
 
         path_input = Path(argued.input) if argued.input else None
         result = topaz.run(argued.step, argued_substep, in_mode=argued.mode,
-                           subgraphs=argued.subgraphs, controls=argued.controls,
                            inputs=path_input, sample=argued.sample, output=argued.output)
 
         LOG.info("DONE running pipeline")
@@ -285,7 +280,7 @@ def main(argued=None):
         return result
 
     if is_to_collect(argued.action):
-        return topaz.collect(argued.step, argued.substep, argued.mode, argued.subgraphs, argued.controls)
+        return topaz.collect(argued.step, argued.substep, argued.mode)
 
 
     raise RuntimeError(f"Not a valid tap command {argued.action}")
@@ -370,19 +365,6 @@ def get_parser():
                               "that can be saved in this data for a later run.\n"
                               "This option will be useful to programmatically produce shell scripts to launch\n"
                               "multiple single-node computations.\n"))
-
-    parser.add_argument("-g", "--subgraphs", required=False, default=None,
-                        help=("Apply a configured algorithm that will generate subgraphs of an adjacency matrix\n"
-                              "Each of which will then be analyzed by an analysis."))
-
-    parser.add_argument("-x", "--controls", required=False, default=None,
-                        help=("Apply a random control to a subvolume, and compute an analysis.\n"
-                              "The random control itself should be configured in the config loaded from the \n"
-                              "reference provided as the argument, for example  `--configure=<config.json>`.\n"
-                              "The random controls should be specified in the config for each analyses,\n"
-                              "and a future version will be able to produce an execution script / config\n"
-                              "from this information. For now it makes goods practice for the purpose of\n"
-                              "documentaiton."))
 
     parser.add_argument("--output",
                         help="Path to the directory to output in.", default=None)

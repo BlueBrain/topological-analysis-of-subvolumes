@@ -28,6 +28,12 @@ def get_rundir(config, step=None, substep=None, subgraphs=None, controls=None, m
     def apply_controls(rundir):
         """Check of a control method has been argued, and if so
         create a specific folder.
+
+        NOTES:
+        20221008: Controls will be run as part of the complete computation of original + controls + subsets
+        together. Thus there will be no need to create a sub-workspace for controls or subgraphs.
+        However we leave the code here. The controlling and subgraphing procedures should not interfere with the
+        main computation's setup.
         """
         if not controls:
             return rundir

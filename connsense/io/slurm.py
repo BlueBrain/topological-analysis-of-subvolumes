@@ -7,6 +7,8 @@ from collections import  OrderedDict
 from pathlib import Path
 from lazy import lazy
 
+from connsense.io import time
+
 
 class SlurmConfig:
     """Configure slurm jobs.

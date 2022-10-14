@@ -26,7 +26,7 @@ from connsense.io import logging, time, read_config as read_pipeline
 from connsense.io.slurm import SlurmConfig
 from connsense.io.write_results import read_toc_plus_payload, write_toc_plus_payload
 from connsense.pipeline.workspace import find_base
-from connsense.pipeline import NotConfiguredError
+from connsense.pipeline import ConfigurationError, NotConfiguredError
 from connsense.pipeline.store.store import HDFStore
 from connsense.define_subtargets.config import SubtargetsConfig
 from connsense.analyze_connectivity import check_paths, matrices
@@ -60,7 +60,11 @@ class IllegalParallelComputationError(ValueError):
 
 
 def describe(computation):
-    """..."""
+    """...Describe a `connsense-TAP computation`
+    as the `connsense-TAP computation-type` to run, and the `quantity` that it computes.
+
+    The parsed values will be used to look up parameters in the `connsense-TAP config.`
+    """
     if isinstance(computation, str):
         description = computation.split('/')
         computation_type = description[0]
@@ -73,13 +77,11 @@ def describe(computation):
     return (computation_type, quantity)
 
 
-def run_multinode(process_of, computation, in_config, using_runtime, for_control=None, making_subgraphs=None):
+def run_multinode(process_of, computation, in_config, using_runtime):
     """..."""
-    _, to_stage = get_workspace(computation, in_config, for_control, making_subgraphs)
+    _, to_stage = get_workspace(computation, in_config)
 
-    using_configs = run_multinode_configs(process_of, computation, in_config, for_control, making_subgraphs,
-                                          at_dirpath=to_stage)
-
+    using_configs = configure_multinode(process_of, computation, in_config, at_dirpath=to_stage)
     computation_type, of_quantity = describe(computation)
 
     inputs = generate_inputs_of(computation, in_config)
@@ -106,7 +108,8 @@ def run_multinode(process_of, computation, in_config, using_runtime, for_control
     raise ValueError(f"Unknown {process_of} multinode")
 
 
-def run_multinode_configs(process_of, computation, in_config, for_control, making_subgraphs, at_dirpath):
+
+def configure_multinode(process_of, computation, in_config, for_control, making_subgraphs, at_dirpath):
     """..."""
     if process_of == setup_compute_node:
         return write_configs_of(computation, in_config, at_dirpath,
@@ -543,12 +546,23 @@ def read_pipeline_subgraphs(algorithm, at_dirpath): #pylint: disable=unused-argu
     if not algorithm: return None
     raise NotImplementedError("INRPOGRESS")
 
-def write_description(computation, in_config, at_dirpath):
-    """..."""
-    computation_type, of_quantity = describe(computation)
-    configured = parameterize(computation_type, of_quantity, in_config)
-    configured["name"] = of_quantity
-    return read_pipeline.write(configured, to_json=at_dirpath / "description.json")
+def describe(computation):
+    """...Describe a `connsense-TAP computation`
+    as the `connsense-TAP computation-type` to run, and the `quantity` that it computes.
+
+    The parsed values will be used to look up parameters in the `connsense-TAP config.`
+    """
+    if isinstance(computation, str):
+        description = computation.split('/')
+        computation_type = description[0]
+        quantity = '/'.join(description[1:])
+    elif isinstance(computation, (tuple, list)):
+        computation_type, quantity = computation
+    else:
+        raise TypeError(f"copmutation of illegal type {computation}")
+
+    return (computation_type, quantity)
+
 
 def symlink_pipeline(configs, at_dirpath):
     """..."""
@@ -672,10 +686,11 @@ def pour(tap, variables):
         if not "reindex" in values:
             return dataset
 
-        original = dataset.apply(lambda subtarget: tap.reindex(subtarget, values["reindex"]))
+        original = dataset.apply(lambda subtarget: tap.reindex(subtarget, variables=values["reindex"]))
         return pd.concat(original.values, axis=0, keys=original.index.values, names=original.index.names)
 
-    input_datasets = {var: load_dataset(var, values).apply(group_properties(var)) for var, values in variables.items()}
+    input_datasets = {variable: load_dataset(variable, values).apply(group_properties(variable))
+                      for variable, values in variables.items()}
 
     LOG.info("Pour tap to get elements of \n%s", pformat(input_datasets))
 
@@ -795,12 +810,13 @@ def parameterize(computation_type, of_quantity, in_config):
         raise RuntimeError(f"Unknown {computation_type}")
 
     configured = in_config["parameters"][computation_type][paramkey]
+
     if of_quantity not in configured:
         try:
-            modeltype, component = of_quantity.split('/')
+            multicomp, component = of_quantity.split('/')
         except ValueError:
             raise RuntimeError(f"Unknown {paramkey} {of_quantity} for {computation_type}")
-        configured_quantity =  configured[modeltype][component]
+        configured_quantity =  configured[multicomp][component]
 
     else:
         configured_quantity = configured[of_quantity]
@@ -813,6 +829,7 @@ def parameterize(computation_type, of_quantity, in_config):
         return deepcopy(in_config["parameters"][computation_type][paramkey][of_quantity])
 
     return deepcopy(in_config["parameters"]["define-subtargets"])
+
 
 def configure_slurm(computation, in_config, using_runtime):
     """..."""
@@ -971,7 +988,7 @@ def prepare_parallelization(computation, in_config, using_runtime):
 
 def assign_batches_to(inputs, upto_number, return_load=False):
     """..."""
-    def estimate_load(input_data): #pylint: disable=unused-argument
+    def estimate_load(input_data):
         """Needs improvement.."""
         if input_data is None:
             return None
@@ -1117,11 +1134,6 @@ def load_kwargs(parameters, to_tap, on_compute_node, consider_input=False):
         return kwargs
 
     raise NotImplementedError(f"What to do with workdir type {type(workdir)}")
-
-
-def run_cleanup(on_compute_node):
-    """..."""
-    previously = on_compute_node/"previously"
 
 
 def run_cleanup(on_compute_node):
