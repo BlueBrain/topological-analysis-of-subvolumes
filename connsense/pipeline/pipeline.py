@@ -166,8 +166,8 @@ class TopologicalAnalysis:
 
     def initialize(self, step=None, substep=None, mode=None):
         """..."""
-        current = workspace.initialize((self._config, self._path_config), step, substep, mode,
-                                        (self._parallelize, self._path_parallelize))
+        current = workspace.initialize((self._config, self._path_config), step, substep, mode=mode,
+                                        parallelize=(self._parallelize, self._path_parallelize))
         LOG.info("Workspace initialized at %s", current)
 
         if step == "index":

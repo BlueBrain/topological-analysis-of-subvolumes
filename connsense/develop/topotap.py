@@ -381,5 +381,5 @@ class HDFStore:
     def analyses(tap):
         """..."""
         analyses = tap.describe_analyses()
-        return {phenomenon: {q["dataset"][1]: TapDataset(tap, q["dataset"])}
-                for phenomenon, quantities in analyses.items() for q in quantities}
+        return {phenomenon: {q["dataset"][1]: TapDataset(tap, q["dataset"]) for q in quantities}
+                for phenomenon, quantities in analyses.items()}

@@ -2,7 +2,7 @@
 #+PROPERTY: header-args:jupyter :session ~/Library/Jupyter/runtime/active-ssh.json
 #+title: Topotap
 
-* Setup
+* Setup :noexport:
 
 In our discussion we will develop scientific concepts to measure the circuit, and implement Python functions to compute them. Here we setup a notebook template to test and explore, and the structure of a ~Python~ package for our methods.
 
@@ -923,10 +923,12 @@ def describe_analyses(tap, phenomenon=None):
 def analyses(tap):
     """..."""
     analyses = tap.describe_analyses()
-    return {phenomenon: {q["dataset"][1]: TapDataset(tap, q["dataset"])}
-            for phenomenon, quantities in analyses.items() for q in quantities}
+    return {phenomenon: {q["dataset"][1]: TapDataset(tap, q["dataset"]) for q in quantities}
+            for phenomenon, quantities in analyses.items()}
 
 #+end_src
+
+#+RESULTS: tap-analyses
 
 #+begin_src python
 
