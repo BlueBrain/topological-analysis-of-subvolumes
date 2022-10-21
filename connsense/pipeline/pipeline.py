@@ -222,5 +222,4 @@ class TopologicalAnalysis:
             raise NotImplementedError(f"A method to collect in {step}") from aerror
         else:
             LOG.info("Use to gather results: %s", gather)
-
         return gather(computation, in_config=self._config, using_runtime=self._parallelize)

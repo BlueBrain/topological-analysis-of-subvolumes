@@ -677,6 +677,9 @@ def pour(tap, variables):
         LOG.info("To pour, load %s dataset ", var)
         print("To pour, load %s dataset "%var)
         dataset = tap.pour_dataset(var, values["dataset"]).apply(unpack)
+        if not isinstance(dataset.index, pd.MultiIndex):
+            dataset.index = pd.MultiIndex.from_tuples([(x,) for x in dataset.index.values],
+                                                      names=[dataset.index.name,])
 
         if not "reindex" in values:
             return dataset

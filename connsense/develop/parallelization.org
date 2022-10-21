@@ -682,6 +682,86 @@ def input_units(computation, to_tap):
 #+end_src
 
 
+
+* Multinode parallel computation
+
+A multinode parallel computation can be modeled,
+
+#+begin_src haskell
+unit_computation :: subtarget -> measurement
+
+data ComputeNode = ComputeNode { at_path :: Path
+                               , to_run :: [unit_computation]
+                               } deriving Show
+
+run_multinode :: [UnitComputation] -> Integer -> Integer -> [ComputeNode]
+
+run_multinode unitcomps n_compute_nodes n_parallel_tasks
+  = [ComputeNode assignment]
+#+end_src
+
+To compute a quantity using multinode parallelization ~connsense-TAP~ will setup a directory structure with one subdirectory for each compute node containing data required for the computation. Each compute node will get it's own list of inputs to run. To launch the runs, a ~connsense-TAP~ will write a ~launchscript.sh~ that we can source in a ~unix-shell~. Once all the compute nodes have been run, the results can be collected using ~connsense-TAP~. To accompalish the task of distributing computations over the compute nodes and collecting the results we define,
+
+#+name: develop-parallelization-multinode-setup
+#+begin_src python
+def setup_multinode(process, of_computation, in_config, using_runtime):
+    """Setup a multinode process.
+    """
+    _, to_stage = get_workspace(of_computation, in_config)
+
+    using_configs = configure_multinode(process, of_computation, in_config, at_dirpath=to_stage)
+
+    computation_type, of_quantity = describe(of_comptuation)
+
+    inputs = generate_inputs(of_computation, in_config)
+    n_compute_nodes, n_parallel_jobs = prepare_parallelization(of_computation, in_config, using_runtime)
+    batched = batch_multinode(process, of_computation, inputs, in_config,
+                              at_path=to_stage, using_parallelization=(n_compute_nodes, n_parallel_jobs))
+
+    if process == setup_compute_node:
+        using_configs["slurm_params"] = configure_slurm(of_computation, in_config, using_runtime).get("sbatch", None)
+        compute_nodes = {c: setup_compute_node(c, inputs, of_computation, using_configs)
+                         for c, inputs in batched.groupby("compute_node")}
+        return {"configs": using_configs,
+                "number_compute_nodes": n_compute_nodes, "number_total_jobs": n_parallel_jobs,
+                "setup": write_multinode_setup(compute_nodes, inputs, at_dirpath=to_stage)}
+
+    if process == collect_results:
+        _, output_paths = read_pipeline.check_paths(in_config, step=computation_type)
+        at_path = output_paths["steps"][computation_type]
+
+        setup = {c: read_setup_compute_node(c, for_quantity=to_stage) for c, _ in batched.groupby("compute_node")}
+        return collect_results(computation_type, setup, from_dirpath=to_stage, in_connsense_store=at_path)
+
+    return ValueError(f"Unknown multinode {process}")
+
+#+end_src
+
+The workspace to run a computation will be nested under the project workspace,
+#+name: develop-parallelization-workspace
+#+begin_src python
+def get_workspace(for_computation, in_config, in_mode=None):
+    """..."""
+    m = {'r': "test", 'w': "prod", 'a': "develop"}.get(in_mode, "test")
+    for_computation_type, of_quantity = describe(for_computation)
+    rundir = workspace.get_rundir(in_config, step=for_computation, substep=of_quantity, in_mode=m)
+
+#+end_src
+
+To setup a multinode computation, we will write configs in the computation's workspace, and read them while collecting,
+
+#+name: develop-parallelization-multinode-configs
+#+begin_src python
+def configure_multinode(process, of_computation, in_config, at_dirpath):
+    """..."""
+    if process == setup_compute_node:
+        return write_configs(of_computation, in_config, at_dirpath)
+    if process == collect_results:
+        return read_configs(of_computation, in_config, at_dirpath)
+    raise ValueError(f"Unknown multinode {process}")
+
+#+end_src
+
 * Run a parallel process
 
 A parallel process can be modeled as a ~map~ of a function over chunks of a collection, and then putting individual computation results back using a ~collect~ step. Parallel processes for large computations must be scheduled on the cluster, and not interactively. We have designed ~connsense-TAP~ parallelization to use multiple compute nodes, which are setup in a ~launchscript.sh~ following the scheme implied by the ~pipeline~ config.
@@ -1492,6 +1572,9 @@ def pour(tap, variables):
         LOG.info("To pour, load %s dataset ", var)
         print("To pour, load %s dataset "%var)
         dataset = tap.pour_dataset(var, values["dataset"]).apply(unpack)
+        if not isinstance(dataset.index, pd.MultiIndex):
+            dataset.index = pd.MultiIndex.from_tuples([(x,) for x in dataset.index.values],
+                                                      names=[dataset.index.name,])
 
         if not "reindex" in values:
             return dataset
