@@ -1,5 +1,5 @@
-#+PROPERTY: header-args:jupyter :session  ~/Library/Jupyter/runtime/active-ssh-2.json :pandoc t
-#+PROPERTY: header-args:jupyter-python :session ~/Library/Jupyter/runtime/active-ssh-2.json :pandoc t
+#+PROPERTY: header-args:jupyter :session  ~/Library/Jupyter/runtime/active-ssh-c1.json :pandoc t
+#+PROPERTY: header-args:jupyter-python :session ~/Library/Jupyter/runtime/active-ssh-c1.json :pandoc t
 #+STARTUP: overview
 
 #+title: Parallelization
@@ -56,6 +56,9 @@ from bluepy import Synapse, Cell, Circuit
 print("We will plot golden aspect ratios: ", GOLDEN)
 #+end_src
 
+#+RESULTS: notebook-init
+: We will plot golden aspect ratios:  1.618033988749895
+
 We have run ~connsense-CRAP~ for the SSCx dissemination variant /Bio-M/, extracting data that we will use to compute the factology. Here is a list of workspaces we will need to generate factsheets.
 
 #+name: notebook-workspaces
@@ -80,8 +83,11 @@ We can set paths to load data, and to save the results of our experiments. Paths
 # %% [code]
 ROOTSPACE = Path("/")
 PROJSPACE = ROOTSPACE / "gpfs/bbp.cscs.ch/project/proj83"
-CONNSPACE = PROJSPACE / "home/sood" / "topological-analysis-subvolumes/test/v2"
+CONNSPACE = PROJSPACE / "home/sood" / "topological-analysis-subvolumes/test/v2" / "test"
 #+end_src
+
+#+RESULTS:
+
 
 For test purposes a fake circuit should be sufficient. We do not have a full-fledged fake circuit --- and expect to develop one as the need arises.
 
@@ -91,9 +97,12 @@ For test purposes a fake circuit should be sufficient. We do not have a full-fle
 We can set paths to load data, and to save the results of our experiments. Paths listed below should be to a directory containing ~connsense-configs~ that point to *fake-circuit* data.
 """
 # %% [code]
-CONNSPACE = Path.cwd()
-PROJSPACE = CONNSPACE.parent
+if TOFAKE:
+    CONNSPACE = Path.cwd()
+    PROJSPACE = CONNSPACE.parent
 #+end_src
+
+#+RESULTS:
 
 While test-developing it will be good to have direct access to the ~connsense-TAP-store~ we will use.
 
@@ -123,6 +132,11 @@ topotap = topotap_store.HDFStore(CONNSPACE/"pipeline.yaml")
 print("Available analyses: ")
 pprint(topotap.analyses)
 #+end_src
+
+#+RESULTS: notebook-connsense-topotap
+: Available analyses:
+: {'connectivity': {'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7fff44c71ee0>,
+:                   'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7fff44c71940>}}
 
 
 * Describe the computation
@@ -769,9 +783,6 @@ def setup_multinode(process, of_computation, in_config, using_runtime):
 
 #+end_src
 
-#+RESULTS: develop-parallelization-multinode-setup
-: None
-
 ** Configure Slurm
 #+name: develop-parallelization-multinode-configure-runtime-slurm
 #+begin_src python
@@ -800,8 +811,8 @@ The workspace to run a computation will be nested under the project workspace,
 def get_workspace(for_computation, in_config, in_mode=None):
     """..."""
     m = {'r': "test", 'w': "prod", 'a': "develop"}.get(in_mode, "test")
-    for_computation_type, of_quantity = describe(for_computation)
-    rundir = workspace.get_rundir(in_config, step=for_computation, substep=of_quantity, in_mode=m)
+    computation_type, of_quantity = describe(for_computation)
+    rundir = workspace.get_rundir(in_config, step=computation_type, substep=of_quantity, in_mode=m)
     basedir = workspace.find_base(rundir)
     return (basedir, rundir)
 #+end_src
@@ -1059,7 +1070,6 @@ def write_description(of_computation, in_config, at_dirpath):
 
 These configs written in the workspace directory of the computation will be used in later stages of the setup.
 
-
 ** Setup of a compute node
 
 We will write all the information that a compute node will need to run in the compute node's workdir.
@@ -1201,6 +1211,7 @@ def symlink_pipeline_base(configs, at_dirpath):
             "runtime": {fmt: symlink_to(config_at_path=p) for fmt, p in configs["runtime"].items() if p}}
 
 #+end_src
+
 * Run a parallel process
 
 A parallel process can be modeled as a ~map~ of a function over chunks of a collection, and then putting individual computation results back using a ~collect~ step. Parallel processes for large computations must be scheduled on the cluster, and not interactively. We have designed ~connsense-TAP~ parallelization to use multiple compute nodes, which are setup in a ~launchscript.sh~ following the scheme implied by the ~pipeline~ config.
