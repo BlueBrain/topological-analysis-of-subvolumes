@@ -1,5 +1,5 @@
-#+PROPERTY: header-args:jupyter :session  ~/Library/Jupyter/runtime/active-ressh.json :pandoc t
-#+PROPERTY: header-args:jupyter-python :session ~/Library/Jupyter/runtime/active-ressh.json :pandoc t
+#+PROPERTY: header-args:jupyter :session  ~/Library/Jupyter/runtime/active-ssh-2.json :pandoc t
+#+PROPERTY: header-args:jupyter-python :session ~/Library/Jupyter/runtime/active-ssh-2.json :pandoc t
 #+STARTUP: overview
 
 #+title: Parallelization
@@ -235,26 +235,27 @@ To run a computation of multiple inputs in parallel on multiple ~compute-nodes~,
 
 #+name: develop-parallelization-batched-inputs
 #+begin_src python
-def batch_multinode(computation, of_inputs, in_config, at_path, using_parallelization, single_submission=500):
+def batch_multinode(computation, of_inputs, in_config, at_dirpath, using_parallelization, single_submission=500):
     """...Just read the method definition above,
     and code below
     """
     n_compute_nodes, n_parallel_jobs = using_parallelization
 
-    LOG.info("Assign batches to %s inputs", len(inputs))
+    LOG.info("Assign batches to %s inputs", len(of_inputs))
     batches = batch_parallel_groups(of_inputs, upto_number=n_parallel_jobs)
 
     n_batches = batches.max() + 1
-    LOG.info("Assign compute nodes to %s batches of %s inputs", len(batches), n_batches)
+    LOG.info("Assign compute nodes to %s batches of %s of_inputs", len(batches), n_batches)
     compute_nodes = distribute_compute_nodes(batches, upto_number=n_compute_nodes)
 
-    LOG.info("Group %s compute node into launchscript submissions", compute_nodes.compute_node.nunique())
-    submissions = group_launchscript(assignment=compute_nodes, max_entries=single_submission)
+    LOG.info("Group %s compute node into launchscript submissions", compute_nodes.nunique())
+    submissions = group_launchscripts(compute_nodes, max_entries=single_submission)
 
+    assignment = pd.concat([batches, compute_nodes, submissions], axis=1)
     assignment_h5, dataset = COMPUTE_NODE_ASSIGNMENT
-    submissions.to_hdf(at_path/assignment_h5, key=dataset)
+    assignment.to_hdf(at_dirpath/assignment_h5, key=dataset)
 
-    return submissions
+    return assignment
 
 
 #+end_src
@@ -337,15 +338,15 @@ We will distribute the parallel batches among a specified number of compute-node
 def distribute_compute_nodes(parallel_batches, upto_number):
     """..."""
     LOG.info("Assign compute nodes to batches \n%s", parallel_batches)
-    _, dataset = COMPUTE_NODE_ASSIGNMENT
+    _, dset = COMPUTE_NODE_ASSIGNMENT
 
     n_parallel_batches = parallel_batches.max() + 1
     compute_nodes = np.linspace(0, upto_number - 1.e-6, n_parallel_batches, dtype=int)
-    assignment = pd.Series(compute_nodes[parallel_batches], name=dataset, index=parallel_batches.index)
+    assignment = pd.Series(compute_nodes[parallel_batches], name=dset, index=parallel_batches.index)
     return assignment
 
 
-def read_compute_nodes(at_dirpath):
+def read_compute_nodes_assignment(at_dirpath):
     """..."""
     assignment_h5, dataset = COMPUTE_NODE_ASSIGNMENT
 
@@ -363,15 +364,10 @@ There may be a limit on the number of submissions to the compute-cluster's queue
 
 #+name: develop-parallelization-batched-inputs-group-launchscripts
 #+begin_src python
-def group_launchscripts(assignment, max_entries):
+def group_launchscripts(compute_nodes, max_entries):
     """..."""
-    if assignment.compute_node.nunique() <= max_entries:
-        return assignment
-
     submit = lambda compute_node: int(compute_node / max_entries)
-    submissions = assignment.assign(submission=assignment.compute_node.apply(submit))
-    return submissions
-
+    return compute_nodes.apply(submit).rename("submission")
 
 #+end_src
 
@@ -405,9 +401,9 @@ def read_index(of_computation, in_config):
     raise RuntimeError("Python executtion must not reach here.")
 
 
-def index_inputs(computation, to_tap):
+def index_inputs(of_computation, in_tap):
     """..."""
-    index_vars = read_index(computation, to_tap._config)
+    index_vars = read_index(of_computation, in_tap._config)
 
     if len(index_vars) > 1:
         return pd.MultiIndex.from_product([to_tap.subset_index(var, values) for var, values in index_vars.items()])
@@ -416,9 +412,9 @@ def index_inputs(computation, to_tap):
     return pd.Index(to_tap.subset_index(var, values))
 
 
-def slice_units(computation, to_tap):
+def slice_units(of_computation, in_tap):
     """..."""
-    unit_computations = input_units(computation, to_tap)
+    unit_computations = input_units(of_computation, in_tap)
     return [unit_computations[s:s+1] for s in range(0, len(unit_computations))]
 
 #+end_src
@@ -479,12 +475,25 @@ We can load datasets for all the input variables in a computation.
 
 #+name: develop-parallelization-inputs-pour-datasets
 #+begin_src python
-def pour(tap, variables):
+def pour(tap, datasets):
     """..."""
-    LOG.info("Pour tap \n%s\n to get values for variables:]n%s", tap._root, pformat(variables))
-    datasets = {var: load_dataset(tap, var, values) for var, values in variables.items()}
+    LOG.info("Pour tap \n%s\n to get values for variables:\n%s", tap._root, pformat(datasets))
+    datasets = sorted([(variable, load_dataset(tap, variable, values)) for variable, values in datasets.items()],
+                      key=lambda x: len(x[1].index.names), reverse=True)
 
-    return datasets
+    def collect(aggregated, datasets):
+        """..."""
+        if not datasets:
+            return aggregated
+
+        head, dset_head = datasets[0]
+        vars, dset_agg = aggregated
+        combined = pd.concat([dset_agg, dset_head.loc[dset_agg.index]], axis=1, keys=vars+[head])
+        return collect((vars+[head], combined), datasets[1:])
+
+    variable, primary = datasets[0]
+    return collect(([variable], primary), datasets[1:])[1].apply(lambda row: row.to_dict(), axis=1)
+
 #+end_src
 
 If a ~transformation~ has been specified, we need to apply it. What should we expect of a ~dataset-transformation~?
@@ -683,6 +692,28 @@ def input_units(computation, to_tap):
 
 
 
+** Generate input datasets
+
+We will load the inputs as a list ~unit-computationss~ derived from the ~pipeline-config~.
+
+#+name: develop-parallelization-multinode-generate-inputs
+#+begin_src python
+def generate_inputs(of_computation, in_config):
+    """..."""
+    LOG.info("Generate inputs for %s.", of_computation)
+
+    computation_type, of_quantity = describe(of_computation)
+    params = parameterize(computation_type, of_quantity, in_config)
+    tap = HDFStore(in_config)
+
+    return pour(tap=HDFStore(in_config), datasets=filter_datasets(params["input"]))
+
+#+end_src
+
+#+RESULTS: develop-parallelization-multinode-generate-inputs
+: None
+
+
 * Multinode parallel computation
 
 A multinode parallel computation can be modeled,
@@ -700,7 +731,7 @@ run_multinode unitcomps n_compute_nodes n_parallel_tasks
   = [ComputeNode assignment]
 #+end_src
 
-To compute a quantity using multinode parallelization ~connsense-TAP~ will setup a directory structure with one subdirectory for each compute node containing data required for the computation. Each compute node will get it's own list of inputs to run. To launch the runs, a ~connsense-TAP~ will write a ~launchscript.sh~ that we can source in a ~unix-shell~. Once all the compute nodes have been run, the results can be collected using ~connsense-TAP~. To accompalish the task of distributing computations over the compute nodes and collecting the results we define,
+To compute a quantity using multinode parallelization ~connsense-TAP~ will setup a directory structure with one subdirectory for each compute node containing data required for the computation. Each compute node will get it's own list of inputs to run. To launch the runs, a ~connsense-TAP~ will write a ~launchscript.sh~ that we can source in a ~unix-shell~. Once all the compute nodes have been run, the results can be collected using ~connsense-TAP~. To accompalish the task of distributing computations over the compute nodes and collecting the results we define.
 
 #+name: develop-parallelization-multinode-setup
 #+begin_src python
@@ -711,22 +742,23 @@ def setup_multinode(process, of_computation, in_config, using_runtime):
 
     using_configs = configure_multinode(process, of_computation, in_config, at_dirpath=to_stage)
 
-    computation_type, of_quantity = describe(of_comptuation)
+    computation_type, of_quantity = describe(of_computation)
 
     inputs = generate_inputs(of_computation, in_config)
     n_compute_nodes, n_parallel_jobs = prepare_parallelization(of_computation, in_config, using_runtime)
-    batched = batch_multinode(process, of_computation, inputs, in_config,
-                              at_path=to_stage, using_parallelization=(n_compute_nodes, n_parallel_jobs))
 
     if process == setup_compute_node:
+        batched = batch_multinode(of_computation, inputs, in_config,
+                                  at_dirpath=to_stage, using_parallelization=(n_compute_nodes, n_parallel_jobs))
         using_configs["slurm_params"] = configure_slurm(of_computation, in_config, using_runtime).get("sbatch", None)
-        compute_nodes = {c: setup_compute_node(c, inputs, of_computation, using_configs)
+        compute_nodes = {c: setup_compute_node(c, of_computation, inputs, using_configs, at_dirpath=to_stage)
                          for c, inputs in batched.groupby("compute_node")}
         return {"configs": using_configs,
                 "number_compute_nodes": n_compute_nodes, "number_total_jobs": n_parallel_jobs,
                 "setup": write_multinode_setup(compute_nodes, inputs, at_dirpath=to_stage)}
 
     if process == collect_results:
+        batched = read_compute_nodes_assignment(at_dirpath)
         _, output_paths = read_pipeline.check_paths(in_config, step=computation_type)
         at_path = output_paths["steps"][computation_type]
 
@@ -737,6 +769,31 @@ def setup_multinode(process, of_computation, in_config, using_runtime):
 
 #+end_src
 
+#+RESULTS: develop-parallelization-multinode-setup
+: None
+
+** Configure Slurm
+#+name: develop-parallelization-multinode-configure-runtime-slurm
+#+begin_src python
+def configure_slurm(computation, in_config, using_runtime):
+    """..."""
+    computation_type, quantity = describe(computation)
+    pipeline_config = in_config if isinstance(in_config, Mapping) else read_pipeline.read(in_config)
+    from_runtime = (read_runtime_config(for_parallelization=using_runtime, of_pipeline=pipeline_config)
+                    if not isinstance(using_runtime, Mapping) else using_runtime)
+
+    params = from_runtime["pipeline"].get(computation_type, {})
+    try:
+        configured = params[quantity]
+    except KeyError:
+        quantity, component = quantity.split('/')
+        configured = params[quantity][component]
+    return configured
+
+#+end_src
+
+** Workspace
+
 The workspace to run a computation will be nested under the project workspace,
 #+name: develop-parallelization-workspace
 #+begin_src python
@@ -745,10 +802,13 @@ def get_workspace(for_computation, in_config, in_mode=None):
     m = {'r': "test", 'w': "prod", 'a': "develop"}.get(in_mode, "test")
     for_computation_type, of_quantity = describe(for_computation)
     rundir = workspace.get_rundir(in_config, step=for_computation, substep=of_quantity, in_mode=m)
-
+    basedir = workspace.find_base(rundir)
+    return (basedir, rundir)
 #+end_src
 
-To setup a multinode computation, we will write configs in the computation's workspace, and read them while collecting,
+** Configs
+
+To setup a multinode computation, we will write configs dervied from the main ~pipeline~ config in the computation's workspace, and read them while collecting,
 
 #+name: develop-parallelization-multinode-configs
 #+begin_src python
@@ -760,8 +820,387 @@ def configure_multinode(process, of_computation, in_config, at_dirpath):
         return read_configs(of_computation, in_config, at_dirpath)
     raise ValueError(f"Unknown multinode {process}")
 
+
+def write_configs(of_computation, in_config, at_dirpath):
+    """..."""
+    LOG.info("Write configs of %s at %s", of_computation, at_dirpath)
+    return {"base": write_pipeline_base_configs(in_config, at_dirpath),
+            "description": write_description(of_computation, in_config, at_dirpath)}
+
+
+def read_configs(of_computation, in_config, at_dirpath):
+    """..."""
+    LOG.info("Read configs of %s at %s", of_computation, at_dirpath)
+    return {"base": read_pipeline_base_configs(in_config, at_dirpath)}
+
 #+end_src
 
+where we write the base pipeline configs,
+
+#+name: develop-parallelization-multinode-base-configs-write
+#+begin_src python
+def write_pipeline_base_configs(in_config, at_dirpath):
+    """..."""
+    basedir = find_base(rundir=at_dirpath)
+    LOG.info("Check base configs at %s", basedir)
+
+    def write_config(c):
+        """..."""
+        def write_format(f):
+            filename = f"{c}.{f}"
+            base_config = basedir / filename
+            if base_config.exists():
+                run_config = at_dirpath / filename
+                _remove_link(run_config)
+                run_config.symlink_to(base_config)
+                return run_config
+            LOG.info("Not found config %s", base_config)
+            return None
+        return {f: write_format(f) for f in ["json", "yaml"] if f}
+    return {c: write_config(c) for c in ["pipeline", "runtime", "config", "parallel"]}
+
+#+end_src
+
+allowing for multiple naming schemes (~pipeline~ or ~config~ for the main config and ~runtime~ or ~parallel~ for parallelization config) and multiple formats (~yaml~ or ~json~). We will need to read these configs to launch individual compute-nodes, or to collect their results.
+
+#+name: develop-parallelization-multinode-base-configs-read
+#+begin_src python
+def read_pipeline_base_configs(in_config, at_dirpath):
+    """..."""
+    basedir = find_base(rundir=at_dirpath)
+
+    def read_config(c):
+        """..."""
+        def read_format(f):
+            """..."""
+            filename = f"{c}.{f}"
+            path_config = at_dirpath / filename
+            if path_config.exists():
+                LOG.warning("Pipeline config %s found at %s", filename, at_dirpath)
+
+                if c in ("pipeline", "config"):
+                    return read_pipeline.read(path_config)
+
+                if c in ("runtime", "parallel"):
+                    return read_runtime_config(path_config, of_pipeline=in_config)
+
+                raise ValueError(f"NOT a connsense config: {filename}")
+
+            LOG.warning("No pipeline config %s found at %s", filename, at_dirpath)
+            return None
+
+        return {f: read_format(f) for f in ["json", "yaml"] if f}
+
+    return {c: read_config(c) for c in ["pipeline", "runtime", "config", "parallel"]}
+
+#+end_src
+
+While the pipeline config is handled by ~TopologicalAnalysis~ object, the runtime config will be read here infer the configured parallelization parameters.
+
+#+name: develop-parallelization-multinode-read-runtime
+#+begin_src python
+def read_runtime_config(for_parallelization, *, of_pipeline=None, return_path=False):
+    """..."""
+    assert not of_pipeline or isinstance(of_pipeline, Mapping), of_pipeline
+
+    if not for_parallelization:
+        return (None, None) if return_path else None
+
+    try:
+        path = Path(for_parallelization)
+    except TypeError:
+        assert isinstance(for_parallelization, Mapping)
+        path = None
+        config = for_parallelization
+    else:
+        if path.suffix.lower() in (".yaml", ".yml"):
+            with open(path, 'r') as fid:
+                config = yaml.load(fid, Loader=yaml.FullLoader)
+        elif path.suffix.lower() == ".json":
+            with open(path, 'r') as fid:
+                config = json.load(fid)
+        else:
+            raise ValueError(f"Unknown config type {for_parallelization}")
+
+    if not of_pipeline:
+        return (path, config) if return_path else config
+
+    from_runtime = config["pipeline"]
+    default_sbatch = lambda : deepcopy(config["slurm"]["sbatch"])
+
+    def configure_slurm_for(computation_type):
+        """..."""
+        LOG.info("Configure slurm for %s", computation_type)
+        try:
+            cfg_computation_type = of_pipeline["parameters"][computation_type]
+        except KeyError:
+            return None
+
+        paramkey = PARAMKEY[computation_type]
+        try:
+            quantities_to_configure = cfg_computation_type[paramkey]
+        except KeyError:
+            LOG.warning("No quantities to configure for %s". computation)
+            return None
+
+        try:
+            runtime = from_runtime[computation_type]
+        except KeyError:
+            LOG.warning("No runtime configured for computation type %s", computation_type)
+            return None
+
+        configured = runtime[paramkey]
+
+        def decompose_quantity(q):
+            """..."""
+            return [var for var in quantities_to_configure[q].keys() if var not in COMPKEYS]
+
+        def configure_quantity(q):
+            """..."""
+            q_cfg = deepcopy(configured.get(q) or {})
+            if "sbatch" not in q_cfg:
+                q_cfg["sbatch"] = default_sbatch()
+            if "number-compute-nodes" not in q_cfg:
+                q_cfg["number-compute-nodes"] = 1
+            if "number-tasks-per-node" not in q_cfg:
+                q_cfg["number-tasks-per-node"] = 1
+
+            def configure_component(c):
+                """..."""
+                cfg = deepcopy(configured.get(q, {}).get(c, {}))
+                if "sbatch" not in cfg:
+                    cfg["sbatch"] = q_cfg["sbatch"]
+                if "number-compute-nodes" not in cfg:
+                    cfg["number-compute-nodes"] = q_cfg["number-compute-nodes"]
+                if "number-tasks-per-node" not in cfg:
+                    cfg["number-tasks-per-node"] = q_cfg['number-tasks-per-node']
+
+                return cfg
+
+            for c in decompose_quantity(q):
+                q_cfg[c] = configure_component(c)
+
+            return q_cfg
+
+        return {q: configure_quantity(q) for q in quantities_to_configure if q != "description"}
+
+    runtime_pipeline = {c: configure_slurm_for(computation_type=c) for c in of_pipeline["parameters"]}
+    config = {"version": config["version"], "date": config["date"], "pipeline": runtime_pipeline}
+    return (path, config) if return_path else config
+
+
+#+end_src
+
+We can read the runtime config, and use the information to prepare parallelization of a computation.
+
+#+name: develop-parallelization-multinode-prepare-parallelization
+#+begin_src python
+def prepare_parallelization(of_computation, in_config, using_runtime):
+    """..."""
+    computation_type, quantity = describe(of_computation)
+    from_runtime = (read_runtime_config(for_parallelization=using_runtime, of_pipeline=in_config)
+                    if not isinstance(using_runtime, Mapping) else using_runtime)
+    LOG.info("Prepare parallelization %s using runtime \n%s", of_computation, pformat(from_runtime))
+    configured = from_runtime["pipeline"].get(computation_type, {})
+    LOG.info("\t Configure \n%s", pformat(configured))
+    return read_njobs(to_parallelize=configured, computation_of=quantity)
+
+
+def read_njobs(to_parallelize, computation_of):
+    """..."""
+    if not to_parallelize:
+        return (1, 1)
+
+    try:
+        q = computation_of.name
+    except AttributeError:
+        q = computation_of
+
+    try:
+        p = to_parallelize[q]
+    except KeyError:
+        if '/' in q:
+            try:
+                q0, q1 = q.split('/')
+            except ValueError: #TODO: log something
+                return (1, 1)
+            else:
+                try:
+                    p0 = to_parallelize[q0]
+                except KeyError:
+                    return (1, 1)
+                else:
+                    try:
+                        p = p0[q1]
+                    except KeyError:
+                        return (1, 1)
+                    else:
+                        pass
+        else:
+            return (1, 1)
+
+    compute_nodes = p["number-compute-nodes"]
+    tasks = p["number-tasks-per-node"]
+    return (compute_nodes, compute_nodes * tasks)
+
+#+end_src
+
+In addition to the base configs, we will also write a description of the computation in it's workspace,
+
+#+name: develop-parallelization-multinode-description
+#+begin_src python
+def write_description(of_computation, in_config, at_dirpath):
+    """..."""
+    computation_type, of_quantity = describe(of_computation)
+    configured = parameterize(computation_type, of_quantity, in_config)
+    configured["name"] = of_quantity
+    return read_pipeline.write(configured, to_json=at_dirpath/"description.json")
+#+end_src
+
+These configs written in the workspace directory of the computation will be used in later stages of the setup.
+
+
+** Setup of a compute node
+
+We will write all the information that a compute node will need to run in the compute node's workdir.
+
+#+name: develop-parallelization-multinode-setup-compute-node
+#+begin_src python
+def setup_compute_node(c, of_computation, with_inputs, using_configs, at_dirpath):
+    """..."""
+    from connsense.apps import APPS
+    LOG.info("Configure chunk %s with %s inputs to compute %s", c, len(with_inputs), of_computation)
+
+    computation_type, of_quantity = describe(of_computation)
+    for_compute_node = at_dirpath / f"compute-node-{c}"
+    for_compute_node.mkdir(parents=False, exist_ok=True)
+    configs = symlink_pipeline(using_configs, at_dirpath=for_compute_node)
+
+    inputs_to_read = write_compute(batches=with_inputs, to_hdf=INPUTS, at_dirpath=for_compute_node)
+    output_h5 = f"{for_compute_node}/connsense.h5"
+
+    def cmd_sbatch(at_path, executable):
+        """..."""
+        try:
+            slurm_params = using_configs["slurm_params"]
+        except KeyError as kerr:
+            raise RuntimeError("Missing slurm params") from kerr
+
+        slurm_params.update({"name": computation_type, "executable": executable})
+        slurm_config = SlurmConfig(slurm_params)
+        return slurm_config.save(to_filepath=at_path/f"{computation_type}.sbatch")
+
+    of_executable = cmd_sbatch(at_path=for_compute_node, executable=APPS["main"])
+
+    def cmd_configs():
+        """..."""
+        return "--configure=pipeline.yaml --parallelize=runtime.yaml \\"
+
+    def cmd_options():
+        """..."""
+        return None
+
+    if "submission" not in with_inputs:
+        launchscript = at_dirpath / "launchscript.sh"
+    else:
+        submission = with_inputs.submission.unique()
+        assert len(submission) == 1
+        launchscript = at_dirpath / f"launchscript-{submission[0]}.sh"
+
+    command_lines = ["#!/bin/bash",
+                    (f"########################## LAUNCH {computation_type} for chunk {c}"
+                     f" of {len(with_inputs)} _inputs. #######################################"),
+                    f"pushd {for_compute_node}",
+                    f"sbatch {of_executable.name} run {computation_type} {of_quantity} \\",
+                    cmd_configs(),
+                    cmd_options(),
+                    f"--input={inputs_to_read} \\",
+                    f"--output={output_h5}",
+                    "popd"]
+
+    with open(launchscript, 'a') as to_launch:
+        to_launch.write('\n'.join(l for l in command_lines if l) + "\n")
+
+    setup = {"dirpath": for_compute_node, "sbatch": of_executable, "input": inputs_to_read, "output": output_h5}
+
+    return read_pipeline.write(setup, to_json=for_compute_node/"setup.json")
+
+
+def write_compute(batches, to_hdf, at_dirpath):
+    """..."""
+    batches_h5, and_hdf_group = to_hdf
+    batches.to_hdf(at_dirpath / batches_h5, key=and_hdf_group, format="fixed", mode='w')
+    return at_dirpath / batches_h5
+
+#+end_src
+
+#+RESULTS: develop-parallelization-multinode-setup-compute-node
+: None
+
+To write and read the multiple compute node setup,
+
+#+name: develop-parallelization-multinode-setup-read-write
+#+begin_src python
+def write_multinode_setup(compute_nodes, inputs, at_dirpath):
+    """..."""
+    inputs_h5, dataset = INPUTS
+    return read_pipeline.write({"compute_nodes": compute_nodes, "inputs": at_dirpath / inputs_h5},
+                               to_json=at_dirpath/"setup.json")
+
+
+def read_setup_compute_node(c, for_quantity):
+    """..."""
+    for_compute_node = for_quantity / f"compute-node-{c}"
+
+    if not for_compute_node.exists():
+        raise RuntimeError(f"Expected compute node directory {for_compute_node} created by the TAP run to collect")
+
+    return read_setup(at_dirpath=for_quantity, compute_node=c)
+
+
+def read_setup(at_dirpath, compute_node):
+    """..."""
+    setup_json = at_dirpath / f"compute-node-{compute_node}" / "setup.json"
+
+    if not setup_json.exists():
+        raise RuntimeError(f"No setup json found at {setup_json}")
+
+    with open(setup_json, 'r') as f:
+        return json.load(f)
+
+    raise RuntimeError("Python execution must not have reached here.")
+
+#+end_src
+
+We will also ~symlink~ the configs,
+
+#+name: develop-paralelization-multinode-setup-symlink-configs
+#+begin_src python
+def symlink_pipeline(configs, at_dirpath):
+    """..."""
+    to_base = symlink_pipeline_base(configs["base"], at_dirpath)
+    return {"base": to_base}
+
+
+def create_symlink(at_dirpath):
+    """..."""
+    def _to(config_at_path):
+        """..."""
+        it_is_a = at_dirpath / config_at_path.name
+        _remove_link(it_is_a)
+        it_is_a.symlink_to(config_at_path)
+        return it_is_a
+
+    return _to
+
+
+def symlink_pipeline_base(configs, at_dirpath):
+    """..."""
+    symlink_to = create_symlink(at_dirpath)
+    return {"pipeline": {fmt: symlink_to(config_at_path=p) for fmt, p in configs["pipeline"].items() if p},
+            "runtime": {fmt: symlink_to(config_at_path=p) for fmt, p in configs["runtime"].items() if p}}
+
+#+end_src
 * Run a parallel process
 
 A parallel process can be modeled as a ~map~ of a function over chunks of a collection, and then putting individual computation results back using a ~collect~ step. Parallel processes for large computations must be scheduled on the cluster, and not interactively. We have designed ~connsense-TAP~ parallelization to use multiple compute nodes, which are setup in a ~launchscript.sh~ following the scheme implied by the ~pipeline~ config.
@@ -1296,7 +1735,6 @@ def read_pipeline_base_configs(of_computation, in_config, at_dirpath): #pylint: 
 
         return {f: read_format(f) for f in ["json", "yaml"] if f}
     return {c: read_config(c) for c in ["pipeline", "runtime", "config", "parallel"]}
-
 
 #+end_src
 
@@ -3188,8 +3626,6 @@ class IllegalParallelComputationError(ValueError):
 
 <<develop-parallelization-estimate-batched-inputs-load>>
 
-<<develop-parallelization-batched-inputs-load>>
-
 <<develop-parallelization-batched-inputs-distribute-compute-nodes>>
 
 <<develop-parallelization-batched-inputs-group-launchscripts>>
@@ -3203,6 +3639,32 @@ class IllegalParallelComputationError(ValueError):
 <<develop-parallelization-inputs-variable-load-dataset>>
 
 <<develop-parallelization-inputs-pour-datasets>>
+
+<<develop-parallelization-workspace>>
+
+<<develop-parallelization-multinode-configs>>
+
+<<develop-parallelization-multinode-base-configs-write>>
+
+<<develop-parallelization-multinode-base-configs-read>>
+
+<<develop-parallelization-multinode-read-runtime>>
+
+<<develop-parallelization-multinode-prepare-parallelization>>
+
+<<develop-parallelization-multinode-description>>
+
+<<develop-parallelization-multinode-generate-inputs>>
+
+<<develop-parallelization-multinode-configure-runtime-slurm>>
+
+<<develop-parallelization-multinode-setup-compute-node>>
+
+<<develop-parallelization-multinode-setup-read-write>>
+
+<<develop-paralelization-multinode-setup-symlink-configs>>
+
+<<develop-parallelization-multinode-setup>>
 
 <<develop-parallelization-inputs-reindex-datasets>>
 

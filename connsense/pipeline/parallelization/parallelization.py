@@ -513,7 +513,6 @@ def read_pipeline_base_configs(of_computation, in_config, at_dirpath): #pylint: 
     return {c: read_config(c) for c in ["pipeline", "runtime", "config", "parallel"]}
 
 
-
 def write_pipeline_control(algorithm, at_dirpath): #pylint: disable=unused-argument
     """..."""
     if not algorithm: return None
