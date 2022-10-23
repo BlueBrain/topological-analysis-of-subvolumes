@@ -174,41 +174,40 @@ class TopologicalAnalysis:
             self._data.create_index()
         return current
 
-    def setup(self, step, substep=None, **kwargs):
+    def setup(self, step, substep=None, in_mode=None, **kwargs):
         """Setup the pipeline, one step and if defined one substep at a time.
         We can chain all the steps together later.
         """
         LOG.warning("SETUP pipeline action for step %s %s ", step, substep)
-
-        in_mode = kwargs.get("in_mode", None)
 
         if self._mode == "inspect":
             if not in_mode == "inspect":
                 raise RuntimeError("Cannot run a read-only pipeline."
                                    " You can use read-only mode to inspect the data"
                                    " that has already been computed.")
+            action = kwargs.get("action", None)
             if action and action.lower() != "inspect":
                 raise RuntimeError(f"Cannot run {action} for a pipeline in mode inspect\n"
                                    "In mode inspect, there is no action to do,\n"
                                    " so use action=None or action='inspect'")
 
-        result = self.__steps__[step].setup(self._config, substep=substep,
-                                            parallelize=self._parallelize, tap=self.data, **kwargs)
+        setup_step = self.__steps__[step]._setup_dev_version if in_mode == "develop" else self.__steps__[step].setup
+        computation = '/'.join([step, substep] if substep else [step])
+        result = setup_step(computation, in_config=self._config, using_runtime=self._parallelize)
 
         LOG.warning("DONE setup for pipeline step %s %s", step, substep)
         LOG.info("RESULT %s %s: %s", step, substep, result)
         return result
-
 
     def run(self, step, substep=None, in_mode=None, inputs=None, **kwargs):
         """Run the pipeline, one (computation_type, of_quantity) at a time.
         """
         LOG.warning("RUN pipeline for step %s %s ", step, substep)
 
-        return self.__steps__[step].run(computation='/'.join([step, substep] if substep else [step]),
-                                        in_config=self._config, using_runtime=self._parallelize,
-                                        on_compute_node=inputs.parent, inputs=inputs)
-
+        run_step = self.__steps__[step]._run_dev_version if in_mode == "develop" else self.__steps__[step].run
+        computation = '/'.join([step, substep] if substep else [step])
+        return run_step(computation, in_config=self._config, using_runtime=self._parallelize,
+                        on_compute_node=inputs.parent, inputs=inputs)
 
     def collect(self, step, substep=None, in_mode=None):
         """Collect the batched results generated in a single step.

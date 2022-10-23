@@ -9,6 +9,7 @@ from collections.abc import Mapping
 from copy import deepcopy
 import shutil
 from pathlib import Path
+from lazy import lazy
 from pprint import pformat
 
 import json
@@ -163,6 +164,13 @@ def estimate_load(to_compute):
         """
         if d is None: return None
 
+        try:
+            shape = d.shape
+        except AttributeError:
+            pass
+        else:
+            return np.prod(shape)
+
         if callable(d): return of_input_data(d())
 
         if isinstance(d, Mapping):
@@ -171,13 +179,6 @@ def estimate_load(to_compute):
             return of_input_data(first)
 
         if isinstance(d, pd.Series): return d.apply(of_input_data).sum()
-
-        try:
-            shape = d.shape
-        except AttributeError:
-            pass
-        else:
-            return np.prod(shape)
 
         try:
             return len(d)
@@ -275,6 +276,11 @@ def load_dataset(tap, variable, values):
     def unpack_value(v):
         """..."""
         try:
+            return v()
+        except TypeError:
+            pass
+
+        try:
             get = v.get_value
         except AttributeError:
             return v
@@ -283,6 +289,12 @@ def load_dataset(tap, variable, values):
     LOG.info("Pour %s dataset ", variable)
 
     return dataset.apply(lazily(to_evaluate=unpack_value))
+
+
+def lazy_keyword(input_datasets):
+    """...Repack a Mapping[String->CallData[D]] to CallData[Mapping[String->Data]]
+    """
+    return lambda: {var: value() for var, value in input_datasets.items()}
 
 
 def pour(tap, datasets):
@@ -532,6 +544,30 @@ def write_description(of_computation, in_config, at_dirpath):
     configured["name"] = of_quantity
     return read_pipeline.write(configured, to_json=at_dirpath/"description.json")
 
+class DataCall:
+    """Call data..."""
+    def __init__(self, dataitem, transform=None):
+        self._dataitem = dataitem
+        self._transform = transform or (lambda d: d)
+
+    @lazy
+    def dataset(self):
+        """..."""
+        return self()
+
+    @lazy
+    def shape(self):
+        """..."""
+        original = self._dataitem() if callable(self._dataitem) else self._dataitem
+        if isinstance(original, Mapping):
+            return next(v for v in original.values()).shape
+        return original.shape
+
+    def __call__(self):
+        """Call Me."""
+        return self._transform(self._dataitem() if callable(self._dataitem) else self._dataitem)
+
+
 def generate_inputs(of_computation, in_config):
     """..."""
     LOG.info("Generate inputs for %s.", of_computation)
@@ -540,7 +576,34 @@ def generate_inputs(of_computation, in_config):
     params = parameterize(computation_type, of_quantity, in_config)
     tap = HDFStore(in_config)
 
-    return pour(tap=HDFStore(in_config), datasets=filter_datasets(params["input"]))
+    datasets = pour(tap=HDFStore(in_config), datasets=filter_datasets(params["input"]))
+    original = datasets.apply(lazy_keyword).apply(DataCall)
+
+    try:
+        transformations = params["input"]["transformations"]
+    except KeyError:
+        LOG.warning("It seems no transformations have been configured for the input of %s", of_computation)
+        return original
+
+    def datacall(transformation):
+        """..."""
+        def transform(dataitem):
+            """..."""
+            return DataCall(dataitem, transformation)
+        return transform
+
+    controls = load_control(transformations, lazily=False)
+    if controls:
+        controlled = pd.concat([original.apply(datacall(shuffle)) for _, shuffle in controls], axis=0,
+                               keys=[control_label for control_label,_ in controls], names=["control"])
+        original = pd.concat([original], axis=0, keys=["original"], names=["control"])
+        result = pd.concat([original, controlled])
+        result = result.reorder_levels([l for l in result.index.names if l != "control"] + ["control"])
+    else:
+        result = original
+    return result
+
+
 
 
 def configure_slurm(computation, in_config, using_runtime):
@@ -559,10 +622,13 @@ def configure_slurm(computation, in_config, using_runtime):
     return configured
 
 
-def setup_compute_node(c, of_computation, with_inputs, using_configs, at_dirpath):
+def setup_compute_node(c, of_computation, with_inputs, using_configs, at_dirpath, in_mode=None):
     """..."""
+    assert not in_mode or in_mode in ("prod", "develop")
+
     from connsense.apps import APPS
-    LOG.info("Configure chunk %s with %s inputs to compute %s", c, len(with_inputs), of_computation)
+    LOG.info("Configure chunk %s with %s inputs to compute %s, using configs \n%s",
+             c, len(with_inputs), of_computation, using_configs)
 
     computation_type, of_quantity = describe(of_computation)
     for_compute_node = at_dirpath / f"compute-node-{c}"
@@ -572,26 +638,11 @@ def setup_compute_node(c, of_computation, with_inputs, using_configs, at_dirpath
     inputs_to_read = write_compute(batches=with_inputs, to_hdf=INPUTS, at_dirpath=for_compute_node)
     output_h5 = f"{for_compute_node}/connsense.h5"
 
-    def cmd_sbatch(at_path, executable):
-        """..."""
-        try:
-            slurm_params = using_configs["slurm_params"]
-        except KeyError as kerr:
+    try:
+        slurm_params = using_configs["slurm_params"]
+    except KeyError as kerr:
             raise RuntimeError("Missing slurm params") from kerr
-
-        slurm_params.update({"name": computation_type, "executable": executable})
-        slurm_config = SlurmConfig(slurm_params)
-        return slurm_config.save(to_filepath=at_path/f"{computation_type}.sbatch")
-
-    of_executable = cmd_sbatch(at_path=for_compute_node, executable=APPS["main"])
-
-    def cmd_configs():
-        """..."""
-        return "--configure=pipeline.yaml --parallelize=runtime.yaml \\"
-
-    def cmd_options():
-        """..."""
-        return None
+    of_executable = cmd_sbatch(APPS["main"], of_computation, config=slurm_params, at_dirpath=for_compute_node)
 
     if "submission" not in with_inputs:
         launchscript = at_dirpath / "launchscript.sh"
@@ -600,16 +651,18 @@ def setup_compute_node(c, of_computation, with_inputs, using_configs, at_dirpath
         assert len(submission) == 1
         launchscript = at_dirpath / f"launchscript-{submission[0]}.sh"
 
+
+    run_mode = in_mode or "prod"
     command_lines = ["#!/bin/bash",
-                    (f"########################## LAUNCH {computation_type} for chunk {c}"
-                     f" of {len(with_inputs)} _inputs. #######################################"),
-                    f"pushd {for_compute_node}",
-                    f"sbatch {of_executable.name} run {computation_type} {of_quantity} \\",
-                    cmd_configs(),
-                    cmd_options(),
-                    f"--input={inputs_to_read} \\",
-                    f"--output={output_h5}",
-                    "popd"]
+                     (f"########################## LAUNCH {computation_type} for chunk {c}"
+                      f" of {len(with_inputs)} _inputs. #######################################"),
+                     f"pushd {for_compute_node}",
+                     f"sbatch {of_executable.name} run {computation_type} {of_quantity} \\",
+                     "--configure=pipeline.yaml --parallelize=runtime.yaml \\",
+                     f"--mode={run_mode} \\",
+                     f"--input={inputs_to_read} \\",
+                     f"--output={output_h5}",
+                     "popd"]
 
     with open(launchscript, 'a') as to_launch:
         to_launch.write('\n'.join(l for l in command_lines if l) + "\n")
@@ -617,6 +670,15 @@ def setup_compute_node(c, of_computation, with_inputs, using_configs, at_dirpath
     setup = {"dirpath": for_compute_node, "sbatch": of_executable, "input": inputs_to_read, "output": output_h5}
 
     return read_pipeline.write(setup, to_json=for_compute_node/"setup.json")
+
+
+def cmd_sbatch(executable, of_computation, config, at_dirpath):
+    """..."""
+    computation_type, _ = describe(of_computation)
+    slurm_params = deepcopy(config)
+    slurm_params.update({"name": computation_type, "executable": executable})
+    slurm_config = SlurmConfig(slurm_params)
+    return slurm_config.save(to_filepath=at_dirpath/f"{computation_type}.sbatch")
 
 
 def write_compute(batches, to_hdf, at_dirpath):
@@ -681,7 +743,7 @@ def symlink_pipeline_base(configs, at_dirpath):
             "runtime": {fmt: symlink_to(config_at_path=p) for fmt, p in configs["runtime"].items() if p}}
 
 
-def setup_multinode(process, of_computation, in_config, using_runtime):
+def setup_multinode(process, of_computation, in_config, using_runtime, in_mode=None):
     """Setup a multinode process.
     """
     _, to_stage = get_workspace(of_computation, in_config)
@@ -697,14 +759,15 @@ def setup_multinode(process, of_computation, in_config, using_runtime):
         batched = batch_multinode(of_computation, inputs, in_config,
                                   at_dirpath=to_stage, using_parallelization=(n_compute_nodes, n_parallel_jobs))
         using_configs["slurm_params"] = configure_slurm(of_computation, in_config, using_runtime).get("sbatch", None)
-        compute_nodes = {c: setup_compute_node(c, of_computation, inputs, using_configs, at_dirpath=to_stage)
+        compute_nodes = {c: setup_compute_node(c, of_computation, inputs, using_configs,  at_dirpath=to_stage,
+                                               in_mode=in_mode)
                          for c, inputs in batched.groupby("compute_node")}
         return {"configs": using_configs,
                 "number_compute_nodes": n_compute_nodes, "number_total_jobs": n_parallel_jobs,
                 "setup": write_multinode_setup(compute_nodes, inputs, at_dirpath=to_stage)}
 
     if process == collect_results:
-        batched = read_compute_nodes_assignment(at_dirpath)
+        batched = read_compute_nodes_assignment(at_dirpath=to_stage)
         _, output_paths = read_pipeline.check_paths(in_config, step=computation_type)
         at_path = output_paths["steps"][computation_type]
 
@@ -714,74 +777,728 @@ def setup_multinode(process, of_computation, in_config, using_runtime):
     return ValueError(f"Unknown multinode {process}")
 
 
-def reindex_input(transformations, to_tap, variable, dataset, of_analysis):
+def collect_results(computation_type, setup, from_dirpath, in_connsense_store):
+    """..."""
+    if computation_type == "extract-node-populations":
+        return collect_node_population(setup, from_dirpath, in_connsense_store)
+
+    if computation_type == "extract-edge-populations":
+        return collect_edge_population(setup, from_dirpath, in_connsense_store)
+
+    if computation_type in ("analyze-connectivity", "analyze-composition", "analyze-node-types", "analyze-physiology"):
+        return collect_analyze_step(setup, from_dirpath, in_connsense_store)
+
+    raise NotImplementedError(f"INPROGRESS: {computation_type}")
+
+
+def collect_node_population(setup, from_dirpath, in_connsense_store):
     """..."""
     try:
-        to_reindex = transformations["reindex"]
-    except KeyError:
-        LOG.info("No reindexing configured for %s of analysis %s", variable, of_analysis)
-        return dataset
+        with open(from_dirpath/"description.json", 'r') as f:
+            population = json.load(f)
+    except FileNotFoundError as ferr:
+        raise RuntimeError(f"NOTFOUND a description of the population extracted: {from_dirpath}")
 
-    original = dataset.apply(lambda subtarget: to_tap.reindex(subtarget, variables=to_reindex))
-    return pd.concat(original.values, axis=0, keys=original.index.values, names=original.index.values)
+    connsense_h5, group = in_connsense_store
+    hdf_population = group + '/' + population["name"]
 
-
-
-def apply_control(transformations, to_tap, variable, dataset, of_analysis):
-    """..."""
-    try:
-        configured = transformations["controls"]
-    except KeyError:
-        LOG.info("No controls configured for %s", variable)
-        return dataset
-
-    original = [dataset]
-    controls = load_controls(configured)
-
-    return (pd.concat(original + [dataset.apply(control) for control in controls], axis=0,
-                      keys=(["original"] + [control.__name__ for control in controls]), names=["control"])
-            .reorder_levels(dataset.index.names + ["control"]).sort_index())
-
-
-def load_controls(configured):
-    """..."""
-    def load_shufflers(control, labeled):
+    def describe_output(of_compute_node):
         """..."""
-        LOG.info("Load shufflers to control %s: \n%s", labeled, pformat(control))
-        _, algorithm = plugins.import_module(control["algorithm"])
+        try:
+            with open(Path(of_compute_node["dirpath"]) / "output.json", 'r') as f:
+                output = json.load(f)
+        except FileNotFoundError as ferr:
+            raise RuntimeError(f"No output configured for compute node {of_compute_node}") from ferr
+        return output
 
-        kwargs = deepcopy(control["kwargs"])
+    outputs = {c: describe_output(of_compute_node) for c, of_compute_node in setup.items()}
+    LOG.info("Extract node populations %s reported outputs: \n%s", population["name"], pformat(outputs))
+
+    def in_store(at_path, hdf_group=None):
+        """..."""
+        return matrices.get_store(at_path, hdf_group or hdf_population, pd.DataFrame)
+
+    def move(compute_node, output):
+        """..."""
+        LOG.info("Get node population store for compute-node %s output %s", compute_node, output)
+        h5, g = output
+        return in_store(at_path=h5, hdf_group=g)
+
+    return in_store(connsense_h5).collect({c: move(compute_node=c, output=o) for c, o in outputs.items()})
+
+
+def collect_edge_population(setup, from_dirpath, in_connsense_store):
+    """..."""
+    LOG.info("Collect edge population at %s using setup \n%s", from_dirpath, setup)
+
+    try:
+        with open(from_dirpath/"description.json", 'r') as f:
+            population = json.load(f)
+    except FileNotFoundError as ferr:
+        raise RuntimeError(f"NOTFOUND a description of the population extracted: {at_basedir}") from ferr
+
+    #p = population["name"]
+    #hdf_edge_population = f"edges/populations/{p}"
+    connsense_h5, group = in_connsense_store
+    hdf_edge_population = group + '/' + population["name"]
+
+    LOG.info("Collect edges with description \n%s", pformat(population))
+
+    def describe_output(of_compute_node):
+        """..."""
+        try:
+            with open(Path(of_compute_node["dirpath"]) / "output.json", 'r') as f:
+                output = json.load(f)
+        except FileNotFoundError as ferr:
+            raise RuntimeError(f"No output configured for compute node {of_compute_node}") from ferr
+        return output
+
+    outputs = {c: describe_output(of_compute_node) for c, of_compute_node in setup.items()}
+    LOG.info("Edge extraction reported outputs: \n%s", pformat(outputs))
+
+    def collect_adjacencies(of_compute_node, output):
+        """..."""
+        LOG.info("Collect adjacencies compute-node %s output %s", of_compute_node, output)
+        adj = read_toc_plus_payload(output, for_step="extract-edge-populations")
+        return write_toc_plus_payload(adj, (connsense_h5, hdf_edge_population), append=True, format="table",
+                                      min_itemsize={"values": 100})
+        #return write_toc_plus_payload(adj, (in_connsense_store, hdf_edge_population), append=True, format="table")
+
+    LOG.info("Collect adjacencies")
+    for of_compute_node, output in outputs.items():
+        collect_adjacencies(of_compute_node, output)
+
+    LOG.info("Adjacencies collected: \n%s", len(outputs))
+
+    return (in_connsense_store, hdf_edge_population)
+
+
+def collect_analyze_step(setup, from_dirpath, in_connsense_store):
+    """..."""
+    try:
+        with open(from_dirpath/"description.json", 'r') as f:
+            analysis = json.load(f)
+    except FileNotFoundError as ferr:
+        raise RuntimeError(f"NOTFOUND a description of the analysis extracted: {from_dirpath}") from ferr
+
+    #a = analysis["name"]
+    #hdf_analysis = f"analyses/connectivity/{a}"
+    connsense_h5, group = in_connsense_store
+    hdf_analysis = group + '/' + analysis["name"]
+    output_type = analysis["output"]
+
+    def describe_output(of_compute_node):
+        """..."""
+        try:
+            with open(Path(of_compute_node["dirpath"]) / "output.json", 'r') as f:
+                output = json.load(f)
+        except FileNotFoundError as ferr:
+            raise RuntimeError(f"No output configured for compute node {of_compute_node}") from ferr
+        return output
+
+    outputs = {c: describe_output(of_compute_node) for c, of_compute_node in setup.items()}
+    LOG.info("Analysis %s reported outputs: \n%s", analysis["name"], pformat(outputs))
+
+    def in_store(at_path, hdf_group=None):
+        """..."""
+        return matrices.get_store(at_path, hdf_group or hdf_analysis, output_type)
+
+    def move(compute_node, output):
+        """..."""
+        LOG.info("Get analysis store for compute-node %s output %s", compute_node, output)
+        h5, g = output
+        return in_store(at_path=h5, hdf_group=g)
+
+    return in_store(connsense_h5).collect({c: move(compute_node=c, output=o) for c, o in outputs.items()})
+
+
+
+def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node):
+    """..."""
+    on_compute_node = run_cleanup(on_compute_node)
+
+    run_in_progress = on_compute_node.joinpath(INPROGRESS)
+    run_in_progress.touch(exist_ok=False)
+
+    execute, to_store_batch, to_store_one = configure_execution(of_computation, in_config, on_compute_node)
+
+    assert to_store_batch or to_store_one
+    assert not (to_store_batch and to_store_one)
+
+    computation_type, of_quantity = describe(of_computation)
+    parameters = parameterize(computation_type, of_quantity, in_config)
+
+    in_hdf = "connsense-{}.h5"
+
+    circuit_kwargs = input_circuit_args(of_computation, in_config, load_circuit=True)
+    circuit_args = tuple(k for k in ["circuit", "connectome"] if circuit_kwargs[k])
+    circuit_args_values = tuple(v for v in (circuit_kwargs["circuit"], circuit_kwargs["connectome"]) if v)
+    circuit_args_names = tuple(v for v in ((lambda c: c.variant if c else None)(circuit_kwargs["circuit"]),
+                                           circuit_kwargs["connectome"]) if v)
+
+    kwargs = load_kwargs(parameters, HDFStore(in_config), on_compute_node)
+
+    inputs = generate_inputs(of_computation, in_config)
+
+    collector = plugins.import_module(parameters["collector"]) if "collector" in parameters else None
+
+    def collect_batch(results):
+        """..."""
+        if not collector:
+            return results
+
+        _, collect = collector
+        return collect(results)
+
+    def execute_one(lazy_subtarget):
+        """..."""
+        return execute(*circuit_args_values, **lazy_subtarget(), **kwargs)
+
+    def lazy_dataset(s):
+        """..."""
+        if callable(s): return s
+
+        if isinstance(s, Mapping): return lambda: {var: value() for var, value in s.items()}
+
+        raise ValueError(f"Cannot resolve lazy dataset of type {type(s)}")
+
+    def run_batch(of_input, *, index, in_bowl=None):
+        """..."""
+        LOG.info("Run %s batch %s of %s inputs args, and circuit %s, \n with kwargs %s ", of_computation,
+                 index, len(of_input), circuit_args_values, pformat(kwargs))
+
+        def to_subtarget(s):
+            """..."""
+            r = execute_one(lazy_dataset(s))
+            LOG.info("store one lazy subtarget %s result \n%s", s, r)
+            LOG.info("Result data types %s", r.describe())
+            return to_store_one(in_hdf.format(index), result=r)
+
+        if to_store_batch:
+            results = of_input.apply(execute_one)
+            result = to_store_batch(in_hdf.format(index), results=collect_batch(results))
+            #framed = pd.concat([results], axis=0, keys=connsense_index.values, names=connsense_index.names)
+            #result = to_store_batch(in_hdf.format(index), results=collect_batch(framed))
+        else:
+            result = to_store_one(in_hdf.format(index), update=of_input.apply(to_subtarget))
+
+        if in_bowl is not None:
+            in_bowl[index] = result
+        return result
+
+    n_compute_nodes,  n_total_jobs = prepare_parallelization(of_computation, in_config, using_runtime)
+
+    batches = load_input_batches(on_compute_node)
+    n_batches = batches.batch.max() - batches.batch.min() + 1
+
+    if n_compute_nodes == n_total_jobs:
+        bowl = {}
+        for batch, subtargets in batches.groupby("batch"):
+            LOG.info("Run Single Node %s process %s / %s batches", on_compute_node, batch, n_batches)
+            bowl[batch] = run_batch(subset_input(subtargets.index), index=batch)
+        LOG.info("DONE Single Node connsense run.")
+    else:
+        manager = Manager()
+        bowl = manager.dict()
+        processes = []
+
+        for batch, subtargets in batches.groupby("batch"):
+            LOG.info("Spawn Compute Node %s process %s / %s batches", on_compute_node, batch, n_batches)
+            p = Process(target=run_batch,
+                        args=(inputs.loc[subtargets.index],), kwargs={"index": batch, "in_bowl": bowl})
+            p.start()
+            processes.append(p)
+
+        LOG.info("LAUNCHED %s processes", n_batches)
+
+        for p in processes:
+            p.join()
+
+        LOG.info("Parallel computation %s results %s", of_computation, len(bowl))
+
+    results = {key: value for key, value in bowl.items()}
+    LOG.info("Computation %s results %s", of_computation, len(results))
+
+    read_pipeline.write(results, to_json=on_compute_node/"batched_output.json")
+
+    _, output_paths = read_pipeline.check_paths(in_config, step=computation_type)
+    _, hdf_group = output_paths["steps"][computation_type]
+    of_output_type = parameters["output"]
+
+    collected = collect_batches(of_computation, results, on_compute_node, hdf_group, of_output_type)
+    read_pipeline.write(collected, to_json=on_compute_node/"output.json")
+
+    run_in_progress.unlink()
+    on_compute_node.joinpath(DONE).touch(exist_ok=False)
+
+    return collected
+
+
+def input_circuit(labeled, in_config):
+    """..."""
+    if not labeled:
+        return None
+    sbtcfg = SubtargetsConfig(in_config)
+    circuit = sbtcfg.attribute_depths(circuit=labeled)
+
+    return circuit
+
+
+def input_connectome(labeled, in_circuit):
+    """..."""
+    if not labeled:
+        return None
+
+    from bluepy import Circuit
+    assert isinstance(in_circuit, Circuit)
+
+    if labeled == "local":
+        return in_circuit.connectome
+    return in_circuit.projection[labeled]
+
+
+def input_circuit_args(computation, in_config, load_circuit=True, load_connectome=False):
+    """..."""
+    computation_type, of_quantity = describe(computation)
+    parameters = parameterize(computation_type, of_quantity, in_config)
+
+    try:
+        computation_inputs = parameters["input"]
+    except KeyError as kerr:
+        raise ValueError(f"No inputs configured for {computation}") from kerr
+
+    input_circuits = computation_inputs.get("circuit", None)
+    if input_circuits:
+        assert len(input_circuits) == 1, f"NotImplemented processing more than one circuit"
+        c = input_circuits[0]
+    else:
+        c = None
+    circuit = input_circuit(c, in_config) if load_circuit else c
+
+    input_connectomes = computation_inputs.get("connectome", None)
+    if input_connectomes:
+        assert len(input_connectomes) == 1, f"NotImplemented processing more than one connectome"
+        x = input_connectomes[0]
+    else:
+        x = None
+    connectome = input_connectome(x, in_circuit) if load_connectome else x
+    return {"circuit": circuit, "connectome": connectome}
+
+
+def subtarget_circuit_args(computation, in_config, load_circuit=False, load_connectome=False):
+    """..."""
+    computation_type, of_quantity = describe(computation)
+    parameters = parameterize(computation_type, of_quantity, in_config)
+
+    try:
+        subtarget = parameters["subtarget"]
+    except KeyError as kerr:
+        LOG.warning("No subtargets specified for %s", computation)
+        return input_circuit_args(computation, in_config, load_circuit, load_connectome)
+
+    c = subtarget.get("circuit", None)
+    circuit = input_circuit(c, in_config) if load_circuit else c
+
+    x = subtarget.get("connectome", None)
+    return {"circuit": circuit, "connectome": input_connectome(x, circuit) if load_connectome else x}
+
+
+def load_input_batches(on_compute_node, inputs=None, n_parallel_tasks=None):
+    """..."""
+    store_h5, dataset = COMPUTE_NODE_SUBTARGETS
+
+    assert inputs is None or inputs == on_compute_node / store_h5, (
+        "inputs dont seem to be what was configured\n"
+        f"Expected {inputs} to be {on_compute_node / store_h5} if setup by run_multinode(...)")
+
+    inputs_read = pd.read_hdf(on_compute_node/store_h5, key=dataset)
+    if not n_parallel_tasks:
+        return inputs_read
+    return inputs_read.assign(batch=pd.Series(np.arange(0, len(inputs_read))%n_parallel_tasks).to_numpy(int))
+
+
+
+
+def load_kwargs(parameters, to_tap, on_compute_node, consider_input=False):
+    """..."""
+    def load_dataset(value):
+        """..."""
+        return (to_tap.read_dataset(value["dataset"]) if isinstance(value, Mapping) and "dataset" in value
+                else value)
+
+    kwargs = parameters.get("kwargs", {})
+    kwargs.update({var: load_dataset(value) for var, value in kwargs.items() if var not in COMPKEYS})
+
+    if consider_input:
+        kwargs.update({var: value for var, value in parameters.get("input", {}).items()
+                       if var not in ("circuit", "connectome") and (
+                               not isinstance(value, Mapping) or "dataset" not in value)})
+
+    try:
+        workdir = kwargs["workdir"]
+    except KeyError:
+        return kwargs
+
+    if isinstance(workdir, Path):
+        return kwargs
+
+    if isinstance(workdir, str):
+        path = Path(workdir)/on_compute_node.relative_to(to_tap._root.parent)
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        if path.exists():
+            LOG.warning("Compute node has been run before, leaving a workdir:\n%s", path)
+            archive = path.parent / "history"
+            archive.mkdir(parents=False, exist_ok=True)
+
+            history = archive / path.name
+            if history.exists():
+                LOG.warning("Previous runs exist in %s history at \n%s", path.name, history)
+            history.mkdir(parents=False, exist_ok=True)
+
+            to_archive = history/ time.stamp(now=True)
+            if to_archive.exists():
+                LOG.warning("There is a previous run with the same time stamp as now!!!\n%s"
+                            "\n It will be removed", to_archive)
+                shutil.copytree(path, to_archive,
+                                symlinks=True, ignore_dangling_symlinks=True, dirs_exist_ok=True)
+                for filepath in path.glob('*'):
+                    filepath.unlink()
+            else:
+                path.rename(to_archive)
+
+        path.mkdir(parents=False, exist_ok=True)
+
+        try:
+            on_compute_node.joinpath("workdir").symlink_to(path)
+        except FileExistsError as ferr:
+            LOG.warn("Symlink to workdir compute-node %s already exists, most probably from a previous run"
+                        " Please cleanup before re-run", str(on_compute_node))
+
+        kwargs["workdir"] = path
+        return kwargs
+
+    if workdir is True:
+        workdir = on_compute_node / "workdir"
+        workdir.mkdir(parents=False, exist_ok=True)
+        kwargs["workdir"] = workdir
+        return kwargs
+
+    raise NotImplementedError(f"What to do with workdir type {type(workdir)}")
+
+
+def get_executable(computation_type, parameters):
+    """..."""
+    executable_type = EXECUTABLE[computation_type.split('-')[0]]
+
+    try:
+        executable = parameters[executable_type]
+    except KeyError as err:
+        raise RuntimeError(f"No {executable_type} defined for {computation_type}") from err
+
+    _, execute = plugins.import_module(executable["source"], executable["method"])
+
+    return execute
+
+
+def store_node_properties_batch(of_population, on_compute_node, in_hdf_group):
+    """...This will extract node properties for all subtargets as a single datasframe.
+    NOT-IDEAL and needs hacks to gather differemt resuts into the same input dataframe.
+    REPLACE by single subtarget store using matrices
+    """
+    def write_batch(connsense_h5, results):
+        """..."""
+        in_hdf = (on_compute_node/connsense_h5, in_hdf_group)
+        LOG.info("Write %s  results %s ", in_hdf, len(results))
+        return extract_nodes.write(results, of_population, in_hdf)
+
+    return write_batch
+
+
+def store_node_properties(of_population, on_compute_node, in_hdf_group):
+    """..."""
+    LOG.info("Store node properties of population %s on compute node %s in hdf %s, one subtarget at a time",
+             of_population, on_compute_node, in_hdf_group)
+
+    def write_hdf(at_path, *, result=None, update=None):
+        """..."""
+        assert not(result is None and update is None)
+        assert result is not None or update is not None
+
+        hdf_population = in_hdf_group+'/'+of_population
+        store = matrices.get_store(on_compute_node/at_path, hdf_population, "pandas.DataFrame")
+
+        if result is not None:
+            return store.write(result)
+
+        store.append_toc(store.prepare_toc(of_paths=update))
+        return (at_path, hdf_population)
+
+    return write_hdf
+
+
+def store_edge_extraction(of_population, on_compute_node, in_hdf_group):
+    """..."""
+    def write_batch(connsense_h5, results):
+        """..."""
+        in_hdf = (on_compute_node/connsense_h5, f"{in_hdf_group}/{of_population}")
+        LOG.info("Write %s batch results to %s", len(results), in_hdf)
+        return extract_connectivity.write_adj(results, to_output=in_hdf,  append=True, format="table",
+                                              return_config=True)
+
+    return write_batch
+
+
+def store_matrix_data(of_quantity, parameters, on_compute_node, in_hdf_group):
+    """..."""
+    LOG.info("Store matrix data for %s", parameters)
+    of_output = parameters["output"]
+    hdf_quantity = f"{in_hdf_group}/{of_quantity}"
+
+    cached_stores = {}
+
+    def write_hdf(at_path, *, result=None, update=None):
+        """..."""
+        assert at_path
+        assert not(result is None and update is None)
+        assert result is not None or update is not None
+
+        p = on_compute_node/at_path
+        if p not in cached_stores:
+            cached_stores[p] = matrices.get_store(p, hdf_quantity, for_matrix_type=of_output)
+
+        if result is not None:
+            return cached_stores[p].write(result)
+
+        cached_stores[p].append_toc(cached_stores[p].prepare_toc(of_paths=update))
+        return (at_path, hdf_quantity)
+
+    return write_hdf
+
+
+def get_executable(computation_type, parameters):
+    """..."""
+    executable_type = EXECUTABLE[computation_type.split('-')[0]]
+
+    try:
+        executable = parameters[executable_type]
+    except KeyError as err:
+        raise RuntimeError(f"No {executable_type} defined for {computation_type}") from err
+
+    _, execute = plugins.import_module(executable["source"], executable["method"])
+
+    return execute
+
+
+def store_node_properties_batch(of_population, on_compute_node, in_hdf_group):
+    """...This will extract node properties for all subtargets as a single datasframe.
+    NOT-IDEAL and needs hacks to gather differemt resuts into the same input dataframe.
+    REPLACE by single subtarget store using matrices
+    """
+    def write_batch(connsense_h5, results):
+        """..."""
+        in_hdf = (on_compute_node/connsense_h5, in_hdf_group)
+        LOG.info("Write %s  results %s ", in_hdf, len(results))
+        return extract_nodes.write(results, of_population, in_hdf)
+
+    return write_batch
+
+
+def store_node_properties(of_population, on_compute_node, in_hdf_group):
+    """..."""
+    LOG.info("Store node properties of population %s on compute node %s in hdf %s, one subtarget at a time",
+             of_population, on_compute_node, in_hdf_group)
+
+    def write_hdf(at_path, *, result=None, update=None):
+        """..."""
+        assert not(result is None and update is None)
+        assert result is not None or update is not None
+
+        hdf_population = in_hdf_group+'/'+of_population
+        store = matrices.get_store(on_compute_node/at_path, hdf_population, "pandas.DataFrame")
+
+        if result is not None:
+            return store.write(result)
+
+        store.append_toc(store.prepare_toc(of_paths=update))
+        return (at_path, hdf_population)
+
+    return write_hdf
+
+
+def store_edge_extraction(of_population, on_compute_node, in_hdf_group):
+    """..."""
+    def write_batch(connsense_h5, results):
+        """..."""
+        in_hdf = (on_compute_node/connsense_h5, f"{in_hdf_group}/{of_population}")
+        LOG.info("Write %s batch results to %s", len(results), in_hdf)
+        return extract_connectivity.write_adj(results, to_output=in_hdf,  append=True, format="table",
+                                              return_config=True)
+
+    return write_batch
+
+
+def store_matrix_data(of_quantity, parameters, on_compute_node, in_hdf_group):
+    """..."""
+    LOG.info("Store matrix data for %s", parameters)
+    of_output = parameters["output"]
+    hdf_quantity = f"{in_hdf_group}/{of_quantity}"
+
+    cached_stores = {}
+
+    def write_hdf(at_path, *, result=None, update=None):
+        """..."""
+        assert at_path
+        assert not(result is None and update is None)
+        assert result is not None or update is not None
+
+        p = on_compute_node/at_path
+        if p not in cached_stores:
+            cached_stores[p] = matrices.get_store(p, hdf_quantity, for_matrix_type=of_output)
+
+        if result is not None:
+            return cached_stores[p].write(result)
+
+        cached_stores[p].append_toc(cached_stores[p].prepare_toc(of_paths=update))
+        return (at_path, hdf_quantity)
+
+    return write_hdf
+
+
+def configure_execution(computation, in_config, on_compute_node):
+    """..."""
+    computation_type, of_quantity = describe(computation)
+    parameters = parameterize(computation_type, of_quantity, in_config)
+    _, output_paths = read_pipeline.check_paths(in_config, step=computation_type)
+    _, at_path = output_paths["steps"][computation_type]
+
+    execute = get_executable(computation_type, parameters)
+
+    if computation_type == "extract-node-populations":
+        return (execute, None,  store_node_properties(of_quantity, on_compute_node, at_path))
+        #return (execute, store_node_properties(of_quantity, on_compute_node, at_path), None)
+
+    if computation_type == "extract-edge-populations":
+        return (execute, store_edge_extraction(of_quantity, on_compute_node, at_path), None)
+
+    return (execute, None, store_matrix_data(of_quantity, parameters, on_compute_node, at_path))
+
+
+def collect_batches(of_computation, results, on_compute_node, hdf_group, of_output_type):
+    """..."""
+    LOG.info("Collect bactched %s results of %s on compute node %s in group %s output type %s",
+             of_computation, len(results), on_compute_node, hdf_group, of_output_type)
+    computation_type, of_quantity = describe(of_computation)
+
+    if computation_type == "extract-edge-populations":
+        return collect_batched_edge_population(of_quantity, results, on_compute_node, hdf_group)
+
+    hdf_quantity = hdf_group+"/"+of_quantity
+    in_connsense_h5 = on_compute_node / "connsense.h5"
+    in_store = matrices.get_store(in_connsense_h5, hdf_quantity, for_matrix_type=of_output_type)
+
+    batched = results.items()
+    in_store.collect({batch: matrices.get_store(on_compute_node / batch_connsense_h5, hdf_quantity,
+                                                for_matrix_type=of_output_type)
+                      for batch, (batch_connsense_h5, group) in batched})
+    return (in_connsense_h5, hdf_quantity)
+
+def collect_batched_node_population(p, results, on_compute_node, hdf_group):
+    """..."""
+    from connsense.io.write_results import read as read_batch, write as write_batch
+
+    LOG.info("Collect batched node populations of %s %s results on compute-node %s to %s", p,
+             len(results), on_compute_node, hdf_group)
+
+    in_connsense_h5 = on_compute_node / "connsense.h5"
+
+    hdf_node_population = (in_connsense_h5, hdf_group+"/"+p)
+
+    def move(batch, output):
+        """..."""
+        LOG.info("Write batch %s read from %s", batch, output)
+        result = read_batch(output, "extract-node-populations")
+        return write_batch(result, to_path=hdf_node_population, append=True, format="table")
+
+    LOG.info("collect batched extraction of nodes at compute node %s", on_compute_node)
+    for batch, output in results.items():
+        move(batch, output)
+
+    LOG.info("DONE collecting %s", results)
+    return hdf_node_population
+
+
+
+
+
+def run_cleanup(on_compute_node):
+    """..."""
+    if on_compute_node.joinpath(INPROGRESS).exists() or on_compute_node.joinpath(DONE).exists():
+        LOG.warning("Compute node has been run before: %s", on_compute_node)
+
+        archive = on_compute_node.parent / "history"
+        archive.mkdir(parents=False, exist_ok=True)
+
+        history_compute_node = archive/on_compute_node.name
+        if history_compute_node.exists():
+            LOG.warning("Other than the existing run, there were previous ones too: \n%s",
+                        list(history_compute_node.glob('*')))
+
+        to_archive = history_compute_node/time.stamp(now=True)
+        if to_archive.exists():
+            LOG.warning("The last run archived at \n %s \n"
+                        "must have been within the last minute of now (%s) and may be overwritten",
+                        to_archive, time.stamp(now=True))
+        shutil.copytree(on_compute_node, to_archive,
+                        symlinks=False, ignore_dangling_symlinks=True, dirs_exist_ok=True)
+
+    files_to_remove = ([on_compute_node / path for path in ("batched_output.json", "output.json",
+                                                            INPROGRESS, DONE)]
+                       + list(on_compute_node.glob("connsense*.h5")))
+    LOG.info("On compute node %s, cleanup by removing files \n%s", on_compute_node.name, files_to_remove)
+    for to_remove in files_to_remove:
+        to_remove.unlink(missing_ok=True)
+
+    return on_compute_node
+
+
+
+def load_control(transformations, lazily=True):
+    """..."""
+    try:
+        controls = transformations["controls"]
+    except KeyError:
+        LOG.error("No controls configured among trransformations: \n%s", pformat(controls))
+        return None
+    else:
+        controls = {name: description for name, description in controls.items()
+                    if name != "description"}
+
+    def load_config(control, description):
+        """..."""
+        LOG.info("Load configured control %s: \n%s", control, pformat(description))
+
+        _, algorithm = plugins.import_module(description["algorithm"])
+
+        kwargs = deepcopy(description["kwargs"])
         seeds = kwargs.pop("seeds", None)
 
         def seed_shuffler(s):
             """..."""
-            def shuffle(subgraph, seed=s, **kwargs):
+            def shuffle(inputs):
                 """..."""
-                return algorithm(subgraph(), seed=s)
+                if lazily:
+                    assert callable(inputs)
+                    return lambda: algorithm(**inputs(), seed=s, **kwargs)
+                assert not callable(inputs)
+                return algorithm(**inputs, seed=s, **kwargs)
 
-            lazy_shuffle = lazily(to_evaluate=shuffle)
-            lazy_shuffle.__name__  = f"{labeled}-{s}"
-            return lazy_shuffle
+            return (f"{control}-{s}", shuffle)
 
         return [seed_shuffler(s) for s in seeds]
 
-    return [shuffler for shufflers in (load_shufflers(control, labeled=c) for c, control in configured.items())
-            for shuffler in shufflers]
-
-
-
-def apply_transformations(in_values, to_tap, variable, dataset, of_analysis):
-    """..."""
-    try:
-        transformations = in_values["transformations"]
-    except KeyError:
-        LOG.info("No transformations configured for %s", variable)
-        return dataset
-
-    reindexed = reindex_input(transformations, to_tap, variable, dataset, of_analysis)
-    controlled = apply_control(transformations, to_tap, variable, reindexed, of_analysis)
-
-    return controlled
+    return [seeded_shuffle for control, described in controls.items()
+            for seeded_shuffle in load_config(control, described)]
 
 
 
