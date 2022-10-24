@@ -67,7 +67,12 @@ class Step(Runnable):
 
     def setup(self, computation, in_config, using_runtime=None, **kwargs):
         """..."""
-        return self._runner.setup(in_config, **kwargs)
+        if using_runtime:
+            from connsense.pipeline.parallelization.parallelization import run_multinode, setup_compute_node
+            return run_multinode(setup_compute_node, computation, in_config, using_runtime)
+
+        _, substep = computation.split('/')
+        return self._runner.setup(in_config, substep, **kwargs)
 
     def collect(self, computation, in_config, using_runtime, **kwargs):
         """Allow collection of results produced by parallel runs.

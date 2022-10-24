@@ -303,6 +303,11 @@ def pour(tap, datasets):
     datasets = sorted([(variable, load_dataset(tap, variable, values)) for variable, values in datasets.items()],
                       key=lambda x: len(x[1].index.names), reverse=True)
 
+    hindex = datasets[0][1].index
+
+    return (pd.concat([dset.loc[hindex] for _, dset in datasets], axis=1, keys=[name for name, _ in datasets])
+            .apply(lambda row: row.to_dict(), axis=1))
+
     def collect(aggregated, datasets):
         """..."""
         if not datasets:
@@ -579,6 +584,16 @@ def generate_inputs(of_computation, in_config):
     datasets = pour(tap=HDFStore(in_config), datasets=filter_datasets(params["input"]))
     original = datasets.apply(lazy_keyword).apply(DataCall)
 
+    def tap_datasets(for_inputs, and_additionally=None):
+        """..."""
+        LOG.info("Get input data from tap: \n%s", for_inputs)
+        references = deepcopy(for_inputs)
+        if and_additionally:
+            LOG.info("And additionally: \n%s", and_additionally)
+            references.update({key: {"dataset": ref} for key, ref in and_additionally.items()} or {})
+        datasets = pour(tap, datasets=references)
+        return datasets.apply(lazy_keyword).apply(DataCall)
+
     try:
         transformations = params["input"]["transformations"]
     except KeyError:
@@ -594,16 +609,25 @@ def generate_inputs(of_computation, in_config):
 
     controls = load_control(transformations, lazily=False)
     if controls:
-        controlled = pd.concat([original.apply(datacall(shuffle)) for _, shuffle in controls], axis=0,
-                               keys=[control_label for control_label,_ in controls], names=["control"])
+        for_input = filter_datasets(params["input"])
+        controlled = pd.concat([tap_datasets(for_input, and_additionally=to_tap).apply(datacall(shuffle))
+                                for _, shuffle, to_tap in controls], axis=0,
+                               keys=[control_label for control_label, _, _ in controls], names=["control"])
         original = pd.concat([original], axis=0, keys=["original"], names=["control"])
         result = pd.concat([original, controlled])
         result = result.reorder_levels([l for l in result.index.names if l != "control"] + ["control"])
     else:
         result = original
+
+    subsets = load_subset(transformations, lazily=False)
+    if subsets:
+        subsetted = pd.concat([result.apply(datacall(subset_input)) for _, subset_input in subsets], axis=0,
+                               keys=[subset_label for subset_label,_ in subsets], names=["subset"])
+        result = pd.concat([result], axis=0, keys=["full"], names=["subset"])
+        result = pd.concat([result, subsetted])
+        result = result.reorder_levels([l for l in result.index.names if l != "subset"] + ["subset"])
+
     return result
-
-
 
 
 def configure_slurm(computation, in_config, using_runtime):
@@ -1468,11 +1492,11 @@ def load_control(transformations, lazily=True):
     try:
         controls = transformations["controls"]
     except KeyError:
-        LOG.error("No controls configured among trransformations: \n%s", pformat(controls))
+        LOG.error("No controls configured among trransformations: \n%s", pformat(transformations))
         return None
     else:
-        controls = {name: description for name, description in controls.items()
-                    if name != "description"}
+        controls = {name: description for name, description in controls.items() if name != "description"}
+
 
     def load_config(control, description):
         """..."""
@@ -1483,22 +1507,73 @@ def load_control(transformations, lazily=True):
         kwargs = deepcopy(description["kwargs"])
         seeds = kwargs.pop("seeds", None)
 
+        try:
+            to_tap = description["tap_datasets"]
+        except KeyError:
+            to_tap = None
+
         def seed_shuffler(s):
             """..."""
             def shuffle(inputs):
                 """..."""
                 if lazily:
-                    assert callable(inputs)
                     return lambda: algorithm(**inputs(), seed=s, **kwargs)
-                assert not callable(inputs)
                 return algorithm(**inputs, seed=s, **kwargs)
-
-            return (f"{control}-{s}", shuffle)
-
+            return (f"{control}-{s}", shuffle, to_tap)
         return [seed_shuffler(s) for s in seeds]
+    return [shuffled for control, described in controls.items() for shuffled in load_config(control, described)]
 
-    return [seeded_shuffle for control, described in controls.items()
-            for seeded_shuffle in load_config(control, described)]
+
+
+def load_subset(transformations, lazily=True):
+    """..."""
+    try:
+        subsets = transformations["subsets"]
+    except KeyError:
+        LOG.error("No subsets configured among transformations: \n%s", pformat(transformations))
+        return None
+    else:
+        subsets = {name: description for name, description in subsets.items() if name != "description"}
+
+    def load_config(subset, description):
+        """..."""
+        LOG.info("Load configured subset %s: \n%s", subset, pformat(description))
+
+        _, algorithm = plugins.import_module(description["algorithm"])
+
+        kwargs = deepcopy(description["kwargs"])
+        try:
+            variants = kwargs.pop("variants")
+        except KeyError:
+            LOG.warning("No variants set for subsetting the inputs.")
+            variants = {}
+
+        def label(variant):
+            """..."""
+            return "--".join([f"{value}" for value in variant.values()])
+
+        def prepare(variants):
+            """..."""
+            if not variants:
+                return {}
+
+            assert len(variants) == 1, f"INPRPGRESS crose product variants specified by {len(variants)} variables"
+            key, values = next(iter(variants.items()))
+            return ({key: value} for value in values)
+
+        def specify(variant):
+            """..."""
+            def subset_input(datasets):
+                """..."""
+                if lazily:
+                    assert callable(datasets)
+                    return lambda: algorithm(**datasets(), **variant, **kwargs)
+                assert not callable(datasets)
+                return algorithm(**datasets, **variant, **kwargs)
+            return (f"{subset}-{label(variant)}", subset_input)
+        return [specify(variant) for variant in prepare(variants)]
+    return [subset_input for subset, described in subsets.items() for subset_input in load_config(subset, described)]
+
 
 
 
