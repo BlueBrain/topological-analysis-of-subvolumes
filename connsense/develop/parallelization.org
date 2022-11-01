@@ -115,7 +115,7 @@ As of <2022-10-18 Tue> we are developing a fresh interface for ~connsense-TAP~ t
 """
 # %% [code]
 
-from connsense.develop import topotap as topotap_store
+from connsense.develop import (topotap as topotap_store, parallelization as devprl)
 reload(topotap_store)
 topotap = topotap_store.HDFStore(CONNSPACE/"pipeline.yaml")
 print("Available analyses: ")
@@ -139,16 +139,16 @@ pprint(topotap.analyses)
 #+RESULTS:
 #+begin_example
 We will plot golden aspect ratios:  1.618033988749895
- 2022-10-24 08:21:35,404: Configure slurm for create-index
- 2022-10-24 08:21:35,404: No runtime configured for computation type create-index
- 2022-10-24 08:21:35,405: Configure slurm for define-subtargets
- 2022-10-24 08:21:35,406: Configure slurm for extract-node-populations
- 2022-10-24 08:21:35,406: Configure slurm for extract-edge-populations
- 2022-10-24 08:21:35,407: Configure slurm for analyze-connectivity
+ 2022-11-01 08:59:59,347: Configure slurm for create-index
+ 2022-11-01 08:59:59,347: No runtime configured for computation type create-index
+ 2022-11-01 08:59:59,348: Configure slurm for define-subtargets
+ 2022-11-01 08:59:59,349: Configure slurm for extract-node-populations
+ 2022-11-01 08:59:59,349: Configure slurm for extract-edge-populations
+ 2022-11-01 08:59:59,350: Configure slurm for analyze-connectivity
 Available analyses:
 Available analyses:
-{'connectivity': {'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7fff044fe760>,
-                  'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7fff044fe430>}}
+{'connectivity': {'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7ffec98c7220>,
+                  'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7ffec98c71c0>}}
 #+end_example
 
 
@@ -550,8 +550,6 @@ def pour(tap, datasets):
 
 #+end_src
 
-#+RESULTS: develop-parallelization-inputs-pour-datasets
-
 If a ~transformation~ has been specified, we need to apply it. What should we expect of a ~dataset-transformation~?
 
 Let us consider specific cases that we want.
@@ -589,7 +587,6 @@ def reindex_input(transformations, to_tap, variable, dataset, of_analysis):
 
 #+end_src
 
-
 ** Controls for inputs
 
 An analysis is incomplete without controls. Controls can be chosen to see if any ~pheneomenon/quantity~ signficantly stands out. We see high ~simplex-counts~ in the ~flatmap-columns~, but are these values signficantly different from those in an Erdos-Renyi graph of the same size? Properly chosen controls can provide a hierarchy of models of increasing complexity that progressively approximate a ~phenomenon/quantity~'s value in the circuit.
@@ -618,16 +615,17 @@ simplex-counts:
     transformations:
       description: >-
           Apply the transformations configured below to an input before computing.
+
       controls:
         description: >-
           Each other entry than this description must be a statistical control to apply to the input's
           `(adjacency, node_properties)` to the computation of `simplex-counts`. The listed method will
           be called by the full input of the analysis method.
+
         erdos-renyi:
           description: >-
             Erdos-Renyi shuffle of edges.
-          kwargs:
-            seeds: [0, 1, 2, 3, 4]
+          seeds: [0, 1, 2, 3, 4]
           algorithm:
             source: "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/randomization.py"
             method: "ER_shuffle"
@@ -637,8 +635,7 @@ simplex-counts:
             Randomize edges by a 2nd order distance dependent model.
           tap_datasets:
             model_params_dd2: ["analyze-connectivity", "model_params_dd2"]
-          kwargs:
-            seeds: [0, 1, 2, 3, 4]
+          seeds: [0, 1, 2, 3, 4]
           algorithm:
             source: "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/randomization.py"
             method: "run_DD2_model"
@@ -685,8 +682,306 @@ def load_control(transformations, lazily=True):
         return [seed_shuffler(s) for s in seeds]
     return [shuffled for control, described in controls.items() for shuffled in load_config(control, described)]
 
-
 #+end_src
+
+*** Test develop
+
+We have setup a workspace to compute simplex-counts, with a config based on our discussion. Let us see what inputs we can load for ~simplex-count~ analysis.
+#+begin_src jupyter-python :tangle develop_parallelization.py
+computation = "analyze-connectivity/simplex-counts"
+params = devprl.parameterize(*devprl.describe(computation), topaz._config)
+
+print("inputs for simplex-counts:\n")
+pprint({k: v for k, v in params["input"].items() if k not in ("transformations", "slicing")})
+
+print("\nwith transformations\n")
+pprint(params["input"]["transformations"])
+#+end_src
+
+#+RESULTS:
+#+begin_example
+inputs for simplex-counts:
+
+{'adjacency': {'dataset': ['extract-edge-populations', 'local']},
+ 'node_properties': {'dataset': ['extract-node-populations', 'default']}}
+
+with transformations
+
+{'controls': {'dd2': {'algorithm': {'method': 'run_DD2_model',
+                                    'source': '/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/randomization.py'},
+                      'description': 'Randomize edges by a 2nd order distance '
+                                     'dependent model.',
+                      'kwargs': {'seeds': [0, 1, 2, 3, 4]},
+                      'tap_datasets': {'model_params_dd2': ['analyze-connectivity',
+                                                            'model-params-dd2']}},
+              'description': 'Each other entry than this description must be a '
+                             "statistical control to apply to the input's "
+                             '`(adjacency, node_properties)` to the '
+                             'computation of `simplex-counts`. The listed '
+                             'method will be called by the full input of the '
+                             'analysis method.',
+              'erdos-renyi': {'algorithm': {'method': 'ER_shuffle',
+                                            'source': '/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/randomization.py'},
+                              'description': 'Erdos-Renyi shuffle of edges.',
+                              'kwargs': {'seeds': [0, 1, 2, 3, 4]}}},
+ 'description': 'Apply the transformations configured below to an input before '
+                'computing.'}
+#+end_example
+
+We can pass these ~config~ to ~connsense-TAP~ to generate the inputs,
+#+begin_src jupyter-python :tangle develop_parallelization.py
+inputs = devprl.generate_inputs(computation, topaz._config)
+
+display(inputs)
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+#+begin_example
+ 2022-10-31 15:11:09,655: Generate inputs for analyze-connectivity/simplex-counts.
+ 2022-10-31 15:11:09,657: Pour tap
+/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/test/connsense.h5
+ to get values for variables:
+{'adjacency': {'dataset': ['extract-edge-populations', 'local']},
+ 'node_properties': {'dataset': ['extract-node-populations', 'default']}}
+ 2022-10-31 15:11:09,683: Pour adjacency dataset
+ 2022-10-31 15:11:09,684: Evaluate unpack_value lazily
+ 2022-10-31 15:11:09,686: Initialize a DataFrameStore matrix store loading / writing data at /gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/test/connsense.h5 / nodes/populations/default
+ 2022-10-31 15:11:09,694: Pour node_properties dataset
+ 2022-10-31 15:11:09,695: Evaluate unpack_value lazily
+ 2022-10-31 15:11:09,707: Load configured control erdos-renyi:
+{'algorithm': {'method': 'ER_shuffle',
+               'source': '/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/randomization.py'},
+ 'description': 'Erdos-Renyi shuffle of edges.',
+ 'kwargs': {'seeds': [0, 1, 2, 3, 4]}}
+ 2022-10-31 15:11:09,707: Import module from path {'source': '/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/randomization.py', 'method': 'ER_shuffle'}, with method None
+ 2022-10-31 15:11:09,708: Import module from path /gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/randomization.py, with method ER_shuffle
+ 2022-10-31 15:11:09,714: Load configured control dd2:
+{'algorithm': {'method': 'run_DD2_model',
+               'source': '/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/randomization.py'},
+ 'description': 'Randomize edges by a 2nd order distance dependent model.',
+ 'kwargs': {'seeds': [0, 1, 2, 3, 4]},
+ 'tap_datasets': {'model_params_dd2': ['analyze-connectivity',
+                                       'model-params-dd2']}}
+ 2022-10-31 15:11:09,715: Import module from path {'source': '/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/randomization.py', 'method': 'run_DD2_model'}, with method None
+ 2022-10-31 15:11:09,715: Import module from path /gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/randomization.py, with method run_DD2_model
+ 2022-10-31 15:11:09,721: Get input data from tap:
+{'adjacency': {'dataset': ['extract-edge-populations', 'local']}, 'node_properties': {'dataset': ['extract-node-populations', 'default']}}
+ 2022-10-31 15:11:09,721: Pour tap
+/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/test/connsense.h5
+ to get values for variables:
+{'adjacency': {'dataset': ['extract-edge-populations', 'local']},
+ 'node_properties': {'dataset': ['extract-node-populations', 'default']}}
+ 2022-10-31 15:11:09,745: Pour adjacency dataset
+ 2022-10-31 15:11:09,746: Evaluate unpack_value lazily
+ 2022-10-31 15:11:09,747: Initialize a DataFrameStore matrix store loading / writing data at /gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/test/connsense.h5 / nodes/populations/default
+ 2022-10-31 15:11:09,756: Pour node_properties dataset
+ 2022-10-31 15:11:09,756: Evaluate unpack_value lazily
+ 2022-10-31 15:11:09,767: Get input data from tap:
+{'adjacency': {'dataset': ['extract-edge-populations', 'local']}, 'node_properties': {'dataset': ['extract-node-populations', 'default']}}
+ 2022-10-31 15:11:09,768: Pour tap
+/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/test/connsense.h5
+ to get values for variables:
+{'adjacency': {'dataset': ['extract-edge-populations', 'local']},
+ 'node_properties': {'dataset': ['extract-node-populations', 'default']}}
+ 2022-10-31 15:11:09,769: Pour adjacency dataset
+ 2022-10-31 15:11:09,770: Evaluate unpack_value lazily
+ 2022-10-31 15:11:09,772: Pour node_properties dataset
+ 2022-10-31 15:11:09,773: Evaluate unpack_value lazily
+ 2022-10-31 15:11:09,783: Get input data from tap:
+{'adjacency': {'dataset': ['extract-edge-populations', 'local']}, 'node_properties': {'dataset': ['extract-node-populations', 'default']}}
+ 2022-10-31 15:11:09,784: Pour tap
+/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/test/connsense.h5
+ to get values for variables:
+{'adjacency': {'dataset': ['extract-edge-populations', 'local']},
+ 'node_properties': {'dataset': ['extract-node-populations', 'default']}}
+ 2022-10-31 15:11:09,786: Pour adjacency dataset
+ 2022-10-31 15:11:09,786: Evaluate unpack_value lazily
+ 2022-10-31 15:11:09,789: Pour node_properties dataset
+ 2022-10-31 15:11:09,790: Evaluate unpack_value lazily
+ 2022-10-31 15:11:09,799: Get input data from tap:
+{'adjacency': {'dataset': ['extract-edge-populations', 'local']}, 'node_properties': {'dataset': ['extract-node-populations', 'default']}}
+ 2022-10-31 15:11:09,800: Pour tap
+/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/test/connsense.h5
+ to get values for variables:
+{'adjacency': {'dataset': ['extract-edge-populations', 'local']},
+ 'node_properties': {'dataset': ['extract-node-populations', 'default']}}
+ 2022-10-31 15:11:09,801: Pour adjacency dataset
+ 2022-10-31 15:11:09,801: Evaluate unpack_value lazily
+ 2022-10-31 15:11:09,804: Pour node_properties dataset
+ 2022-10-31 15:11:09,804: Evaluate unpack_value lazily
+ 2022-10-31 15:11:09,813: Get input data from tap:
+{'adjacency': {'dataset': ['extract-edge-populations', 'local']}, 'node_properties': {'dataset': ['extract-node-populations', 'default']}}
+ 2022-10-31 15:11:09,814: Pour tap
+/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/test/connsense.h5
+ to get values for variables:
+{'adjacency': {'dataset': ['extract-edge-populations', 'local']},
+ 'node_properties': {'dataset': ['extract-node-populations', 'default']}}
+ 2022-10-31 15:11:09,815: Pour adjacency dataset
+ 2022-10-31 15:11:09,816: Evaluate unpack_value lazily
+ 2022-10-31 15:11:09,817: Pour node_properties dataset
+ 2022-10-31 15:11:09,818: Evaluate unpack_value lazily
+ 2022-10-31 15:11:09,828: Get input data from tap:
+{'adjacency': {'dataset': ['extract-edge-populations', 'local']}, 'node_properties': {'dataset': ['extract-node-populations', 'default']}}
+ 2022-10-31 15:11:09,829: And additionally:
+{'model_params_dd2': ['analyze-connectivity', 'model-params-dd2']}
+ 2022-10-31 15:11:09,829: Pour tap
+/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/test/connsense.h5
+ to get values for variables:
+{'adjacency': {'dataset': ['extract-edge-populations', 'local']},
+ 'model_params_dd2': {'dataset': ['analyze-connectivity', 'model-params-dd2']},
+ 'node_properties': {'dataset': ['extract-node-populations', 'default']}}
+ 2022-10-31 15:11:09,831: Pour adjacency dataset
+ 2022-10-31 15:11:09,831: Evaluate unpack_value lazily
+ 2022-10-31 15:11:09,833: Pour node_properties dataset
+ 2022-10-31 15:11:09,834: Evaluate unpack_value lazily
+ 2022-10-31 15:11:09,836: No analyses for group node-types
+ 2022-10-31 15:11:09,836: No analyses for group composition
+ 2022-10-31 15:11:09,837: Tabulate stores for simplex-counts, {'index': {'subtarget': {'dataset': ['define-subtargets', 'flatmap-columns']}, 'circuit': ['Bio_M'], 'connectome': ['local']}, 'input': {'adjacency': {'dataset': ['extract-edge-populations', 'local']}, 'node_properties': {'dataset': ['extract-node-populations', 'default']}, 'transformations': {'description': 'Apply the transformations configured below to an input before computing.', 'controls': {'description': "Each other entry than this description must be a statistical control to apply to the input's `(adjacency, node_properties)` to the computation of `simplex-counts`. The listed method will be called by the full input of the analysis method.", 'erdos-renyi': {'description': 'Erdos-Renyi shuffle of edges.', 'kwargs': {'seeds': [0, 1, 2, 3, 4]}, 'algorithm': {'source': '/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/randomization.py', 'method': 'ER_shuffle'}}, 'dd2': {'description': 'Randomize edges by a 2nd order distance dependent model.', 'tap_datasets': {'model_params_dd2': ['analyze-connectivity', 'model-params-dd2']}, 'kwargs': {'seeds': [0, 1, 2, 3, 4]}, 'algorithm': {'source': '/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/randomization.py', 'method': 'run_DD2_model'}}}}}, 'computation': {'source': '/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py', 'method': 'simplex_counts'}, 'output': 'pandas.Series', 'components': {}}
+ 2022-10-31 15:11:09,838: Initialize a SeriesStore matrix store loading / writing data at /gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/test/connsense.h5 / analyses/connectivity/simplex-counts
+ 2022-10-31 15:11:09,847: Tabulate stores for model-params-dd2, {'index': {'subtarget': {'dataset': ['define-subtargets', 'flatmap-columns']}, 'circuit': ['Bio_M'], 'connectome': ['local']}, 'input': {'adjacency': {'dataset': ['extract-edge-populations', 'local']}, 'node_properties': {'dataset': ['extract-node-populations', 'default']}}, 'kwargs': {'bin_size_um': 50, 'max_range_um': 1000, 'sample_size': None, 'coord_names': ['x', 'y', 'z']}, 'computation': {'source': '/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/modelling.py', 'method': 'conn_prob_2nd_order_model'}, 'output': 'pandas.DataFrame', 'components': {}}
+ 2022-10-31 15:11:09,847: Initialize a DataFrameStore matrix store loading / writing data at /gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/test/connsense.h5 / analyses/connectivity/model-params-dd2
+ 2022-10-31 15:11:09,856: No analyses for group physiology
+ 2022-10-31 15:11:09,856: Pour model_params_dd2 dataset
+ 2022-10-31 15:11:09,857: Evaluate unpack_value lazily
+ 2022-10-31 15:11:09,869: Get input data from tap:
+{'adjacency': {'dataset': ['extract-edge-populations', 'local']}, 'node_properties': {'dataset': ['extract-node-populations', 'default']}}
+ 2022-10-31 15:11:09,869: And additionally:
+{'model_params_dd2': ['analyze-connectivity', 'model-params-dd2']}
+ 2022-10-31 15:11:09,870: Pour tap
+/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/test/connsense.h5
+ to get values for variables:
+{'adjacency': {'dataset': ['extract-edge-populations', 'local']},
+ 'model_params_dd2': {'dataset': ['analyze-connectivity', 'model-params-dd2']},
+ 'node_properties': {'dataset': ['extract-node-populations', 'default']}}
+ 2022-10-31 15:11:09,872: Pour adjacency dataset
+ 2022-10-31 15:11:09,872: Evaluate unpack_value lazily
+ 2022-10-31 15:11:09,875: Pour node_properties dataset
+ 2022-10-31 15:11:09,875: Evaluate unpack_value lazily
+ 2022-10-31 15:11:09,878: Pour model_params_dd2 dataset
+ 2022-10-31 15:11:09,878: Evaluate unpack_value lazily
+ 2022-10-31 15:11:09,890: Get input data from tap:
+{'adjacency': {'dataset': ['extract-edge-populations', 'local']}, 'node_properties': {'dataset': ['extract-node-populations', 'default']}}
+ 2022-10-31 15:11:09,891: And additionally:
+{'model_params_dd2': ['analyze-connectivity', 'model-params-dd2']}
+ 2022-10-31 15:11:09,891: Pour tap
+/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/test/connsense.h5
+ to get values for variables:
+{'adjacency': {'dataset': ['extract-edge-populations', 'local']},
+ 'model_params_dd2': {'dataset': ['analyze-connectivity', 'model-params-dd2']},
+ 'node_properties': {'dataset': ['extract-node-populations', 'default']}}
+ 2022-10-31 15:11:09,893: Pour adjacency dataset
+ 2022-10-31 15:11:09,893: Evaluate unpack_value lazily
+ 2022-10-31 15:11:09,895: Pour node_properties dataset
+ 2022-10-31 15:11:09,896: Evaluate unpack_value lazily
+ 2022-10-31 15:11:09,898: Pour model_params_dd2 dataset
+ 2022-10-31 15:11:09,898: Evaluate unpack_value lazily
+ 2022-10-31 15:11:09,908: Get input data from tap:
+{'adjacency': {'dataset': ['extract-edge-populations', 'local']}, 'node_properties': {'dataset': ['extract-node-populations', 'default']}}
+ 2022-10-31 15:11:09,909: And additionally:
+{'model_params_dd2': ['analyze-connectivity', 'model-params-dd2']}
+ 2022-10-31 15:11:09,910: Pour tap
+/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/test/connsense.h5
+ to get values for variables:
+{'adjacency': {'dataset': ['extract-edge-populations', 'local']},
+ 'model_params_dd2': {'dataset': ['analyze-connectivity', 'model-params-dd2']},
+ 'node_properties': {'dataset': ['extract-node-populations', 'default']}}
+ 2022-10-31 15:11:09,911: Pour adjacency dataset
+ 2022-10-31 15:11:09,912: Evaluate unpack_value lazily
+ 2022-10-31 15:11:09,914: Pour node_properties dataset
+ 2022-10-31 15:11:09,914: Evaluate unpack_value lazily
+ 2022-10-31 15:11:09,916: Pour model_params_dd2 dataset
+ 2022-10-31 15:11:09,917: Evaluate unpack_value lazily
+ 2022-10-31 15:11:09,928: Get input data from tap:
+{'adjacency': {'dataset': ['extract-edge-populations', 'local']}, 'node_properties': {'dataset': ['extract-node-populations', 'default']}}
+ 2022-10-31 15:11:09,929: And additionally:
+{'model_params_dd2': ['analyze-connectivity', 'model-params-dd2']}
+ 2022-10-31 15:11:09,930: Pour tap
+/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/test/connsense.h5
+ to get values for variables:
+{'adjacency': {'dataset': ['extract-edge-populations', 'local']},
+ 'model_params_dd2': {'dataset': ['analyze-connectivity', 'model-params-dd2']},
+ 'node_properties': {'dataset': ['extract-node-populations', 'default']}}
+ 2022-10-31 15:11:09,931: Pour adjacency dataset
+ 2022-10-31 15:11:09,932: Evaluate unpack_value lazily
+ 2022-10-31 15:11:09,933: Pour node_properties dataset
+ 2022-10-31 15:11:09,934: Evaluate unpack_value lazily
+ 2022-10-31 15:11:09,936: Pour model_params_dd2 dataset
+ 2022-10-31 15:11:09,937: Evaluate unpack_value lazily
+ 2022-10-31 15:11:09,954: No subsets configured among transformations:
+{'controls': {'dd2': {'algorithm': {'method': 'run_DD2_model',
+                                    'source': '/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/randomization.py'},
+                      'description': 'Randomize edges by a 2nd order distance '
+                                     'dependent model.',
+                      'kwargs': {'seeds': [0, 1, 2, 3, 4]},
+                      'tap_datasets': {'model_params_dd2': ['analyze-connectivity',
+                                                            'model-params-dd2']}},
+              'description': 'Each other entry than this description must be a '
+                             "statistical control to apply to the input's "
+                             '`(adjacency, node_properties)` to the '
+                             'computation of `simplex-counts`. The listed '
+                             'method will be called by the full input of the '
+                             'analysis method.',
+              'erdos-renyi': {'algorithm': {'method': 'ER_shuffle',
+                                            'source': '/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/randomization.py'},
+                              'description': 'Erdos-Renyi shuffle of edges.',
+                              'kwargs': {'seeds': [0, 1, 2, 3, 4]}}},
+ 'description': 'Apply the transformations configured below to an input before '
+                'computing.'}
+#+end_example
+#+begin_example
+subtarget_id  circuit_id  connectome_id  control
+1             0           0              original    <connsense.develop.parallelization.DataCall ob...
+2             0           0              original    <connsense.develop.parallelization.DataCall ob...
+3             0           0              original    <connsense.develop.parallelization.DataCall ob...
+4             0           0              original    <connsense.develop.parallelization.DataCall ob...
+5             0           0              original    <connsense.develop.parallelization.DataCall ob...
+                                                                           ...
+235           0           0              dd2-4       <connsense.develop.parallelization.DataCall ob...
+236           0           0              dd2-4       <connsense.develop.parallelization.DataCall ob...
+237           0           0              dd2-4       <connsense.develop.parallelization.DataCall ob...
+238           0           0              dd2-4       <connsense.develop.parallelization.DataCall ob...
+239           0           0              dd2-4       <connsense.develop.parallelization.DataCall ob...
+Length: 2629, dtype: object
+#+end_example
+:END:
+
+
+The inputs have 11 times the number of ~flatmap-column~s, 1 for the original, 5 per original for ~erodos-renyi~ and ~dd2-model~ each,
+#+begin_src jupyter-python :tangle develop_parallelization.py
+subtargets_per_control = inputs.groupby("control").size()
+display(subtargets_per_control)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+control
+dd2-0            239
+dd2-1            239
+dd2-2            239
+dd2-3            239
+dd2-4            239
+erdos-renyi-0    239
+erdos-renyi-1    239
+erdos-renyi-2    239
+erdos-renyi-3    239
+erdos-renyi-4    239
+original         239
+dtype: int64
+#+end_example
+
+Each entry amont ~inputs~ contains a ~datacall~ that will return the configured inputs, in the case of ~simplex-counts~ a ~mapping~ that provides values for ~adjacency~ and ~node_properties~ that the configured computation method expects,
+#+begin_src jupyter-python :tangle develop_parallelization.py
+input_quantities_0 = inputs.iloc[0]()
+for variable, value in input_quantities_0.items():
+    print("input %s: \n%s"%(variable, type(value)))
+#+end_src
+
+#+RESULTS:
+: input adjacency:
+: <class 'scipy.sparse.csr.csr_matrix'>
+: input node_properties:
+: <class 'pandas.core.frame.DataFrame'>
 
 ** Subsets of inputs
 
@@ -708,19 +1003,30 @@ simplex-counts:
   input:
     adjacency:
       dataset: ["extract-edge-populations", "local"]
-    transformations:
-      description: >-
-        Apply the transformations configured below to an input before computing.
-      subsets:
-        intralayer:
-          description: >-
-            Intralayer subgraphs.
-          kwargs:
-            variants:
-              layer: [1, 2, 3, 4, 5, 6]
-          algorithm:
-            source: "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py"
-            method: "subgraph_intralayer"
+    node_properties:
+      dataset: ["extract-node-properties", "default"]
+
+    controls:
+
+    slicing:
+      intralayer:
+        description: >-
+          Intralayer subgraphs.
+        slices:
+          layer: [1, 2, 3, 4, 5, 6]
+        algorithm:
+          source: "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py"
+          method: "subgraph_intralayer"
+      interlayer:
+        description: >-
+          Interlayer subgraphs.
+        slices:
+          source_layer: [1, 2, 3, 4, 5, 6]
+          target_layer: [1, 2, 3, 4, 5, 6]
+        algorithm:
+          source: "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py"
+          method: "subgraph_interlayer"
+
 #+end_src
 
 #+name: develop-parallelization-inputs-subset-datasets
@@ -4599,7 +4905,7 @@ class IllegalParallelComputationError(ValueError):
 
 <<develop-parallelization-single-node-multiprocess-collect-batched-node-populations>>
 
-<<develop-parallelization-single-node-multiprocess-batched-edge-populations>>
+<<develop-parallelization-single-node-multiprocess-collect-batched-edge-populations>>
 
 <<develop-parallelization-single-node-multiprocess-cleanup>>
 

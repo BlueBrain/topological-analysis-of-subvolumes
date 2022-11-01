@@ -1452,6 +1452,26 @@ def collect_batched_node_population(p, results, on_compute_node, hdf_group):
     return hdf_node_population
 
 
+def collect_batched_edge_population(p, results, on_compute_node, hdf_group):
+    """..."""
+
+    in_connsense_h5 = on_compute_node / "connsense.h5"
+
+    hdf_edge_population = (in_connsense_h5, hdf_group+'/'+p)
+
+    def move(batch, output):
+        """.."""
+        LOG.info("collect batch %s of adjacencies at %s output %s ", batch, on_compute_node, output)
+        adjmats = read_toc_plus_payload(output, for_step="extract-edge-populations")
+        return write_toc_plus_payload(adjmats, hdf_edge_population, append=True, format="table",
+                                      min_itemsize={"values": 100})
+
+    LOG.info("collect batched extraction of edges at compute node %s", on_compute_node)
+    for batch, output in results.items():
+        move(batch, output)
+
+    LOG.info("DONE collecting %s", results)
+    return hdf_edge_population
 
 
 
@@ -1522,7 +1542,6 @@ def load_control(transformations, lazily=True):
             return (f"{control}-{s}", shuffle, to_tap)
         return [seed_shuffler(s) for s in seeds]
     return [shuffled for control, described in controls.items() for shuffled in load_config(control, described)]
-
 
 
 def load_subset(transformations, lazily=True):
