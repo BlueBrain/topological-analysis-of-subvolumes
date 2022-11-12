@@ -1,6 +1,5 @@
 
 
-
 # Finally, let us collect the code in a module,
 
 
@@ -295,7 +294,10 @@ class HDFStore:
             LOG.info("Load dataset %s: \n%s", definition["dataset"], pformat(definition["description"]))
             _, group = definition["dataset"]
             subtargets = pour_subtargets(f"{group}/name")
-            info = pour_subtargets(f"{group}/info")
+            try:
+                info = pour_subtargets(f"{group}/info")
+            except KeyError:
+                return subtargets
             return pd.concat([subtargets, info], axis=1)
     
         if len(definitions) == 1:

@@ -1,5 +1,5 @@
-#+PROPERTY: header-args:jupyter :session  ~/Library/Jupyter/runtime/active-py38-ssh.json :pandoc t
-#+PROPERTY: header-args:jupyter-python :session ~/Library/Jupyter/runtime/active-py38-ssh.json :pandoc t
+#+PROPERTY: header-args:jupyter :session  ~/Library/Jupyter/runtime/active-1-ssh-crash-1.json :pandoc t
+#+PROPERTY: header-args:jupyter-python :session ~/Library/Jupyter/runtime/active-1-ssh-crash-1.json :pandoc t
 #+STARTUP: overview
 
 #+title: Parallelization
@@ -88,8 +88,12 @@ We can set paths to load data, and to save the results of our experiments. Paths
 # %% [code]
 ROOTSPACE = Path("/")
 PROJSPACE = ROOTSPACE / "gpfs/bbp.cscs.ch/project/proj83"
-CONNSPACE = PROJSPACE / "home/sood" / "topological-analysis-subvolumes/test/v2" / "test"
+#CONNSPACE = PROJSPACE / "home/sood" / "topological-analysis-subvolumes/test/v2" / "test"
+CONNSPACE = (PROJSPACE / "home/sood" / "portal/develop/factology-v2/analyses/connsense"/
+             "redefine-subtargets/create-index/morphology-mtypes")
 #+end_src
+
+#+RESULTS: notebook-workspaces
 
 ** Tap store
 
@@ -139,16 +143,32 @@ pprint(topotap.analyses)
 #+RESULTS:
 #+begin_example
 We will plot golden aspect ratios:  1.618033988749895
- 2022-11-01 08:59:59,347: Configure slurm for create-index
- 2022-11-01 08:59:59,347: No runtime configured for computation type create-index
- 2022-11-01 08:59:59,348: Configure slurm for define-subtargets
- 2022-11-01 08:59:59,349: Configure slurm for extract-node-populations
- 2022-11-01 08:59:59,349: Configure slurm for extract-edge-populations
- 2022-11-01 08:59:59,350: Configure slurm for analyze-connectivity
+ 2022-11-12 10:44:59,634: Configure slurm for define-subtargets
+ 2022-11-12 10:44:59,650: Configure slurm for extract-node-types
+ 2022-11-12 10:44:59,651: Configure slurm for analyze-node-types
+ 2022-11-12 10:44:59,652: Configure slurm for create-index
+ 2022-11-12 10:44:59,653: No runtime configured for computation type create-index
+ 2022-11-12 10:44:59,655: Configure slurm for extract-node-populations
+ 2022-11-12 10:44:59,656: Configure slurm for extract-edge-populations
+ 2022-11-12 10:44:59,657: Configure slurm for sample-edge-populations
+ 2022-11-12 10:44:59,658: Configure slurm for analyze-composition
+ 2022-11-12 10:44:59,659: Configure slurm for analyze-connectivity
+ 2022-11-12 10:44:59,660: Configure slurm for configure-inputs
+ 2022-11-12 10:44:59,661: No runtime configured for computation type configure-inputs
+ 2022-11-12 10:44:59,662: Configure slurm for analyze-physiology
 Available analyses:
 Available analyses:
-{'connectivity': {'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7ffec98c7220>,
-                  'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7ffec98c71c0>}}
+{'composition': {'sample-bouton-density': <connsense.develop.topotap.TapDataset object at 0x7ffeec89e250>,
+                 'synapse-morphology-locations': <connsense.develop.topotap.TapDataset object at 0x7ffeec89ec10>,
+                 'synapse-properties': <connsense.develop.topotap.TapDataset object at 0x7ffeec89e160>},
+ 'connectivity': {'common-neighbor-bias': <connsense.develop.topotap.TapDataset object at 0x7ffeec89e190>,
+                  'connection-probability': <connsense.develop.topotap.TapDataset object at 0x7ffeec89e4c0>,
+                  'pair-counts-by-soma-distance': <connsense.develop.topotap.TapDataset object at 0x7ffeec89e700>,
+                  'pathway-strength': <connsense.develop.topotap.TapDataset object at 0x7ffeec89e040>,
+                  'pathway-strength-metype': <connsense.develop.topotap.TapDataset object at 0x7ffeec89e370>,
+                  'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7ffeec89e3d0>},
+ 'node-types': {'morphometrics': <connsense.develop.topotap.TapDataset object at 0x7ffeec89e0a0>},
+ 'physiology': {'psp': <connsense.develop.topotap.TapDataset object at 0x7ffeec89e580>}}
 #+end_example
 
 
@@ -260,9 +280,9 @@ Using parameters
 
 To run a computation of multiple inputs in parallel on multiple ~compute-nodes~, we will need to assign to each input a ~compute-node~ to on, and the parallel ~batch~ it will be queued in,
 
-#+name: develop-parallelization-batched-inputs
+#+name: develop-parallelization-batched-inputs-0
 #+begin_src python
-def batch_multinode(computation, of_inputs, in_config, at_dirpath, using_parallelization, single_submission=500):
+def batch_multinode_0(computation, of_inputs, in_config, at_dirpath, using_parallelization, single_submission=500):
     """...Just read the method definition above,
     and code below
     """
@@ -284,6 +304,53 @@ def batch_multinode(computation, of_inputs, in_config, at_dirpath, using_paralle
 
     return assignment
 
+#+end_src
+
+#+RESULTS: develop-parallelization-batched-inputs-0
+: None
+
+Here is a newer version that should adjust the slicing's reduced load.
+
+#+name: develop-parallelization-batched-inputs
+#+begin_src python :noweb yes
+<<develop-parallelization-batches-inputs-0>>
+
+def batch_multinode(computation, of_inputs, in_config, at_dirpath, using_parallelization, single_submission=500,
+                    with_weights=True, unit_weight=None):
+    """...Just read the method definition above,
+    and code below
+    """
+    from tqdm import tqdm; tqdm.pandas()
+
+    n_compute_nodes, n_parallel_jobs = using_parallelization
+    n_parallel_jobs_per_node_biggest_subtarget = int(n_parallel_jobs / n_compute_nodes)
+
+    LOG.info("Assign compute-nodes to %s inputs", len(of_inputs))
+    weights = (of_inputs.progress_apply(lambda l: estimate_load(to_compute=None)(l()))
+               .dropna().sort_values(ascending=True)).rename("weight")
+    unit_weight = max(unit_weight or 0.,  weights.max())
+
+    compute_nodes = ((n_compute_nodes * (np.cumsum(weights) / weights.sum() - 1.e-6))
+                     .astype(int).rename("compute_node"))
+    LOG.info("Assign batches to compute node subtargets")
+
+    def batch(compute_node):
+        """..."""
+        cn_weights = weights.loc[compute_node.index]
+        n_parallel = min(int(n_parallel_jobs_per_node_biggest_subtarget * unit_weight / cn_weights.max()),
+                         len(cn_weights))
+        return pd.Series(np.linspace(0, n_parallel - 1.e-6, len(cn_weights), dtype=int), name="batch",
+                         index=cn_weights.index)
+    batches = pd.DataFrame(compute_nodes).groupby("compute_node").apply(batch)
+    batches = batches.reorder_levels(compute_nodes.index.names + ["compute_node"])
+    if not with_weights:
+        return batches
+
+    if not isinstance(weights.index, pd.MultiIndex):
+        index = pd.MultiIndex.from_arrays([weights.index.values], names=[weights.index.name])
+        weights.index = index
+        #weights = batches.loc[index]
+    return pd.concat([batches, weights.loc[batches.index]], axis=1) if with_weights else batches
 
 #+end_src
 
@@ -297,10 +364,17 @@ Inputs with the same value will be queued in the same batch of inputs to with se
 #+begin_src python
 def batch_parallel_groups(of_inputs, upto_number, to_compute=None, return_load=False):
     """..."""
+    from tqdm import tqdm; tqdm.pandas()
+
+
     if isinstance(of_inputs, pd.Series):
-        weights = of_inputs.apply(estimate_load(to_compute)).sort_values(ascending=True).rename("load")
+        weights = (of_inputs.progress_apply(lambda l: estimate_load(to_compute)(l())).rename("load")
+                   .sort_values(ascending=True))
+
     elif isinstance(of_inputs, pd.DataFrame):
-        weights = of_inputs.apply(estimate_load(to_compute), axis=1).sort_values(ascending=True).rename("load")
+        weights = (of_inputs.progress_apply(lambda l: estimate_load(to_compute)(l()), axis=1).rename("load")
+                   .sort_values(ascending=True))
+
     else:
         raise TypeError(f"Unhandled type of input: {of_inputs}")
 
@@ -319,7 +393,12 @@ def batch_parallel_groups(of_inputs, upto_number, to_compute=None, return_load=F
 
 #+end_src
 
+#+RESULTS: develop-parallelization-batched-inputs-parallel-groups
+: None
+
 We infer the computational load to compute the result of an input from the first argument among the inputs. In ~connsense-TAP~, the inputs are ~lazyvals / lambdas~, /i.e./ ~unit-computations~ that can be called upon to return the input value defined in them. We assume that the cost of a computation will depend on the /size/ of it's inputs.  A ~connsense-TAP~ ~computation~ may take more than one input argument passed around as a ~dict~. We assume that the size of the input can be infered from the first argument in this ~dict~.  The estimate method we implement should work for other types of inputs as well.
+
+*** Estimate loads
 
 #+name: develop-parallelization-estimate-batched-inputs-load
 #+begin_src python
@@ -369,7 +448,7 @@ def distribute_compute_nodes(parallel_batches, upto_number):
 
     n_parallel_batches = parallel_batches.max() + 1
     compute_nodes = np.linspace(0, upto_number - 1.e-6, n_parallel_batches, dtype=int)
-    assignment = pd.Series(compute_nodes[parallel_batches], name=dset, index=parallel_batches.index)
+    assignment = pd.Series(compute_nodes[parallel_batches.values], name=dset, index=parallel_batches.index)
     return assignment
 
 
@@ -482,7 +561,7 @@ def load_dataset(tap, variable, values):
     """...Load a configured `computation-variable` from `connsense-TAP`
        values: as configured
     """
-    dataset = tap.pour_dataset(variable, values["dataset"])
+    dataset = tap.pour_dataset(*values["dataset"])
 
     def unpack_value(v):
         """..."""
@@ -556,7 +635,7 @@ Let us consider specific cases that we want.
 
 ** Reindex the input
 
-A ~connsense-TAP-dataset~ is saved as a ~pandas.Series~ indexed by the ~computation-subtargets~ that the dataset applies to. For example for the SSCx-Portal we have saved a sample of connections for each pathway in each central-column. In ~connsense-TAP~ this data is saved per ~subtarget-id, circuit-id, connectome-id~ as a ~pandas.DataFrame~ containing values of the source and target ~node-id~. We want to compute PSP traces for each connection, but grouped by their pathway. Within ~connsense-TAP~ we can reindex the data, concatenating with additional levels for the source and target pathways. The scheme to reindex can be specified in the config,
+A ~connsense-TAP-dataset~ is saved as a ~pandas.Series~ indexed by the ~computation-subtargets~ that the dataset applies to. For example for the SSCx-Portal we have saved a sample of connections for each pathway in each central-column. In ~connsense-TAP~ this data is saved per ~subtarget-id, circuit-id, connectome-id~ as a ~pandas.DataFrame~ containing values of the source and target ~node-id~. We want to compute PSP traces for each    connection, but grouped by their pathway. Within ~connsense-TAP~ we can reindex the data, concatenating with additional levels for the source and target pathways. The scheme to reindex can be specified in the config,
 
 #+begin_src yaml
 input:
@@ -591,7 +670,7 @@ def reindex_input(transformations, to_tap, variable, dataset, of_analysis):
 
 An analysis is incomplete without controls. Controls can be chosen to see if any ~pheneomenon/quantity~ signficantly stands out. We see high ~simplex-counts~ in the ~flatmap-columns~, but are these values signficantly different from those in an Erdos-Renyi graph of the same size? Properly chosen controls can provide a hierarchy of models of increasing complexity that progressively approximate a ~phenomenon/quantity~'s value in the circuit.
 
-Controling an analysis' input will proceed by transforming each input according to the configured ~transformations~. There may be more than ~dataset~ inputs to an analysis method, which will have a common index. Each of the transformation method should also respond to the full input of the analysis method.
+Controling an analysis' input will proceed by transforming each input according to the configured ~controls~. There may be more than ~dataset~ inputs to an analysis method, which will have a common index. Each of the ~control~ method should also respond to the full input of the analysis method.
 
 #+begin_src yaml
 simplex-counts:
@@ -612,33 +691,30 @@ simplex-counts:
     node_properties:
       dataset: ["extract-node-populations", "default"]
 
-    transformations:
+
+  controls:
+    description: >-
+      Each other entry than this description must be a statistical control to apply to the input's
+      `(adjacency, node_properties)` to the computation of `simplex-counts`. The listed method will
+      be called by the full input of the analysis method.
+
+    erdos-renyi:
       description: >-
-          Apply the transformations configured below to an input before computing.
+        Erdos-Renyi shuffle of edges.
+      seeds: [0, 1, 2, 3, 4]
+      algorithm:
+        source: "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/randomization.py"
+        method: "ER_shuffle"
 
-      controls:
-        description: >-
-          Each other entry than this description must be a statistical control to apply to the input's
-          `(adjacency, node_properties)` to the computation of `simplex-counts`. The listed method will
-          be called by the full input of the analysis method.
-
-        erdos-renyi:
-          description: >-
-            Erdos-Renyi shuffle of edges.
-          seeds: [0, 1, 2, 3, 4]
-          algorithm:
-            source: "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/randomization.py"
-            method: "ER_shuffle"
-
-        dd2:
-          description: >-
-            Randomize edges by a 2nd order distance dependent model.
-          tap_datasets:
-            model_params_dd2: ["analyze-connectivity", "model_params_dd2"]
-          seeds: [0, 1, 2, 3, 4]
-          algorithm:
-            source: "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/randomization.py"
-            method: "run_DD2_model"
+    dd2:
+      description: >-
+        Randomize edges by a 2nd order distance dependent model.
+      tap_datasets:
+        model_params_dd2: ["analyze-connectivity", "model_params_dd2"]
+      seeds: [0, 1, 2, 3, 4]
+      algorithm:
+        source: "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/randomization.py"
+        method: "run_DD2_model"
 
 #+end_src
 
@@ -648,28 +724,20 @@ We can take an explicit approach, and code separate behaviour for each type of t
 #+begin_src python
 def load_control(transformations, lazily=True):
     """..."""
-    try:
-        controls = transformations["controls"]
-    except KeyError:
-        LOG.error("No controls configured among trransformations: \n%s", pformat(transformations))
-        return None
-    else:
-        controls = {name: description for name, description in controls.items() if name != "description"}
-
-
     def load_config(control, description):
         """..."""
         LOG.info("Load configured control %s: \n%s", control, pformat(description))
 
         _, algorithm = plugins.import_module(description["algorithm"])
 
-        kwargs = deepcopy(description["kwargs"])
-        seeds = kwargs.pop("seeds", None)
+        seeds = description.get("seeds", [0])
 
         try:
             to_tap = description["tap_datasets"]
         except KeyError:
             to_tap = None
+
+        kwargs = description.get("kwargs", {})
 
         def seed_shuffler(s):
             """..."""
@@ -680,9 +748,14 @@ def load_control(transformations, lazily=True):
                 return algorithm(**inputs, seed=s, **kwargs)
             return (f"{control}-{s}", shuffle, to_tap)
         return [seed_shuffler(s) for s in seeds]
-    return [shuffled for control, described in controls.items() for shuffled in load_config(control, described)]
+
+    controls = {k: v for k, v in transformations.items() if k != "description"}
+    return [shuffled for ctrl, cfg in controls.items() for shuffled in load_config(ctrl, cfg)]
 
 #+end_src
+
+#+RESULTS: develop-parallelization-inputs-control-datasets
+: None
 
 *** Test develop
 
@@ -983,10 +1056,11 @@ for variable, value in input_quantities_0.items():
 : input node_properties:
 : <class 'pandas.core.frame.DataFrame'>
 
-** Subsets of inputs
+** Sliced input
 
-The second example is that of analyzing subsets of an input --- for example the /intra-layer-subgraphs/. We will be guided by how we have implemented controls.
+The second example is that of analyzing slices of an input --- for example the /intra-layer-subgraphs/. We will be guided by how we have implemented controls.
 
+#+name:  config-simplex-counts
 #+begin_src yaml
 simplex-counts:
   description: >-
@@ -1006,10 +1080,16 @@ simplex-counts:
     node_properties:
       dataset: ["extract-node-properties", "default"]
 
-    controls:
+    transformations:
+      description: >-
+        Transformations are configured by their type. Each type of transformation may contain several inidividual definitions. Transformations will be applied in sequence to each original input. A given transformation such as a randomization may produce more than one output for a single input. Subsequent transformations will be applied to each of it's output.  The result will be an input-dataset containing an additional level for each
 
     slicing:
-      intralayer:
+      description: >-
+        Configure `do-full: true` to run the analyses on the full subtarget as a separate dataset than the slices. If `false`, analyses will not be run for full. If you do not want to analyze slices, then
+        remove this section.
+      do-full: true
+      layer:
         description: >-
           Intralayer subgraphs.
         slices:
@@ -1029,58 +1109,244 @@ simplex-counts:
 
 #+end_src
 
-#+name: develop-parallelization-inputs-subset-datasets
-#+begin_src python
-def load_subset(transformations, lazily=True):
-    """..."""
-    try:
-        subsets = transformations["subsets"]
-    except KeyError:
-        LOG.error("No subsets configured among transformations: \n%s", pformat(transformations))
-        return None
-    else:
-        subsets = {name: description for name, description in subsets.items() if name != "description"}
+Above we have configured two slicings for ~simplex-counts~ analysis. There is an ~algorithm~ that specifies the computation to slice, and a specification of what to slice. Specification of ~slices~ is expected to be ~mapping~ from ~kwargs~ that make sense to the ~algorithm~'s computation to their values. The specified values will be used ~connsense-TAP~ to create the ~algorithm~'s ~kwargs~. In the case of ~intralayer~, there will be six slices, one each for the mentioned layer. If we want only a handful of slices, writing them explicitly in the config is the most efficient way. Otherwise we can refer to a ~connsense-dataset~,
+#+name: config-simplex-counts-with-mtype-slicing
+#+begin_src yaml :noweb yes
+<<config-simplex-counts>>
+      mtype:
+        description: >-
+          Intra-mtype slicing.
+        slices:
+          mtype:
+            dataset: ["extract-node-types", "biophysical/mtype"]
+        algorithm:
+            source: "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py"
+            method: "subgraph_intralayer"
+#+end_src
 
+Slicing by ~mtype~ does not make much biological sense, and is a /subset/ of slicing by ~pathway~,
+#+name: config-simplex-counts-with-pathway-slicing
+#+begin_src yaml :noweb yes
+<<config-simplex-counts-with-mtype-slicing>>
+      pathway:
+        description: >-
+          Slice subtargets by mtype --> mtype pathway.
+        slices:
+          sources:
+            dataset: ["extract-node-types", "biophysical/mtype"]
+          targets:
+            dataset: ["extract-node-types", "biophysical/mtype"]
+        algorithm:
+            source: "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py"
+            method: "subgraph_pathway"
+#+end_src
+
+which will generate computations of ~simplex-counts~ for each ~mtype --> mtype~ pathway for each if the inputs, and their controls.
+
+To implement an ~loader~ for such a prescription of slicing, we will start by parsing the ~slices~ of a ~slicing~.
+#+name: develop-parallelization-inputs-parse-slicing
+#+begin_src python
+def parse_slices(slicing):
+    """..."""
+    from itertools import product
+    def prepare_singleton(slicespec):
+        """..."""
+        assert len(slicespec) == 2, slicespec
+        key, values = slicespec
+        if isinstance(values, list):
+            return ((key, value) for value in values)
+        if isinstance(values, Mapping):
+            if len(values) == 1:
+                innerkey, innervalues = next(iter(values.items()))
+                if not isinstance(innervalues, list):
+                    innervalues = [innervalues]
+                return ((key, {innerkey: val}) for val in innervalues)
+            innerdicts = product(*(s for s in (prepare_singleton(slicespec=s)  for s in values.items())))
+            return ((key, dvalue) for dvalue in innerdicts)
+
+        return ((key, value) for value in [values])
+
+    slicing = slicing["slices"].items()
+    if len(slicing) == 1:
+        return (dict([s]) for s in prepare_singleton(next(iter(slicing))))
+
+    slices = product(*(singleton for singleton in (prepare_singleton(slicespec=s) for s in slicing)))
+    return (dict(s) for s in slices)
+
+
+#+end_src
+
+#+RESULTS: develop-parallelization-inputs-parse-slicing
+: None
+
+which we can use to collect
+
+#+name: develop-parallelization-inputs-subset-datasets
+#+begin_src python :noweb yes
+<<develop-parallelization-inputs-parse-slicing>>
+
+def load_slicing(transformations, using_tap=None, lazily=True):
+    """..."""
+    from copy import deepcopy
+    def load_dataset(slicing):
+        """..."""
+        slicing = deepcopy(slicing)
+        slices = slicing["slices"]
+        def load_dataset(values):
+            """..."""
+            if isinstance(values, dict):
+                if "dataset" in values:
+                    return using_tap.pour_dataset(*values["dataset"]).tolist()
+                return {var: load_dataset(vals) for var, vals in values.items()}
+            return values
+        slicing["slices"] = {variable: load_dataset(values) for variable, values in slices.items()}
+        return slicing
+
+    def flatten(aslice):
+        """..."""
+        def denest(key, value):
+            if not isinstance(value, dict):
+                return value
+            return {f"{key}_{innerkey}": denest(innerkey, innervalue)
+                    for innerkey, innervalue in value.items()}
+        if len(aslice) == 1:
+            key, value = next(iter(aslice.items()))
+            return {key: denest(key, value)}
+        flat = {}
+        for var, values in aslice.items():
+            denested = denest(var, values)
+            flat.update(denested)
+        return flat
+
+    def load(slicing):
+        """..."""
+        _, algorithm = plugins.import_module(slicing["algorithm"])
+        kwargs = slicing.get("kwargs", {})
+        slices = list(parse_slices(load_dataset(slicing)))
+        def specify(aslice):
+            """..."""
+            def slice_input(datasets):
+                if lazily:
+                    assert callable(datasets)
+                    return lambda: algorithm(**datasets(), **aslice, **kwargs)
+                assert not callable(datasets)
+                return algorithm(**datasets, **aslice, **kwargs)
+            return slice_input
+        return pd.Series([specify(aslice) for aslice in slices],
+                         index=pd.MultiIndex.from_frame(pd.DataFrame([flatten(aslice) for aslice in slices])))
+    return {slicing: load(slicing=s) for slicing, s in transformations.items()}
+
+#+end_src
+
+#+RESULTS: develop-parallelization-inputs-subset-datasets
+: None
+
+#+name: develop-parallelization-inputs-subset-datasets-0
+#+begin_src python :noweb yes
+
+def load_slicing_0(transformations, using_tap=None, lazily=True):
+    """..."""
+    from itertools import product
+
+    slicing = {k:v for k, v in transformations.items() if k != "description"}
     def load_config(subset, description):
         """..."""
         LOG.info("Load configured subset %s: \n%s", subset, pformat(description))
 
         _, algorithm = plugins.import_module(description["algorithm"])
 
-        kwargs = deepcopy(description["kwargs"])
         try:
-            variants = kwargs.pop("variants")
+            slices = description["slices"]
         except KeyError:
-            LOG.warning("No variants set for subsetting the inputs.")
-            variants = {}
+            LOG.warning("No slices set for subsetting the inputs.")
+            slices = {}
 
-        def label(variant):
+        def label(a_slice):
             """..."""
-            return "--".join([f"{value}" for value in variant.values()])
+            if len(a_slice) == 1:
+                return "-".join([f"{key}_{value}" for key, value in a_slice.items()])
 
-        def prepare(variants):
+            source = a_slice["sources"]
+            if len(source) == 1:
+                source = list(source.values())[0]
+            else:
+                source = "_".join(source.values())
+
+            target = a_slice["targets"]
+            if len(target) == 1:
+                target = list(target.values())[0]
+            else:
+                target = "_".join(target.values())
+
+            return source + "-" + target
+
+        def prepare(slices):
             """..."""
-            if not variants:
+            LOG.info("prepare slices \n%s", slices)
+            if not slices:
                 return {}
 
-            assert len(variants) == 1, f"INPRPGRESS crose product variants specified by {len(variants)} variables"
-            key, values = next(iter(variants.items()))
-            return ({key: value} for value in values)
+            #assert len(slices) == 1, f"INPRPGRESS crose product variants specified by {len(slices)} variables"
 
-        def specify(variant):
+            if "source_types" in slices:
+                assert len(slices) == 2 and "target_types" in slices
+
+                sources = slices["source_types"]
+                if "dataset" in sources:
+                    assert using_tap
+                    dataset = using_tap.pour_dataset(*sources["dataset"])
+                    assert isinstance(dataset, pd.Series)
+                    source_variable = dataset.name
+                    source_values = dataset.values
+                else:
+                    assert len(sources) == 1
+                    source_variable, source_values = list(sources.items())[0]
+
+                targets = slices["target_types"]
+                if "dataset" in targets:
+                    assert using_tap
+                    dataset = using_tap.pour_dataset(*targets["dataset"])
+                    assert isinstance(dataset, pd.Series)
+                    target_variable = dataset.name
+                    target_values = dataset.values
+                else:
+                    assert len(targets) == 1
+                    targets = slices["target_types"]
+                    assert len(targets) == 1
+                    target_variable, target_values = list(targets.items())[0]
+
+                return ({"sources": {source_variable: s}, "targets": {target_variable: t}}
+                        for s in source_values for t in target_values)
+
+            return ({"sources": dict(x), "targets": dict(x)}
+                    for x in product(*[[(key, value) for value in slices[key]] for key in slices]))
+
+        kwargs = description.get("kwargs", {})
+
+        def specify(aslice):
             """..."""
-            def subset_input(datasets):
+            def slice_input(datasets):
                 """..."""
                 if lazily:
                     assert callable(datasets)
-                    return lambda: algorithm(**datasets(), **variant, **kwargs)
+                    return lambda: algorithm(**datasets(), **aslice, **kwargs)
                 assert not callable(datasets)
-                return algorithm(**datasets, **variant, **kwargs)
-            return (f"{subset}-{label(variant)}", subset_input)
-        return [specify(variant) for variant in prepare(variants)]
-    return [subset_input for subset, described in subsets.items() for subset_input in load_config(subset, described)]
+                return algorithm(**datasets, **aslice, **kwargs)
+            return (f"{label(aslice)}", slice_input)
+        return [specify(aslice) for aslice in prepare(slices)]
+    return [slice_ip for aslice, described in slicing.items() for slice_ip in load_config(aslice, described)]
 
 
+#+end_src
+
+*** TODO
+#+begin_src jupyter-python
+simplex_counts(subtarget=None, slicing=FULL, controls=ORIGINAL)
+
+simplex_counts.describe("controls")
+
+simplex_counts.available_controls(): #list of keys of available controls
+simplex_coounts.available_slicing():  #list of keys of available slicing
 #+end_src
 
 ** Transformations of inputs -- to remove -- does not apply
@@ -1140,10 +1406,58 @@ class DataCall:
 ** Generate input datasets
 
 We will load the inputs as a list ~unit-computationss~ derived from the ~pipeline-config~.
-
 #+name: develop-parallelization-multinode-generate-inputs
 #+begin_src python
-def generate_inputs(of_computation, in_config):
+def generate_inputs(of_computation, in_config, slicing=None):
+    """..."""
+    LOG.info("Generate inputs for %s.", of_computation)
+
+    computation_type, of_quantity = describe(of_computation)
+    params = parameterize(computation_type, of_quantity, in_config)
+    tap = HDFStore(in_config)
+
+    datasets = pour(tap=HDFStore(in_config), datasets=filter_datasets(params["input"]))
+    original = datasets.apply(lazy_keyword).apply(DataCall)
+
+    controlled = control_inputs(of_computation, in_config, using_tap=tap)
+    if controlled is not None:
+        original = pd.concat([original], axis=0, keys=["original"], names=["control"])
+        result = pd.concat([original, controlled])
+        result = result.reorder_levels([l for l in result.index.names if l != "control"] + ["control"])
+    else:
+        result = original
+
+    return result
+
+    if not slicing:
+        return result
+
+    sliced, do_full = slice_inputs(of_computation, in_config, datasets=result, using_tap=tap)
+    if sliced is not None:
+        if do_full:
+            result = pd.concat([result], axis=0, keys=["full"], names=["slice"])
+            result = pd.concat([result, sliced], axis=0)
+            result = result.reorder_levels([l for l in result.index.names if l != "slice"] + ["slice"])
+        else:
+            result = sliced.reorder_levels([l for l in result.index.names if l != "slice"] + ["slice"])
+    return result
+
+
+def generate_slices(of_tap, inputs, using_knives):
+    """Generate slices of inputs accoring to configured knives."""
+    from tqdm import tqdm; tqdm.pandas()
+    slices = pd.concat([inputs.apply(datacall(cut)) for cut in using_knives], axis=0, keys=using_knives.index)
+    return slices.reorder_levels(inputs.index.names +
+                                 slices.index.names[0:(len(slices.index.names) - len(inputs.index.names))])
+
+
+#+end_src
+
+#+RESULTS: develop-parallelization-multinode-generate-inputs
+
+#+name: develop-parallelization-multinode-generate-inputs-0
+#+begin_src python
+def generate_inputs_0(of_computation, in_config):
     """..."""
     LOG.info("Generate inputs for %s.", of_computation)
 
@@ -1164,12 +1478,6 @@ def generate_inputs(of_computation, in_config):
         datasets = pour(tap, datasets=references)
         return datasets.apply(lazy_keyword).apply(DataCall)
 
-    try:
-        transformations = params["input"]["transformations"]
-    except KeyError:
-        LOG.warning("It seems no transformations have been configured for the input of %s", of_computation)
-        return original
-
     def datacall(transformation):
         """..."""
         def transform(dataitem):
@@ -1177,32 +1485,112 @@ def generate_inputs(of_computation, in_config):
             return DataCall(dataitem, transformation)
         return transform
 
-    controls = load_control(transformations, lazily=False)
-    if controls:
-        for_input = filter_datasets(params["input"])
-        controlled = pd.concat([tap_datasets(for_input, and_additionally=to_tap).apply(datacall(shuffle))
-                                for _, shuffle, to_tap in controls], axis=0,
-                               keys=[control_label for control_label, _, _ in controls], names=["control"])
-        original = pd.concat([original], axis=0, keys=["original"], names=["control"])
-        result = pd.concat([original, controlled])
-        result = result.reorder_levels([l for l in result.index.names if l != "control"] + ["control"])
-    else:
+    try:
+        randomizations = params["input"]["controls"]
+    except KeyError:
+        LOG.warning("It seems no controls have been configured for the input of %s", of_computation)
         result = original
+    else:
+        controls = apply_controls()
 
-    subsets = load_subset(transformations, lazily=False)
-    if subsets:
-        subsetted = pd.concat([result.apply(datacall(subset_input)) for _, subset_input in subsets], axis=0,
-                               keys=[subset_label for subset_label,_ in subsets], names=["subset"])
-        result = pd.concat([result], axis=0, keys=["full"], names=["subset"])
-        result = pd.concat([result, subsetted])
-        result = result.reorder_levels([l for l in result.index.names if l != "subset"] + ["subset"])
+        controls = load_control(randomizations, lazily=False)
+        if controls:
+            for_input = filter_datasets(params["input"])
+            controlled = pd.concat([tap_datasets(for_input, and_additionally=to_tap).apply(datacall(shuffle))
+                                    for _, shuffle, to_tap in controls], axis=0,
+                                keys=[control_label for control_label, _, _ in controls], names=["control"])
+            original = pd.concat([original], axis=0, keys=["original"], names=["control"])
+            result = pd.concat([original, controlled])
+            result = result.reorder_levels([l for l in result.index.names if l != "control"] + ["control"])
+        else:
+            result = original
+
+    try:
+        slicings = params["input"]["slicing"]
+    except KeyError:
+        LOG.warning("No slicing configured for the input of %s", of_computation)
+        return result
+
+    slicing = load_slicing(slicings, lazily=False)
+    if slicing:
+        sliced = pd.concat([result.apply(datacall(sliced_input)) for _, sliced_input in slicing], axis=0,
+                               keys=[slicing_label for slicing_label,_ in slicing], names=["slicing"])
+        result = pd.concat([result], axis=0, keys=["full"], names=["slicing"])
+        result = pd.concat([result, sliced])
+        result = result.reorder_levels([l for l in result.index.names if l != "slicing"] + ["slicing"])
 
     return result
 
 #+end_src
 
-#+RESULTS: develop-parallelization-multinode-generate-inputs
-: None
+We setup our analyses suite in a pipeline so that we can use the results of one computation in another. We configure inputs of a ~connsense-computation~ as references to ~connsense-TAP~ datasets. However a ~transformation~ of an input may also use a ~connsense-dataset~. We allow the configuration of ~tap-datasets~ in the section for ~controls~ of an ~analysis. To load the datasets ~connsense-pipeline- will need to,
+
+#+name: develop-parallelization-multinode-generate-inputs-apply-controls
+#+begin_src python
+def pour_datasets(from_tap, for_inputs, and_additionally=None):
+    """..."""
+    LOG.info("Get input data from tap: \n%s", for_inputs)
+    references = deepcopy(for_inputs)
+    if and_additionally:
+        LOG.info("And additionally: \n%s", and_additionally)
+        references.update({key: {"dataset": ref} for key, ref in and_additionally.items()} or {})
+    datasets = pour(from_tap, datasets=references)
+    return datasets.apply(lazy_keyword).apply(DataCall)
+
+
+def datacall(transformation):
+    """Apply a transformation, lazily."""
+    def transform(dataitem):
+        """..."""
+        return DataCall(dataitem, transformation)
+    return transform
+
+
+def control_inputs(of_computation, in_config, using_tap):
+    """..."""
+    params = parameterize(*describe(of_computation), in_config)
+    try:
+        randomizations = params["controls"]
+    except KeyError:
+        LOG.warning("It seems no controls have been configured for the input of %s: \n%s", of_computation, params)
+        return None
+
+    controls = load_control(randomizations, lazily=False)
+    assert controls, "Cannot be empty. Check your config."
+
+    for_input = filter_datasets(params["input"])
+    return pd.concat([pour_datasets(using_tap, for_input, and_additionally=to_tap).apply(datacall(shuffle))
+                      for _, shuffle, to_tap in controls], axis=0,
+                     keys=[control_label for control_label, _, _ in controls], names=["control"])
+
+#+end_src
+
+And a similar procedure for
+
+#+name: develop-parallelization-multinode-gneerate-inputs-slice-controls
+#+begin_src python
+def slice_inputs(of_computation, in_config, datasets=None, using_tap=None):
+    """..."""
+    params = parameterize(*describe(of_computation), in_config)
+    try:
+        configured = params["slicing"]
+    except KeyError:
+        LOG.warning("It seems no slicing have been configured for the input of %s:\n%s", of_computation, params)
+        return (None, None)
+
+    knives = {k: v for k, v in configured.items() if k not in ("description", "do-full")}
+
+    slicing = load_slicing(knives, lazily=False, using_tap=using_tap)
+    assert slicing, "Cannot be empty. Check your config."
+
+    for_input = filter_datasets(params["input"])
+    if datasets is None:
+        assert using_tap
+        datasets = pour_datasets(using_tap, for_input)
+    return pd.concat([datasets.apply(datacall(cut)) for _, cut in slicing],
+                     axis=0, keys=[knife_label for knife_label, _ in slicing], names=["slice"]),
+
+#+end_src
 
 
 * Multinode parallel computation
@@ -1222,9 +1610,74 @@ run_multinode unitcomps n_compute_nodes n_parallel_tasks
   = [ComputeNode assignment]
 #+end_src
 
-To compute a quantity using multinode parallelization ~connsense-TAP~ will setup a directory structure with one subdirectory for each compute node containing data required for the computation. Each compute node will get it's own list of inputs to run. To launch the runs, a ~connsense-TAP~ will write a ~launchscript.sh~ that we can source in a ~unix-shell~. Once all the compute nodes have been run, the results can be collected using ~connsense-TAP~. To accompalish the task of distributing computations over the compute nodes and collecting the results we define.
+To compute a quantity using multinode parallelization ~connsense-TAP~ will setup a directory structure with one subdirectory for each compute node containing data required for the computation. Each compute node will get it's own list of inputs to run. To launch the runs, a ~connsense-TAP~ will write a ~launchscript.sh~ that we can source in a ~unix-shell~. Once all the compute nodes have been run, the results can be collected using ~connsense-TAP~. To accomplish the task of distributing computations over the compute nodes and collecting the results we define.
+
+The version that sequences slices and full separately.
 
 #+name: develop-parallelization-multinode-setup
+#+begin_src python
+def setup_multinode(process, of_computation, in_config, using_runtime, in_mode=None):
+    """Setup a multinode process.
+    """
+    from tqdm import tqdm; tqdm.pandas()
+
+    n_compute_nodes, n_parallel_jobs = prepare_parallelization(of_computation, in_config, using_runtime)
+
+    def prepare_compute_nodes(inputs, at_dirpath, unit_weight=None):
+        """..."""
+        at_dirpath.mkdir(exist_ok=True, parents=False)
+        if process == setup_compute_node:
+            batched = batch_multinode(of_computation, inputs, in_config, at_dirpath, unit_weight=unit_weight,
+                                      using_parallelization=(n_compute_nodes, n_parallel_jobs))
+            using_configs["slurm_params"] = (configure_slurm(of_computation, in_config, using_runtime)
+                                             .get("sbatch", None))
+            compute_nodes = {c: setup_compute_node(c, of_computation, inputs, using_configs, at_dirpath,
+                                                   in_mode=in_mode)
+                             for c, inputs in batched.groupby("compute_node")}
+            return {"configs": using_configs,
+                    "number_compute_nodes": n_compute_nodes, "number_total_jobs": n_parallel_jobs,
+                    "setup": write_multinode_setup(compute_nodes, inputs, at_dirpath)}
+
+        if process == collect_results:
+            batched = read_compute_nodes_assignment(at_dirpath)
+            _, output_paths = read_pipeline.check_paths(in_config, step=computation_type)
+            h5_group = output_paths["steps"][computation_type]
+
+            setup = {c: read_setup_compute_node(c, for_quantity=at_path) for c, _ in batched.groupby("compute_node")}
+            return collect_results(computation_type, setup, at_dirpath, in_connsense_store=h5_group)
+
+        return ValueError(f"Unknown multinode {process}")
+
+    _, to_stage = get_workspace(of_computation, in_config)
+
+    using_configs = configure_multinode(process, of_computation, in_config, at_dirpath=to_stage)
+
+    computation_type, of_quantity = describe(of_computation)
+    params = parameterize(*describe(of_computation), in_config)
+
+    full = generate_inputs(of_computation, in_config)
+    weights = (full.progress_apply(lambda l: estimate_load(to_compute=None)(l()))
+               .dropna().sort_values(ascending=True)).rename("weight")
+    compute_nodes = {"full": prepare_compute_nodes(full, at_dirpath=to_stage/"full",
+                                                   unit_weight=weights.max())}
+
+    if "slicing" not in params:
+        return compute_nodes
+
+    slicings = load_slicing({k:v for k,v in params["slicing"].items() if k not in ("description", "do-full")},
+                            lazily=False)
+    of_tap = HDFStore(in_config)
+    for slicing, to_slice in slicings.items():
+        sliced_inputs = generate_slices(of_tap, inputs=full, using_knives=to_slice)
+        compute_nodes[slicing] = prepare_compute_nodes(sliced_inputs, at_dirpath=to_stage/slicing,
+                                                       unit_weight=weights.max())
+
+    return compute_nodes
+#+end_src
+
+The version that sequences slicing and full together.
+
+#+name: develop-parallelization-multinode-setup-0
 #+begin_src python
 def setup_multinode(process, of_computation, in_config, using_runtime, in_mode=None):
     """Setup a multinode process.
@@ -1851,7 +2304,11 @@ We have developed a parallelization setup to distribute a computation over multi
 
 #+name: develop-parallelization-single-node-multiprocess
 #+begin_src python
-def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node):
+SERIAL_BATCHES = "serial-batches"
+PARALLEL_BATCHES = "parallel-batches"
+
+def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
+                     batching=SERIAL_BATCHES):
     """..."""
     on_compute_node = run_cleanup(on_compute_node)
 
@@ -1888,9 +2345,13 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node):
         _, collect = collector
         return collect(results)
 
-    def execute_one(lazy_subtarget):
+    def execute_one(lazy_subtarget, bowl=None, index=None):
         """..."""
-        return execute(*circuit_args_values, **lazy_subtarget(), **kwargs)
+        result = execute(*circuit_args_values, **lazy_subtarget(), **kwargs)
+        if bowl:
+            assert index
+            bowl[index] = result
+        return result
 
     def lazy_dataset(s):
         """..."""
@@ -1900,7 +2361,7 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node):
 
         raise ValueError(f"Cannot resolve lazy dataset of type {type(s)}")
 
-    def run_batch(of_input, *, index, in_bowl=None):
+    def serial_batch(of_input, *, index, in_bowl=None):
         """..."""
         LOG.info("Run %s batch %s of %s inputs args, and circuit %s, \n with kwargs %s ", of_computation,
                  index, len(of_input), circuit_args_values, pformat(kwargs))
@@ -1933,29 +2394,53 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node):
         bowl = {}
         for batch, subtargets in batches.groupby("batch"):
             LOG.info("Run Single Node %s process %s / %s batches", on_compute_node, batch, n_batches)
-            bowl[batch] = run_batch(subset_input(subtargets.index), index=batch)
+            bowl[batch] = serial_batch(inputs.loc[subtargets.index], index=batch)
         LOG.info("DONE Single Node connsense run.")
     else:
-        manager = Manager()
-        bowl = manager.dict()
-        processes = []
+        if batching == SERIAL_BATCHES:
+            manager = Manager()
+            bowl = manager.dict()
+            processes = []
 
-        for batch, subtargets in batches.groupby("batch"):
-            LOG.info("Spawn Compute Node %s process %s / %s batches", on_compute_node, batch, n_batches)
-            p = Process(target=run_batch,
-                        args=(inputs.loc[subtargets.index],), kwargs={"index": batch, "in_bowl": bowl})
-            p.start()
-            processes.append(p)
+            for batch, subtargets in batches.groupby("batch"):
+                LOG.info("Spawn Compute Node %s process %s / %s batches", on_compute_node, batch, n_batches)
+                p = Process(target=serial_batch,
+                            args=(inputs.loc[subtargets.index],), kwargs={"index": batch, "in_bowl": bowl})
+                p.start()
+                processes.append(p)
 
-        LOG.info("LAUNCHED %s processes", n_batches)
+            LOG.info("LAUNCHED %s processes", n_batches)
 
-        for p in processes:
-            p.join()
+            for p in processes:
+                p.join()
 
-        LOG.info("Parallel computation %s results %s", of_computation, len(bowl))
+            LOG.info("Parallel computation %s results %s", of_computation, len(bowl))
 
-    results = {key: value for key, value in bowl.items()}
-    LOG.info("Computation %s results %s", of_computation, len(results))
+            results = {key: value for key, value in bowl.items()}
+            LOG.info("Computation %s results %s", of_computation, len(results))
+
+        else:
+            assert batching == PARALLEL_BATCHES, "No other is known."
+            for batch, subtargets in batches.groupby("batch"):
+                LOG.info("Run %s subtargets in parallel batch %s / %s batches.", len(subtargets), batch, len(batches))
+
+                manager = Manager()
+                bowl = manager.dict()
+                processes = []
+
+                for i, s in enumerate(subtargets):
+                    p = Process(target=execute_one, args=(s,), kwargs={"index": i, "bowl": bowl})
+                    p.start()
+                    process.append(p)
+                LOG.info("LAUNCHED %s process", i)
+
+                for p in process:
+                    p.join()
+                LOG.info("Parallel computation for batch %s: %s", batch, len(bowl))
+                values = pd.Series([v for v in bowl.values()], index=subtargets.index)
+                hdf = in_hdf.format(batch)
+                result = (to_store_batch(hdf, results=values) if to_store_batch else
+                          to_store_one(hdf, update=values.apply(lambda v: to_store_one(hdf, result=v))))
 
     read_pipeline.write(results, to_json=on_compute_node/"batched_output.json")
 
@@ -3119,7 +3604,7 @@ the configuration.
 
 We can add other computation types when it is time to run them, and collect them in an interface.
 
-** A generirc generator of inputs
+** A generic generator of inputs
 
 The ~generate_inputs_of(computation, in_config)~ method above may need a lot of cases for individual pipeline steps.
 Let us try to devise a more generic version that will rely on the ~connsense.pipeline.store.HDFStore~ to fetch data
@@ -4788,7 +5273,8 @@ from connsense.io.slurm import SlurmConfig
 from connsense.io.write_results import read_toc_plus_payload, write_toc_plus_payload
 from connsense.pipeline.workspace import find_base
 from connsense.pipeline import ConfigurationError, NotConfiguredError
-from connsense.pipeline.store.store import HDFStore
+#from connsense.pipeline.store.store import HDFStore
+from connsense.develop.topotap import HDFStore
 from connsense.define_subtargets.config import SubtargetsConfig
 from connsense.analyze_connectivity import check_paths, matrices
 from connsense.analyze_connectivity.analysis import SingleMethodAnalysisFromSource
@@ -4863,7 +5349,13 @@ class IllegalParallelComputationError(ValueError):
 
 <<develop-parallelization-multinode-datacall>>
 
+<<develop-parallelization-multinode-generate-inputs-0>>
+
 <<develop-parallelization-multinode-generate-inputs>>
+
+<<develop-parallelization-multinode-generate-inputs-apply-controls>>
+
+<<develop-parallelization-multinode-gneerate-inputs-slice-controls>>
 
 <<develop-parallelization-multinode-configure-runtime-slurm>>
 

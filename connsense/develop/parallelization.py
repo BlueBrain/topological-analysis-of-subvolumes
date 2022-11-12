@@ -30,7 +30,8 @@ from connsense.io.slurm import SlurmConfig
 from connsense.io.write_results import read_toc_plus_payload, write_toc_plus_payload
 from connsense.pipeline.workspace import find_base
 from connsense.pipeline import ConfigurationError, NotConfiguredError
-from connsense.pipeline.store.store import HDFStore
+#from connsense.pipeline.store.store import HDFStore
+from connsense.develop.topotap import HDFStore
 from connsense.define_subtargets.config import SubtargetsConfig
 from connsense.analyze_connectivity import check_paths, matrices
 from connsense.analyze_connectivity.analysis import SingleMethodAnalysisFromSource
@@ -111,36 +112,59 @@ def parameterize(computation_type, of_quantity, in_config):
     return deepcopy(in_config["parameters"]["define-subtargets"])
 
 
-def batch_multinode(computation, of_inputs, in_config, at_dirpath, using_parallelization, single_submission=500):
+
+
+def batch_multinode(computation, of_inputs, in_config, at_dirpath, using_parallelization, single_submission=500,
+                    with_weights=True, unit_weight=None):
     """...Just read the method definition above,
     and code below
     """
+    from tqdm import tqdm; tqdm.pandas()
+
     n_compute_nodes, n_parallel_jobs = using_parallelization
+    n_parallel_jobs_per_node_biggest_subtarget = int(n_parallel_jobs / n_compute_nodes)
 
-    LOG.info("Assign batches to %s inputs", len(of_inputs))
-    batches = batch_parallel_groups(of_inputs, upto_number=n_parallel_jobs)
+    LOG.info("Assign compute-nodes to %s inputs", len(of_inputs))
+    weights = (of_inputs.progress_apply(lambda l: estimate_load(to_compute=None)(l()))
+               .dropna().sort_values(ascending=True)).rename("weight")
+    unit_weight = max(unit_weight or 0.,  weights.max())
 
-    n_batches = batches.max() + 1
-    LOG.info("Assign compute nodes to %s batches of %s of_inputs", len(batches), n_batches)
-    compute_nodes = distribute_compute_nodes(batches, upto_number=n_compute_nodes)
+    compute_nodes = ((n_compute_nodes * (np.cumsum(weights) / weights.sum() - 1.e-6))
+                     .astype(int).rename("compute_node"))
+    LOG.info("Assign batches to compute node subtargets")
 
-    LOG.info("Group %s compute node into launchscript submissions", compute_nodes.nunique())
-    submissions = group_launchscripts(compute_nodes, max_entries=single_submission)
+    def batch(compute_node):
+        """..."""
+        cn_weights = weights.loc[compute_node.index]
+        n_parallel = min(int(n_parallel_jobs_per_node_biggest_subtarget * unit_weight / cn_weights.max()),
+                         len(cn_weights))
+        return pd.Series(np.linspace(0, n_parallel - 1.e-6, len(cn_weights), dtype=int), name="batch",
+                         index=cn_weights.index)
+    batches = pd.DataFrame(compute_nodes).groupby("compute_node").apply(batch)
+    batches = batches.reorder_levels(compute_nodes.index.names + ["compute_node"])
+    if not with_weights:
+        return batches
 
-    assignment = pd.concat([batches, compute_nodes, submissions], axis=1)
-    assignment_h5, dataset = COMPUTE_NODE_ASSIGNMENT
-    assignment.to_hdf(at_dirpath/assignment_h5, key=dataset)
-
-    return assignment
-
+    if not isinstance(weights.index, pd.MultiIndex):
+        index = pd.MultiIndex.from_arrays([weights.index.values], names=[weights.index.name])
+        weights.index = index
+        #weights = batches.loc[index]
+    return pd.concat([batches, weights.loc[batches.index]], axis=1) if with_weights else batches
 
 
 def batch_parallel_groups(of_inputs, upto_number, to_compute=None, return_load=False):
     """..."""
+    from tqdm import tqdm; tqdm.pandas()
+
+
     if isinstance(of_inputs, pd.Series):
-        weights = of_inputs.apply(estimate_load(to_compute)).sort_values(ascending=True).rename("load")
+        weights = (of_inputs.progress_apply(lambda l: estimate_load(to_compute)(l())).rename("load")
+                   .sort_values(ascending=True))
+
     elif isinstance(of_inputs, pd.DataFrame):
-        weights = of_inputs.apply(estimate_load(to_compute), axis=1).sort_values(ascending=True).rename("load")
+        weights = (of_inputs.progress_apply(lambda l: estimate_load(to_compute)(l()), axis=1).rename("load")
+                   .sort_values(ascending=True))
+
     else:
         raise TypeError(f"Unhandled type of input: {of_inputs}")
 
@@ -197,7 +221,7 @@ def distribute_compute_nodes(parallel_batches, upto_number):
 
     n_parallel_batches = parallel_batches.max() + 1
     compute_nodes = np.linspace(0, upto_number - 1.e-6, n_parallel_batches, dtype=int)
-    assignment = pd.Series(compute_nodes[parallel_batches], name=dset, index=parallel_batches.index)
+    assignment = pd.Series(compute_nodes[parallel_batches.values], name=dset, index=parallel_batches.index)
     return assignment
 
 
@@ -271,7 +295,7 @@ def load_dataset(tap, variable, values):
     """...Load a configured `computation-variable` from `connsense-TAP`
        values: as configured
     """
-    dataset = tap.pour_dataset(variable, values["dataset"])
+    dataset = tap.pour_dataset(*values["dataset"])
 
     def unpack_value(v):
         """..."""
@@ -573,7 +597,7 @@ class DataCall:
         return self._transform(self._dataitem() if callable(self._dataitem) else self._dataitem)
 
 
-def generate_inputs(of_computation, in_config):
+def generate_inputs_0(of_computation, in_config):
     """..."""
     LOG.info("Generate inputs for %s.", of_computation)
 
@@ -594,12 +618,6 @@ def generate_inputs(of_computation, in_config):
         datasets = pour(tap, datasets=references)
         return datasets.apply(lazy_keyword).apply(DataCall)
 
-    try:
-        transformations = params["input"]["transformations"]
-    except KeyError:
-        LOG.warning("It seems no transformations have been configured for the input of %s", of_computation)
-        return original
-
     def datacall(transformation):
         """..."""
         def transform(dataitem):
@@ -607,27 +625,144 @@ def generate_inputs(of_computation, in_config):
             return DataCall(dataitem, transformation)
         return transform
 
-    controls = load_control(transformations, lazily=False)
-    if controls:
-        for_input = filter_datasets(params["input"])
-        controlled = pd.concat([tap_datasets(for_input, and_additionally=to_tap).apply(datacall(shuffle))
-                                for _, shuffle, to_tap in controls], axis=0,
-                               keys=[control_label for control_label, _, _ in controls], names=["control"])
+    try:
+        randomizations = params["input"]["controls"]
+    except KeyError:
+        LOG.warning("It seems no controls have been configured for the input of %s", of_computation)
+        result = original
+    else:
+        controls = apply_controls()
+
+        controls = load_control(randomizations, lazily=False)
+        if controls:
+            for_input = filter_datasets(params["input"])
+            controlled = pd.concat([tap_datasets(for_input, and_additionally=to_tap).apply(datacall(shuffle))
+                                    for _, shuffle, to_tap in controls], axis=0,
+                                keys=[control_label for control_label, _, _ in controls], names=["control"])
+            original = pd.concat([original], axis=0, keys=["original"], names=["control"])
+            result = pd.concat([original, controlled])
+            result = result.reorder_levels([l for l in result.index.names if l != "control"] + ["control"])
+        else:
+            result = original
+
+    try:
+        slicings = params["input"]["slicing"]
+    except KeyError:
+        LOG.warning("No slicing configured for the input of %s", of_computation)
+        return result
+
+    slicing = load_slicing(slicings, lazily=False)
+    if slicing:
+        sliced = pd.concat([result.apply(datacall(sliced_input)) for _, sliced_input in slicing], axis=0,
+                               keys=[slicing_label for slicing_label,_ in slicing], names=["slicing"])
+        result = pd.concat([result], axis=0, keys=["full"], names=["slicing"])
+        result = pd.concat([result, sliced])
+        result = result.reorder_levels([l for l in result.index.names if l != "slicing"] + ["slicing"])
+
+    return result
+
+
+def generate_inputs(of_computation, in_config, slicing=None):
+    """..."""
+    LOG.info("Generate inputs for %s.", of_computation)
+
+    computation_type, of_quantity = describe(of_computation)
+    params = parameterize(computation_type, of_quantity, in_config)
+    tap = HDFStore(in_config)
+
+    datasets = pour(tap=HDFStore(in_config), datasets=filter_datasets(params["input"]))
+    original = datasets.apply(lazy_keyword).apply(DataCall)
+
+    controlled = control_inputs(of_computation, in_config, using_tap=tap)
+    if controlled is not None:
         original = pd.concat([original], axis=0, keys=["original"], names=["control"])
         result = pd.concat([original, controlled])
         result = result.reorder_levels([l for l in result.index.names if l != "control"] + ["control"])
     else:
         result = original
 
-    subsets = load_subset(transformations, lazily=False)
-    if subsets:
-        subsetted = pd.concat([result.apply(datacall(subset_input)) for _, subset_input in subsets], axis=0,
-                               keys=[subset_label for subset_label,_ in subsets], names=["subset"])
-        result = pd.concat([result], axis=0, keys=["full"], names=["subset"])
-        result = pd.concat([result, subsetted])
-        result = result.reorder_levels([l for l in result.index.names if l != "subset"] + ["subset"])
-
     return result
+
+    if not slicing:
+        return result
+
+    sliced, do_full = slice_inputs(of_computation, in_config, datasets=result, using_tap=tap)
+    if sliced is not None:
+        if do_full:
+            result = pd.concat([result], axis=0, keys=["full"], names=["slice"])
+            result = pd.concat([result, sliced], axis=0)
+            result = result.reorder_levels([l for l in result.index.names if l != "slice"] + ["slice"])
+        else:
+            result = sliced.reorder_levels([l for l in result.index.names if l != "slice"] + ["slice"])
+    return result
+
+
+def generate_slices(of_tap, inputs, using_knives):
+    """Generate slices of inputs accoring to configured knives."""
+    from tqdm import tqdm; tqdm.pandas()
+    slices = pd.concat([inputs.apply(datacall(cut)) for cut in using_knives], axis=0, keys=using_knives.index)
+    return slices.reorder_levels(inputs.index.names +
+                                 slices.index.names[0:(len(slices.index.names) - len(inputs.index.names))])
+
+
+
+def pour_datasets(from_tap, for_inputs, and_additionally=None):
+    """..."""
+    LOG.info("Get input data from tap: \n%s", for_inputs)
+    references = deepcopy(for_inputs)
+    if and_additionally:
+        LOG.info("And additionally: \n%s", and_additionally)
+        references.update({key: {"dataset": ref} for key, ref in and_additionally.items()} or {})
+    datasets = pour(from_tap, datasets=references)
+    return datasets.apply(lazy_keyword).apply(DataCall)
+
+
+def datacall(transformation):
+    """Apply a transformation, lazily."""
+    def transform(dataitem):
+        """..."""
+        return DataCall(dataitem, transformation)
+    return transform
+
+
+def control_inputs(of_computation, in_config, using_tap):
+    """..."""
+    params = parameterize(*describe(of_computation), in_config)
+    try:
+        randomizations = params["controls"]
+    except KeyError:
+        LOG.warning("It seems no controls have been configured for the input of %s: \n%s", of_computation, params)
+        return None
+
+    controls = load_control(randomizations, lazily=False)
+    assert controls, "Cannot be empty. Check your config."
+
+    for_input = filter_datasets(params["input"])
+    return pd.concat([pour_datasets(using_tap, for_input, and_additionally=to_tap).apply(datacall(shuffle))
+                      for _, shuffle, to_tap in controls], axis=0,
+                     keys=[control_label for control_label, _, _ in controls], names=["control"])
+
+
+def slice_inputs(of_computation, in_config, datasets=None, using_tap=None):
+    """..."""
+    params = parameterize(*describe(of_computation), in_config)
+    try:
+        configured = params["slicing"]
+    except KeyError:
+        LOG.warning("It seems no slicing have been configured for the input of %s:\n%s", of_computation, params)
+        return (None, None)
+
+    knives = {k: v for k, v in configured.items() if k not in ("description", "do-full")}
+
+    slicing = load_slicing(knives, lazily=False, using_tap=using_tap)
+    assert slicing, "Cannot be empty. Check your config."
+
+    for_input = filter_datasets(params["input"])
+    if datasets is None:
+        assert using_tap
+        datasets = pour_datasets(using_tap, for_input)
+    return pd.concat([datasets.apply(datacall(cut)) for _, cut in slicing],
+                     axis=0, keys=[knife_label for knife_label, _ in slicing], names=["slice"]),
 
 
 def configure_slurm(computation, in_config, using_runtime):
@@ -770,36 +905,60 @@ def symlink_pipeline_base(configs, at_dirpath):
 def setup_multinode(process, of_computation, in_config, using_runtime, in_mode=None):
     """Setup a multinode process.
     """
+    from tqdm import tqdm; tqdm.pandas()
+
+    n_compute_nodes, n_parallel_jobs = prepare_parallelization(of_computation, in_config, using_runtime)
+
+    def prepare_compute_nodes(inputs, at_dirpath, unit_weight=None):
+        """..."""
+        at_dirpath.mkdir(exist_ok=True, parents=False)
+        if process == setup_compute_node:
+            batched = batch_multinode(of_computation, inputs, in_config, at_dirpath, unit_weight=unit_weight,
+                                      using_parallelization=(n_compute_nodes, n_parallel_jobs))
+            using_configs["slurm_params"] = (configure_slurm(of_computation, in_config, using_runtime)
+                                             .get("sbatch", None))
+            compute_nodes = {c: setup_compute_node(c, of_computation, inputs, using_configs, at_dirpath,
+                                                   in_mode=in_mode)
+                             for c, inputs in batched.groupby("compute_node")}
+            return {"configs": using_configs,
+                    "number_compute_nodes": n_compute_nodes, "number_total_jobs": n_parallel_jobs,
+                    "setup": write_multinode_setup(compute_nodes, inputs, at_dirpath)}
+
+        if process == collect_results:
+            batched = read_compute_nodes_assignment(at_dirpath)
+            _, output_paths = read_pipeline.check_paths(in_config, step=computation_type)
+            h5_group = output_paths["steps"][computation_type]
+
+            setup = {c: read_setup_compute_node(c, for_quantity=at_path) for c, _ in batched.groupby("compute_node")}
+            return collect_results(computation_type, setup, at_dirpath, in_connsense_store=h5_group)
+
+        return ValueError(f"Unknown multinode {process}")
+
     _, to_stage = get_workspace(of_computation, in_config)
 
     using_configs = configure_multinode(process, of_computation, in_config, at_dirpath=to_stage)
 
     computation_type, of_quantity = describe(of_computation)
+    params = parameterize(*describe(of_computation), in_config)
 
-    inputs = generate_inputs(of_computation, in_config)
-    n_compute_nodes, n_parallel_jobs = prepare_parallelization(of_computation, in_config, using_runtime)
+    full = generate_inputs(of_computation, in_config)
+    weights = (full.progress_apply(lambda l: estimate_load(to_compute=None)(l()))
+               .dropna().sort_values(ascending=True)).rename("weight")
+    compute_nodes = {"full": prepare_compute_nodes(full, at_dirpath=to_stage/"full",
+                                                   unit_weight=weights.max())}
 
-    if process == setup_compute_node:
-        batched = batch_multinode(of_computation, inputs, in_config,
-                                  at_dirpath=to_stage, using_parallelization=(n_compute_nodes, n_parallel_jobs))
-        using_configs["slurm_params"] = configure_slurm(of_computation, in_config, using_runtime).get("sbatch", None)
-        compute_nodes = {c: setup_compute_node(c, of_computation, inputs, using_configs,  at_dirpath=to_stage,
-                                               in_mode=in_mode)
-                         for c, inputs in batched.groupby("compute_node")}
-        return {"configs": using_configs,
-                "number_compute_nodes": n_compute_nodes, "number_total_jobs": n_parallel_jobs,
-                "setup": write_multinode_setup(compute_nodes, inputs, at_dirpath=to_stage)}
+    if "slicing" not in params:
+        return compute_nodes
 
-    if process == collect_results:
-        batched = read_compute_nodes_assignment(at_dirpath=to_stage)
-        _, output_paths = read_pipeline.check_paths(in_config, step=computation_type)
-        at_path = output_paths["steps"][computation_type]
+    slicings = load_slicing({k:v for k,v in params["slicing"].items() if k not in ("description", "do-full")},
+                            lazily=False)
+    of_tap = HDFStore(in_config)
+    for slicing, to_slice in slicings.items():
+        sliced_inputs = generate_slices(of_tap, inputs=full, using_knives=to_slice)
+        compute_nodes[slicing] = prepare_compute_nodes(sliced_inputs, at_dirpath=to_stage/slicing,
+                                                       unit_weight=weights.max())
 
-        setup = {c: read_setup_compute_node(c, for_quantity=to_stage) for c, _ in batched.groupby("compute_node")}
-        return collect_results(computation_type, setup, from_dirpath=to_stage, in_connsense_store=at_path)
-
-    return ValueError(f"Unknown multinode {process}")
-
+    return compute_nodes
 
 def collect_results(computation_type, setup, from_dirpath, in_connsense_store):
     """..."""
@@ -937,7 +1096,11 @@ def collect_analyze_step(setup, from_dirpath, in_connsense_store):
 
 
 
-def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node):
+SERIAL_BATCHES = "serial-batches"
+PARALLEL_BATCHES = "parallel-batches"
+
+def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
+                     batching=SERIAL_BATCHES):
     """..."""
     on_compute_node = run_cleanup(on_compute_node)
 
@@ -974,9 +1137,13 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node):
         _, collect = collector
         return collect(results)
 
-    def execute_one(lazy_subtarget):
+    def execute_one(lazy_subtarget, bowl=None, index=None):
         """..."""
-        return execute(*circuit_args_values, **lazy_subtarget(), **kwargs)
+        result = execute(*circuit_args_values, **lazy_subtarget(), **kwargs)
+        if bowl:
+            assert index
+            bowl[index] = result
+        return result
 
     def lazy_dataset(s):
         """..."""
@@ -986,7 +1153,7 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node):
 
         raise ValueError(f"Cannot resolve lazy dataset of type {type(s)}")
 
-    def run_batch(of_input, *, index, in_bowl=None):
+    def serial_batch(of_input, *, index, in_bowl=None):
         """..."""
         LOG.info("Run %s batch %s of %s inputs args, and circuit %s, \n with kwargs %s ", of_computation,
                  index, len(of_input), circuit_args_values, pformat(kwargs))
@@ -1019,29 +1186,53 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node):
         bowl = {}
         for batch, subtargets in batches.groupby("batch"):
             LOG.info("Run Single Node %s process %s / %s batches", on_compute_node, batch, n_batches)
-            bowl[batch] = run_batch(subset_input(subtargets.index), index=batch)
+            bowl[batch] = serial_batch(inputs.loc[subtargets.index], index=batch)
         LOG.info("DONE Single Node connsense run.")
     else:
-        manager = Manager()
-        bowl = manager.dict()
-        processes = []
+        if batching == SERIAL_BATCHES:
+            manager = Manager()
+            bowl = manager.dict()
+            processes = []
 
-        for batch, subtargets in batches.groupby("batch"):
-            LOG.info("Spawn Compute Node %s process %s / %s batches", on_compute_node, batch, n_batches)
-            p = Process(target=run_batch,
-                        args=(inputs.loc[subtargets.index],), kwargs={"index": batch, "in_bowl": bowl})
-            p.start()
-            processes.append(p)
+            for batch, subtargets in batches.groupby("batch"):
+                LOG.info("Spawn Compute Node %s process %s / %s batches", on_compute_node, batch, n_batches)
+                p = Process(target=serial_batch,
+                            args=(inputs.loc[subtargets.index],), kwargs={"index": batch, "in_bowl": bowl})
+                p.start()
+                processes.append(p)
 
-        LOG.info("LAUNCHED %s processes", n_batches)
+            LOG.info("LAUNCHED %s processes", n_batches)
 
-        for p in processes:
-            p.join()
+            for p in processes:
+                p.join()
 
-        LOG.info("Parallel computation %s results %s", of_computation, len(bowl))
+            LOG.info("Parallel computation %s results %s", of_computation, len(bowl))
 
-    results = {key: value for key, value in bowl.items()}
-    LOG.info("Computation %s results %s", of_computation, len(results))
+            results = {key: value for key, value in bowl.items()}
+            LOG.info("Computation %s results %s", of_computation, len(results))
+
+        else:
+            assert batching == PARALLEL_BATCHES, "No other is known."
+            for batch, subtargets in batches.groupby("batch"):
+                LOG.info("Run %s subtargets in parallel batch %s / %s batches.", len(subtargets), batch, len(batches))
+
+                manager = Manager()
+                bowl = manager.dict()
+                processes = []
+
+                for i, s in enumerate(subtargets):
+                    p = Process(target=execute_one, args=(s,), kwargs={"index": i, "bowl": bowl})
+                    p.start()
+                    process.append(p)
+                LOG.info("LAUNCHED %s process", i)
+
+                for p in process:
+                    p.join()
+                LOG.info("Parallel computation for batch %s: %s", batch, len(bowl))
+                values = pd.Series([v for v in bowl.values()], index=subtargets.index)
+                hdf = in_hdf.format(batch)
+                result = (to_store_batch(hdf, results=values) if to_store_batch else
+                          to_store_one(hdf, update=values.apply(lambda v: to_store_one(hdf, result=v))))
 
     read_pipeline.write(results, to_json=on_compute_node/"batched_output.json")
 
@@ -1509,28 +1700,20 @@ def run_cleanup(on_compute_node):
 
 def load_control(transformations, lazily=True):
     """..."""
-    try:
-        controls = transformations["controls"]
-    except KeyError:
-        LOG.error("No controls configured among trransformations: \n%s", pformat(transformations))
-        return None
-    else:
-        controls = {name: description for name, description in controls.items() if name != "description"}
-
-
     def load_config(control, description):
         """..."""
         LOG.info("Load configured control %s: \n%s", control, pformat(description))
 
         _, algorithm = plugins.import_module(description["algorithm"])
 
-        kwargs = deepcopy(description["kwargs"])
-        seeds = kwargs.pop("seeds", None)
+        seeds = description.get("seeds", [0])
 
         try:
             to_tap = description["tap_datasets"]
         except KeyError:
             to_tap = None
+
+        kwargs = description.get("kwargs", {})
 
         def seed_shuffler(s):
             """..."""
@@ -1541,58 +1724,90 @@ def load_control(transformations, lazily=True):
                 return algorithm(**inputs, seed=s, **kwargs)
             return (f"{control}-{s}", shuffle, to_tap)
         return [seed_shuffler(s) for s in seeds]
-    return [shuffled for control, described in controls.items() for shuffled in load_config(control, described)]
+
+    controls = {k: v for k, v in transformations.items() if k != "description"}
+    return [shuffled for ctrl, cfg in controls.items() for shuffled in load_config(ctrl, cfg)]
 
 
-def load_subset(transformations, lazily=True):
+def parse_slices(slicing):
     """..."""
-    try:
-        subsets = transformations["subsets"]
-    except KeyError:
-        LOG.error("No subsets configured among transformations: \n%s", pformat(transformations))
-        return None
-    else:
-        subsets = {name: description for name, description in subsets.items() if name != "description"}
-
-    def load_config(subset, description):
+    from itertools import product
+    def prepare_singleton(slicespec):
         """..."""
-        LOG.info("Load configured subset %s: \n%s", subset, pformat(description))
+        assert len(slicespec) == 2, slicespec
+        key, values = slicespec
+        if isinstance(values, list):
+            return ((key, value) for value in values)
+        if isinstance(values, Mapping):
+            if len(values) == 1:
+                innerkey, innervalues = next(iter(values.items()))
+                if not isinstance(innervalues, list):
+                    innervalues = [innervalues]
+                return ((key, {innerkey: val}) for val in innervalues)
+            innerdicts = product(*(s for s in (prepare_singleton(slicespec=s)  for s in values.items())))
+            return ((key, dvalue) for dvalue in innerdicts)
 
-        _, algorithm = plugins.import_module(description["algorithm"])
+        return ((key, value) for value in [values])
 
-        kwargs = deepcopy(description["kwargs"])
-        try:
-            variants = kwargs.pop("variants")
-        except KeyError:
-            LOG.warning("No variants set for subsetting the inputs.")
-            variants = {}
+    slicing = slicing["slices"].items()
+    if len(slicing) == 1:
+        return (dict([s]) for s in prepare_singleton(next(iter(slicing))))
 
-        def label(variant):
+    slices = product(*(singleton for singleton in (prepare_singleton(slicespec=s) for s in slicing)))
+    return (dict(s) for s in slices)
+
+
+
+def load_slicing(transformations, using_tap=None, lazily=True):
+    """..."""
+    from copy import deepcopy
+    def load_dataset(slicing):
+        """..."""
+        slicing = deepcopy(slicing)
+        slices = slicing["slices"]
+        def load_dataset(values):
             """..."""
-            return "--".join([f"{value}" for value in variant.values()])
+            if isinstance(values, dict):
+                if "dataset" in values:
+                    return using_tap.pour_dataset(*values["dataset"]).tolist()
+                return {var: load_dataset(vals) for var, vals in values.items()}
+            return values
+        slicing["slices"] = {variable: load_dataset(values) for variable, values in slices.items()}
+        return slicing
 
-        def prepare(variants):
+    def flatten(aslice):
+        """..."""
+        def denest(key, value):
+            if not isinstance(value, dict):
+                return value
+            return {f"{key}_{innerkey}": denest(innerkey, innervalue)
+                    for innerkey, innervalue in value.items()}
+        if len(aslice) == 1:
+            key, value = next(iter(aslice.items()))
+            return {key: denest(key, value)}
+        flat = {}
+        for var, values in aslice.items():
+            denested = denest(var, values)
+            flat.update(denested)
+        return flat
+
+    def load(slicing):
+        """..."""
+        _, algorithm = plugins.import_module(slicing["algorithm"])
+        kwargs = slicing.get("kwargs", {})
+        slices = list(parse_slices(load_dataset(slicing)))
+        def specify(aslice):
             """..."""
-            if not variants:
-                return {}
-
-            assert len(variants) == 1, f"INPRPGRESS crose product variants specified by {len(variants)} variables"
-            key, values = next(iter(variants.items()))
-            return ({key: value} for value in values)
-
-        def specify(variant):
-            """..."""
-            def subset_input(datasets):
-                """..."""
+            def slice_input(datasets):
                 if lazily:
                     assert callable(datasets)
-                    return lambda: algorithm(**datasets(), **variant, **kwargs)
+                    return lambda: algorithm(**datasets(), **aslice, **kwargs)
                 assert not callable(datasets)
-                return algorithm(**datasets, **variant, **kwargs)
-            return (f"{subset}-{label(variant)}", subset_input)
-        return [specify(variant) for variant in prepare(variants)]
-    return [subset_input for subset, described in subsets.items() for subset_input in load_config(subset, described)]
-
+                return algorithm(**datasets, **aslice, **kwargs)
+            return slice_input
+        return pd.Series([specify(aslice) for aslice in slices],
+                         index=pd.MultiIndex.from_frame(pd.DataFrame([flatten(aslice) for aslice in slices])))
+    return {slicing: load(slicing=s) for slicing, s in transformations.items()}
 
 
 

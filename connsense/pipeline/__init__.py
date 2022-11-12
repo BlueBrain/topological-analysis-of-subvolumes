@@ -25,4 +25,5 @@ PARAMKEY = {"define-subtargets": "definitions",
 COMPKEYS = ["description",
             "index", "input", "kwargs",
             "loader", "extractor",  "generator", "computation",
-            "output", "collector","reindex"]
+            "output", "collector","reindex",
+            "controls", "slicing"]

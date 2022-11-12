@@ -1,7 +1,7 @@
 #+PROPERTY: header-args:jupyter-python :session ~/Library/Jupyter/runtime/active-py38-ssh.json
 #+PROPERTY: header-args:jupyter :session ~/Library/Jupyter/runtime/active-py38-ssh.json
-
 #+STARTUP: overview
+
 #+title: Topotap
 
 * Setup :noexport:
@@ -801,7 +801,10 @@ def subtargets(tap):
         LOG.info("Load dataset %s: \n%s", definition["dataset"], pformat(definition["description"]))
         _, group = definition["dataset"]
         subtargets = pour_subtargets(f"{group}/name")
-        info = pour_subtargets(f"{group}/info")
+        try:
+            info = pour_subtargets(f"{group}/info")
+        except KeyError:
+            return subtargets
         return pd.concat([subtargets, info], axis=1)
 
     if len(definitions) == 1:
@@ -1102,6 +1105,12 @@ def nodes(tap):
     return TapDataset(self, "extract-node-populations")
 #+end_src
 
+*** TODO TAP controls on demand
+Add a method
+#+begin_src jupyter-python
+def get_controls(subtargets, analysis="connectivity/simplex-count", controls=None):
+
+#+end_src
 ** Results
 
 Finally, let us collect the code in a module,

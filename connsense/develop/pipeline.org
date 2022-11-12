@@ -2091,3 +2091,32 @@ parameters:
   <<pipeline-config-parameters-analyze-composition>>
   <<pipeline-config-parameters-analyze-connectivity>>
 #+end_src
+
+
+* Some terminology
+
+Randomly placed.
+
+Try it ~hy~
+#+begin_src hy
+(defn test [a b [c None] [d "x"] #* e]
+  [a b c d e])
+
+(test 1 2)
+#+end_src
+
+#+RESULTS:
+| 1 | 2 | None | x | hline |
+
+
+Configuration for Data, Rules, and Principles
+
+Values, Rules, and Principles Raw Data
+
+Reconstruction Recipe
+
+Validated Reconstruction
+
+Simulation and Analysies, Results and Conditions for obtaining them.
+
+Publication and Portal
