@@ -146,10 +146,13 @@ def batch_multinode(computation, of_inputs, in_config, at_dirpath, using_paralle
         return batches
 
     if not isinstance(weights.index, pd.MultiIndex):
-        index = pd.MultiIndex.from_arrays([weights.index.values], names=[weights.index.name])
-        weights.index = index
-        #weights = batches.loc[index]
-    return pd.concat([batches, weights.loc[batches.index]], axis=1) if with_weights else batches
+        weights.index = pd.MultiIndex.from_arrays([weights.index.values], names=[weights.index.name])
+
+    assignment =  pd.concat([batches, weights.loc[batches.index]], axis=1) if with_weights else batches
+    assignment_h5, dataset = COMPUTE_NODE_ASSIGNMENT
+    assignment.to_hdf(at_dirpath/assignment_h5, key=dataset)
+
+    return assignment
 
 
 def batch_parallel_groups(of_inputs, upto_number, to_compute=None, return_load=False):
@@ -676,26 +679,18 @@ def generate_inputs(of_computation, in_config, slicing=None):
     controlled = control_inputs(of_computation, in_config, using_tap=tap)
     if controlled is not None:
         original = pd.concat([original], axis=0, keys=["original"], names=["control"])
-        result = pd.concat([original, controlled])
-        result = result.reorder_levels([l for l in result.index.names if l != "control"] + ["control"])
+        full = pd.concat([original, controlled])
+        full = result.reorder_levels([l for l in result.index.names if l != "control"] + ["control"])
     else:
-        result = original
+        full = original
 
-    return result
+    if not slicing or slicing == "full":
+        return full
 
-    if not slicing:
-        return result
-
-    sliced, do_full = slice_inputs(of_computation, in_config, datasets=result, using_tap=tap)
-    if sliced is not None:
-        if do_full:
-            result = pd.concat([result], axis=0, keys=["full"], names=["slice"])
-            result = pd.concat([result, sliced], axis=0)
-            result = result.reorder_levels([l for l in result.index.names if l != "slice"] + ["slice"])
-        else:
-            result = sliced.reorder_levels([l for l in result.index.names if l != "slice"] + ["slice"])
-    return result
-
+    assert slicing in params["slicing"]
+    cfg = {slicing: params["slicing"][slicing]}
+    return generate_slices(tap, inputs=full,
+                           using_knives=load_slicing(cfg, tap, lazily=False)[slicing])
 
 def generate_slices(of_tap, inputs, using_knives):
     """Generate slices of inputs accoring to configured knives."""
@@ -781,7 +776,8 @@ def configure_slurm(computation, in_config, using_runtime):
     return configured
 
 
-def setup_compute_node(c, of_computation, with_inputs, using_configs, at_dirpath, in_mode=None):
+def setup_compute_node(c, of_computation, with_inputs, using_configs, at_dirpath, in_mode=None,
+                       slicing=None):
     """..."""
     assert not in_mode or in_mode in ("prod", "develop")
 
@@ -818,6 +814,7 @@ def setup_compute_node(c, of_computation, with_inputs, using_configs, at_dirpath
                      f"pushd {for_compute_node}",
                      f"sbatch {of_executable.name} run {computation_type} {of_quantity} \\",
                      "--configure=pipeline.yaml --parallelize=runtime.yaml \\",
+                     None if not slicing else f"--slicing={slicing} \\",
                      f"--mode={run_mode} \\",
                      f"--input={inputs_to_read} \\",
                      f"--output={output_h5}",
@@ -909,16 +906,18 @@ def setup_multinode(process, of_computation, in_config, using_runtime, in_mode=N
 
     n_compute_nodes, n_parallel_jobs = prepare_parallelization(of_computation, in_config, using_runtime)
 
-    def prepare_compute_nodes(inputs, at_dirpath, unit_weight=None):
+    def prepare_compute_nodes(inputs, at_dirpath, slicing, unit_weight=None):
         """..."""
         at_dirpath.mkdir(exist_ok=True, parents=False)
+        using_configs = configure_multinode(process, of_computation, in_config, at_dirpath)
+
         if process == setup_compute_node:
             batched = batch_multinode(of_computation, inputs, in_config, at_dirpath, unit_weight=unit_weight,
                                       using_parallelization=(n_compute_nodes, n_parallel_jobs))
             using_configs["slurm_params"] = (configure_slurm(of_computation, in_config, using_runtime)
                                              .get("sbatch", None))
             compute_nodes = {c: setup_compute_node(c, of_computation, inputs, using_configs, at_dirpath,
-                                                   in_mode=in_mode)
+                                                   in_mode=in_mode, slicing=slicing)
                              for c, inputs in batched.groupby("compute_node")}
             return {"configs": using_configs,
                     "number_compute_nodes": n_compute_nodes, "number_total_jobs": n_parallel_jobs,
@@ -929,8 +928,10 @@ def setup_multinode(process, of_computation, in_config, using_runtime, in_mode=N
             _, output_paths = read_pipeline.check_paths(in_config, step=computation_type)
             h5_group = output_paths["steps"][computation_type]
 
-            setup = {c: read_setup_compute_node(c, for_quantity=at_path) for c, _ in batched.groupby("compute_node")}
-            return collect_results(computation_type, setup, at_dirpath, in_connsense_store=h5_group)
+            setup = {c: read_setup_compute_node(c, for_quantity=at_dirpath)
+                     for c, _ in batched.groupby("compute_node")}
+            return collect_results(computation_type, setup, at_dirpath, in_connsense_store=h5_group,
+                                   slicing=slicing)
 
         return ValueError(f"Unknown multinode {process}")
 
@@ -945,6 +946,7 @@ def setup_multinode(process, of_computation, in_config, using_runtime, in_mode=N
     weights = (full.progress_apply(lambda l: estimate_load(to_compute=None)(l()))
                .dropna().sort_values(ascending=True)).rename("weight")
     compute_nodes = {"full": prepare_compute_nodes(full, at_dirpath=to_stage/"full",
+                                                   slicing="full" if "slicing" in params else None,
                                                    unit_weight=weights.max())}
 
     if "slicing" not in params:
@@ -955,21 +957,24 @@ def setup_multinode(process, of_computation, in_config, using_runtime, in_mode=N
     of_tap = HDFStore(in_config)
     for slicing, to_slice in slicings.items():
         sliced_inputs = generate_slices(of_tap, inputs=full, using_knives=to_slice)
-        compute_nodes[slicing] = prepare_compute_nodes(sliced_inputs, at_dirpath=to_stage/slicing,
+        compute_nodes[slicing] = prepare_compute_nodes(sliced_inputs, at_dirpath=to_stage/slicing, slicing=slicing,
                                                        unit_weight=weights.max())
 
     return compute_nodes
 
-def collect_results(computation_type, setup, from_dirpath, in_connsense_store):
+def collect_results(computation_type, setup, from_dirpath, in_connsense_store, slicing):
     """..."""
     if computation_type == "extract-node-populations":
+        assert not slicing, "Does not apply"
         return collect_node_population(setup, from_dirpath, in_connsense_store)
 
     if computation_type == "extract-edge-populations":
+        assert not slicing, "Does not apply"
         return collect_edge_population(setup, from_dirpath, in_connsense_store)
 
-    if computation_type in ("analyze-connectivity", "analyze-composition", "analyze-node-types", "analyze-physiology"):
-        return collect_analyze_step(setup, from_dirpath, in_connsense_store)
+    if computation_type in ("analyze-connectivity", "analyze-composition",
+                            "analyze-node-types", "analyze-physiology"):
+        return collect_analyze_step(setup, from_dirpath, in_connsense_store, slicing)
 
     raise NotImplementedError(f"INPROGRESS: {computation_type}")
 
@@ -1056,7 +1061,7 @@ def collect_edge_population(setup, from_dirpath, in_connsense_store):
     return (in_connsense_store, hdf_edge_population)
 
 
-def collect_analyze_step(setup, from_dirpath, in_connsense_store):
+def collect_analyze_step(setup, from_dirpath, in_connsense_store, slicing):
     """..."""
     try:
         with open(from_dirpath/"description.json", 'r') as f:
@@ -1067,7 +1072,9 @@ def collect_analyze_step(setup, from_dirpath, in_connsense_store):
     #a = analysis["name"]
     #hdf_analysis = f"analyses/connectivity/{a}"
     connsense_h5, group = in_connsense_store
-    hdf_analysis = group + '/' + analysis["name"]
+    hdf_group = group + '/' + analysis["name"]
+    if slicing:
+        hdf_group = hdf_group + "/" + slicing
     output_type = analysis["output"]
 
     def describe_output(of_compute_node):
@@ -1082,7 +1089,7 @@ def collect_analyze_step(setup, from_dirpath, in_connsense_store):
     outputs = {c: describe_output(of_compute_node) for c, of_compute_node in setup.items()}
     LOG.info("Analysis %s reported outputs: \n%s", analysis["name"], pformat(outputs))
 
-    def in_store(at_path, hdf_group=None):
+    def in_store(at_path, hdf_group):
         """..."""
         return matrices.get_store(at_path, hdf_group or hdf_analysis, output_type)
 
@@ -1092,7 +1099,8 @@ def collect_analyze_step(setup, from_dirpath, in_connsense_store):
         h5, g = output
         return in_store(at_path=h5, hdf_group=g)
 
-    return in_store(connsense_h5).collect({c: move(compute_node=c, output=o) for c, o in outputs.items()})
+    return (in_store(connsense_h5, hdf_group)
+            .collect({c: move(compute_node=c, output=o) for c, o in outputs.items()}))
 
 
 
@@ -1100,14 +1108,15 @@ SERIAL_BATCHES = "serial-batches"
 PARALLEL_BATCHES = "parallel-batches"
 
 def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
-                     batching=SERIAL_BATCHES):
+                     batching=SERIAL_BATCHES, slicing=None):
     """..."""
     on_compute_node = run_cleanup(on_compute_node)
 
     run_in_progress = on_compute_node.joinpath(INPROGRESS)
     run_in_progress.touch(exist_ok=False)
 
-    execute, to_store_batch, to_store_one = configure_execution(of_computation, in_config, on_compute_node)
+    execute, to_store_batch, to_store_one = configure_execution(of_computation, in_config, on_compute_node,
+                                                                slicing=slicing)
 
     assert to_store_batch or to_store_one
     assert not (to_store_batch and to_store_one)
@@ -1125,7 +1134,7 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
 
     kwargs = load_kwargs(parameters, HDFStore(in_config), on_compute_node)
 
-    inputs = generate_inputs(of_computation, in_config)
+    inputs = generate_inputs(of_computation, in_config, slicing)
 
     collector = plugins.import_module(parameters["collector"]) if "collector" in parameters else None
 
@@ -1155,8 +1164,8 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
 
     def serial_batch(of_input, *, index, in_bowl=None):
         """..."""
-        LOG.info("Run %s batch %s of %s inputs args, and circuit %s, \n with kwargs %s ", of_computation,
-                 index, len(of_input), circuit_args_values, pformat(kwargs))
+        LOG.info("Run %s batch %s of %s inputs args, and circuit %s, \n with kwargs %s slicing %s", of_computation,
+                 index, len(of_input), circuit_args_values, pformat(kwargs), slicing)
 
         def to_subtarget(s):
             """..."""
@@ -1240,7 +1249,7 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
     _, hdf_group = output_paths["steps"][computation_type]
     of_output_type = parameters["output"]
 
-    collected = collect_batches(of_computation, results, on_compute_node, hdf_group, of_output_type)
+    collected = collect_batches(of_computation, results, on_compute_node, hdf_group, slicing, of_output_type)
     read_pipeline.write(collected, to_json=on_compute_node/"output.json")
 
     run_in_progress.unlink()
@@ -1464,11 +1473,13 @@ def store_edge_extraction(of_population, on_compute_node, in_hdf_group):
     return write_batch
 
 
-def store_matrix_data(of_quantity, parameters, on_compute_node, in_hdf_group):
+def store_matrix_data(of_quantity, parameters, on_compute_node, in_hdf_group, slicing):
     """..."""
     LOG.info("Store matrix data for %s", parameters)
     of_output = parameters["output"]
-    hdf_quantity = f"{in_hdf_group}/{of_quantity}"
+    hdf_group = f"{in_hdf_group}/{of_quantity}"
+    if slicing:
+        hdf_group = f"{hdf_group}/{slicing}"
 
     cached_stores = {}
 
@@ -1480,13 +1491,13 @@ def store_matrix_data(of_quantity, parameters, on_compute_node, in_hdf_group):
 
         p = on_compute_node/at_path
         if p not in cached_stores:
-            cached_stores[p] = matrices.get_store(p, hdf_quantity, for_matrix_type=of_output)
+            cached_stores[p] = matrices.get_store(p, hdf_group, for_matrix_type=of_output)
 
         if result is not None:
             return cached_stores[p].write(result)
 
         cached_stores[p].append_toc(cached_stores[p].prepare_toc(of_paths=update))
-        return (at_path, hdf_quantity)
+        return (at_path, hdf_group)
 
     return write_hdf
 
@@ -1553,11 +1564,13 @@ def store_edge_extraction(of_population, on_compute_node, in_hdf_group):
     return write_batch
 
 
-def store_matrix_data(of_quantity, parameters, on_compute_node, in_hdf_group):
+def store_matrix_data(of_quantity, parameters, on_compute_node, in_hdf_group, slicing):
     """..."""
     LOG.info("Store matrix data for %s", parameters)
     of_output = parameters["output"]
-    hdf_quantity = f"{in_hdf_group}/{of_quantity}"
+    hdf_group = f"{in_hdf_group}/{of_quantity}"
+    if slicing:
+        hdf_group = f"{hdf_group}/{slicing}"
 
     cached_stores = {}
 
@@ -1569,54 +1582,63 @@ def store_matrix_data(of_quantity, parameters, on_compute_node, in_hdf_group):
 
         p = on_compute_node/at_path
         if p not in cached_stores:
-            cached_stores[p] = matrices.get_store(p, hdf_quantity, for_matrix_type=of_output)
+            cached_stores[p] = matrices.get_store(p, hdf_group, for_matrix_type=of_output)
 
         if result is not None:
             return cached_stores[p].write(result)
 
         cached_stores[p].append_toc(cached_stores[p].prepare_toc(of_paths=update))
-        return (at_path, hdf_quantity)
+        return (at_path, hdf_group)
 
     return write_hdf
 
 
-def configure_execution(computation, in_config, on_compute_node):
+def configure_execution(computation, in_config, on_compute_node, slicing=None):
     """..."""
     computation_type, of_quantity = describe(computation)
     parameters = parameterize(computation_type, of_quantity, in_config)
     _, output_paths = read_pipeline.check_paths(in_config, step=computation_type)
-    _, at_path = output_paths["steps"][computation_type]
+    _, in_hdf_group = output_paths["steps"][computation_type]
 
     execute = get_executable(computation_type, parameters)
 
     if computation_type == "extract-node-populations":
-        return (execute, None,  store_node_properties(of_quantity, on_compute_node, at_path))
-        #return (execute, store_node_properties(of_quantity, on_compute_node, at_path), None)
+        assert not slicing, "Does not apply"
+        return (execute, None,  store_node_properties(of_quantity, on_compute_node, in_hdf_group))
+        #return (execute, store_node_properties(of_quantity, on_compute_node, in_hdf_group), None)
 
     if computation_type == "extract-edge-populations":
-        return (execute, store_edge_extraction(of_quantity, on_compute_node, at_path), None)
+        assert not slicing, "Does not apply"
+        return (execute, store_edge_extraction(of_quantity, on_compute_node, in_hdf_group), None)
 
-    return (execute, None, store_matrix_data(of_quantity, parameters, on_compute_node, at_path))
+    return (execute, None, store_matrix_data(of_quantity, parameters, on_compute_node, in_hdf_group, slicing))
 
 
-def collect_batches(of_computation, results, on_compute_node, hdf_group, of_output_type):
+def collect_batches(of_computation, results, on_compute_node, hdf_group, slicing, of_output_type):
     """..."""
     LOG.info("Collect bactched %s results of %s on compute node %s in group %s output type %s",
              of_computation, len(results), on_compute_node, hdf_group, of_output_type)
     computation_type, of_quantity = describe(of_computation)
 
     if computation_type == "extract-edge-populations":
+        assert not slicing, "Does not apply"
         return collect_batched_edge_population(of_quantity, results, on_compute_node, hdf_group)
 
-    hdf_quantity = hdf_group+"/"+of_quantity
+    if computation_type == "extract-node-populations":
+        assert not slicing, "Does not apply"
+
+    hdf_group = hdf_group+"/"+of_quantity
+    if slicing:
+        hdf_group = hdf_group+"/"+slicing
     in_connsense_h5 = on_compute_node / "connsense.h5"
-    in_store = matrices.get_store(in_connsense_h5, hdf_quantity, for_matrix_type=of_output_type)
+    in_store = matrices.get_store(in_connsense_h5, hdf_group, for_matrix_type=of_output_type)
 
     batched = results.items()
-    in_store.collect({batch: matrices.get_store(on_compute_node / batch_connsense_h5, hdf_quantity,
+    in_store.collect({batch: matrices.get_store(on_compute_node / batch_connsense_h5, hdf_group,
                                                 for_matrix_type=of_output_type)
                       for batch, (batch_connsense_h5, group) in batched})
-    return (in_connsense_h5, hdf_quantity)
+    return (in_connsense_h5, hdf_group)
+
 
 def collect_batched_node_population(p, results, on_compute_node, hdf_group):
     """..."""

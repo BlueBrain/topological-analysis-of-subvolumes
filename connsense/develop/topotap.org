@@ -685,10 +685,10 @@ def get_path(tap, computation_type):
     """..."""
     return (tap._root, tap._groups[computation_type])
 
-def pour_dataset(tap, computation_type, of_quantity):
+def pour_dataset(tap, computation_type, of_quantity, slicing=None):
     """..."""
     connsense_h5, hdf_group = tap.get_path(computation_type)
-    dataset = '/'.join([hdf_group, of_quantity])
+    dataset = '/'.join([hdf_group, of_quantity] if not slicing else [hdf_group, of_quantity, slicing])
 
     with h5py.File(tap._root, 'r') as hdf:
         if "data" in hdf[dataset]:
@@ -701,7 +701,7 @@ def pour_dataset(tap, computation_type, of_quantity):
         return read_toc_plus_payload((connsense_h5, dataset), "extract-edge-populations")
 
     if computation_type.startswith("analyze-"):
-        return tap.pour_analyses(computation_type, of_quantity)
+        return tap.pour_analyses(computation_type, of_quantity, slicing)
 
     return read_dataset((connsense_h5, dataset), computation_type)
 
@@ -726,23 +726,25 @@ def decompose(self, computation_type, of_quantity):
     return {var: val for var, val in parameters.items() if var not in COMPKEYS}
 
 
-def pour_analyses(tap, computation_type, quantity):
+def pour_analyses(tap, computation_type, quantity, slicing=None):
     """Pour the results of running an analysis computation.
     """
     LOG.info("Pour analyses for %s", computation_type)
     connsense_h5, hdf_group = tap.get_path(computation_type)
-    dataset = '/'.join([hdf_group, quantity])
     paramkey = tap.get_paramkey(computation_type)
 
     def pour_component(c, parameters):
         """..."""
-        LOG.info("Pour %s %s component %s: \n%s\n from store %s", computation_type, quantity, c, pformat(parameters),
-                 (connsense_h5, '/'.join([dataset, c])))
-        store = matrices.get_store(connsense_h5, '/'.join([dataset, c]), parameters["output"], in_mode='r')
+        LOG.info("Pour %s %s component %s: \n%s\n from store %s", computation_type, quantity, c,
+                 pformat(parameters), (connsense_h5, '/'.join([dataset, c])))
+
+        dataset = '/'.join([hdf_group, quantity, c] if not slicing else [hdf_group, quantity, c, slicing])
+        store = matrices.get_store(connsense_h5, dataset, parameters["output"], in_mode='r')
         return store.toc if store else None
 
     components = tap.decompose(computation_type, quantity)
     if not components:
+        dataset = '/'.join([hdf_group, quantity] if not slicing else [hdf_group, quantity, slicing])
         parameters = tap.parameters[computation_type][paramkey][quantity]
         store = matrices.get_store(connsense_h5, dataset, parameters["output"], in_mode='r')
         return store.toc if store else None

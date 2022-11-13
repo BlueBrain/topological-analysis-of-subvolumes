@@ -200,6 +200,8 @@ def main(argued=None):
         return topaz.initialize()
 
     if is_to_setup(argued.action):
+        assert not argued.slicing, "All inputs, full + slicing, will be setup together. Use setup for run step"
+
         if argued.step == "define-subtargets":
             raise RuntimeError("Cannot setup the step of define-subtargets. It can be run directly...")
         topaz.set_workspace(current_run)
@@ -272,7 +274,7 @@ def main(argued=None):
                                f"Argued : {pformat(argued)}")
 
         path_input = Path(argued.input) if argued.input else None
-        result = topaz.run(argued.step, argued_substep, in_mode=argued.mode,
+        result = topaz.run(argued.step, argued_substep, in_mode=argued.mode, slicing=argued.slicing,
                            inputs=path_input, sample=argued.sample, output=argued.output)
 
         LOG.info("DONE running pipeline")
@@ -351,6 +353,9 @@ def get_parser():
                               "This configuraiton must be provided for parallilization of the tasks\n"
                               "Each pipeline step missing in the config will be run serially on a single node.\n"
                               "If the config itself is missing, all steps will be run serially."))
+
+    parser.add_argument("-s", "--slicing", required=False, default=None,
+                        help=("Name the input slicing to run. The slicing should appear in the config."))
 
     parser.add_argument("-m", "--mode", required=False, default=None,
                         help=("Specify how the action should be performed. should be done\n"

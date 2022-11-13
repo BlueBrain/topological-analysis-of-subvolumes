@@ -74,7 +74,7 @@ class Step(Runnable):
         _, substep = computation.split('/')
         return self._runner.setup(in_config, substep, **kwargs)
 
-    def collect(self, computation, in_config, using_runtime, **kwargs):
+    def collect(self, computation, in_config, using_runtime, in_mode, **kwargs):
         """Allow collection of results produced by parallel runs.
         To collect results both the scientific config, and the parallelization config
         will be required.
@@ -82,14 +82,18 @@ class Step(Runnable):
         Expect attribute errors if this instance's runner  does not implement
         a collect method.
         """
+        if in_mode == "develop":
+            from connsense.develop.parallelization import setup_multinode, collect_results
+            return setup_multinode(collect_results, computation, in_config, using_runtime, **kwargs)
+
         from .parallelization.parallelization import run_multinode, collect_multinode
         return run_multinode(collect_multinode, computation, in_config, using_runtime, **kwargs)
 
-    def _run_dev_version(self, computation, in_config, using_runtime, on_compute_node, **kwargs):
+    def _run_dev_version(self, computation, in_config, using_runtime, on_compute_node, slicing, **kwargs):
         """..."""
         from ..develop.parallelization import run_multiprocess
         LOG.warning("Run %s using code under development: %s", computation, run_multiprocess)
-        return run_multiprocess(computation, in_config, using_runtime, on_compute_node)
+        return run_multiprocess(computation, in_config, using_runtime, on_compute_node, slicing=slicing)
 
     def run(self, computation, in_config, using_runtime, on_compute_node, inputs, **kwargs):
         """..."""

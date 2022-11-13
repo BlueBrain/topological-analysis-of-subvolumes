@@ -199,7 +199,7 @@ class TopologicalAnalysis:
         LOG.info("RESULT %s %s: %s", step, substep, result)
         return result
 
-    def run(self, step, substep=None, in_mode=None, inputs=None, **kwargs):
+    def run(self, step, substep=None, in_mode=None, inputs=None, slicing=None, **kwargs):
         """Run the pipeline, one (computation_type, of_quantity) at a time.
         """
         LOG.warning("RUN pipeline for step %s %s ", step, substep)
@@ -207,7 +207,7 @@ class TopologicalAnalysis:
         run_step = self.__steps__[step]._run_dev_version if in_mode == "develop" else self.__steps__[step].run
         computation = '/'.join([step, substep] if substep else [step])
         return run_step(computation, in_config=self._config, using_runtime=self._parallelize,
-                        on_compute_node=inputs.parent, inputs=inputs)
+                        on_compute_node=inputs.parent, inputs=inputs, slicing=slicing)
 
     def collect(self, step, substep=None, in_mode=None):
         """Collect the batched results generated in a single step.
@@ -221,4 +221,4 @@ class TopologicalAnalysis:
             raise NotImplementedError(f"A method to collect in {step}") from aerror
         else:
             LOG.info("Use to gather results: %s", gather)
-        return gather(computation, in_config=self._config, using_runtime=self._parallelize)
+        return gather(computation, in_config=self._config, using_runtime=self._parallelize, in_mode=in_mode)
