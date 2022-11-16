@@ -33,7 +33,12 @@ from connsense.develop import topotap as devtap
 
 ROOTSPACE = Path("/")
 PROJSPACE = ROOTSPACE / "gpfs/bbp.cscs.ch/project/proj83"
-CONNSPACE = PROJSPACE / "home/sood" / "topological-analysis-subvolumes/test/v2"
+SOODSPACE = PROJSPACE / "home/sood"
+CONNSPACE = SOODSPACE / "topological-analysis-subvolumes/test/v2"
+
+PORTALSPACE = (SOODSPACE / "portal" / "develop" / "factology-v2" / "analyses/connsense"
+               / "redefine-subtargets/create-index/morphology-mtypes")
+EXPTLSPACE = PORTALSPACE / "experimental"
 
 topaz = pipeline.TopologicalAnalysis(CONNSPACE/"pipeline.yaml", CONNSPACE/"runtime.yaml")
 tap = tap_store.HDFStore(topaz._config)

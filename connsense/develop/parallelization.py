@@ -31,7 +31,7 @@ from connsense.io.write_results import read_toc_plus_payload, write_toc_plus_pay
 from connsense.pipeline.workspace import find_base
 from connsense.pipeline import ConfigurationError, NotConfiguredError
 #from connsense.pipeline.store.store import HDFStore
-from connsense.develop.topotap import HDFStore
+#from connsense.develop.topotap import HDFStore
 from connsense.define_subtargets.config import SubtargetsConfig
 from connsense.analyze_connectivity import check_paths, matrices
 from connsense.analyze_connectivity.analysis import SingleMethodAnalysisFromSource
@@ -113,11 +113,10 @@ def parameterize(computation_type, of_quantity, in_config):
 
 
 
-
 def batch_multinode(computation, of_inputs, in_config, at_dirpath, using_parallelization, single_submission=500,
                     with_weights=True, unit_weight=None):
     """...Just read the method definition above,
-    and code below
+        and code below
     """
     from tqdm import tqdm; tqdm.pandas()
 
@@ -127,6 +126,7 @@ def batch_multinode(computation, of_inputs, in_config, at_dirpath, using_paralle
     LOG.info("Assign compute-nodes to %s inputs", len(of_inputs))
     weights = (of_inputs.progress_apply(lambda l: estimate_load(to_compute=None)(l()))
                .dropna().sort_values(ascending=True)).rename("weight")
+    weights = weights[~np.isclose(weights.values, 0.)]
     unit_weight = max(unit_weight or 0.,  weights.max())
 
     compute_nodes = ((n_compute_nodes * (np.cumsum(weights) / weights.sum() - 1.e-6))
@@ -149,9 +149,9 @@ def batch_multinode(computation, of_inputs, in_config, at_dirpath, using_paralle
         weights.index = pd.MultiIndex.from_arrays([weights.index.values], names=[weights.index.name])
 
     assignment =  pd.concat([batches, weights.loc[batches.index]], axis=1) if with_weights else batches
-    assignment_h5, dataset = COMPUTE_NODE_ASSIGNMENT
-    assignment.to_hdf(at_dirpath/assignment_h5, key=dataset)
-
+    if at_dirpath:
+        assignment_h5, dataset = COMPUTE_NODE_ASSIGNMENT
+        assignment.to_hdf(at_dirpath/assignment_h5, key=dataset)
     return assignment
 
 
@@ -602,6 +602,7 @@ class DataCall:
 
 def generate_inputs_0(of_computation, in_config):
     """..."""
+    from connsense.develop.topotap import HDFStore
     LOG.info("Generate inputs for %s.", of_computation)
 
     computation_type, of_quantity = describe(of_computation)
@@ -667,6 +668,7 @@ def generate_inputs_0(of_computation, in_config):
 
 def generate_inputs(of_computation, in_config, slicing=None):
     """..."""
+    from connsense.develop.topotap import HDFStore
     LOG.info("Generate inputs for %s.", of_computation)
 
     computation_type, of_quantity = describe(of_computation)
@@ -680,7 +682,7 @@ def generate_inputs(of_computation, in_config, slicing=None):
     if controlled is not None:
         original = pd.concat([original], axis=0, keys=["original"], names=["control"])
         full = pd.concat([original, controlled])
-        full = result.reorder_levels([l for l in result.index.names if l != "control"] + ["control"])
+        full = full.reorder_levels([l for l in full.index.names if l != "control"] + ["control"])
     else:
         full = original
 
@@ -899,10 +901,12 @@ def symlink_pipeline_base(configs, at_dirpath):
             "runtime": {fmt: symlink_to(config_at_path=p) for fmt, p in configs["runtime"].items() if p}}
 
 
+
 def setup_multinode(process, of_computation, in_config, using_runtime, in_mode=None):
     """Setup a multinode process.
     """
     from tqdm import tqdm; tqdm.pandas()
+    from connsense.develop.topotap import HDFStore
 
     n_compute_nodes, n_parallel_jobs = prepare_parallelization(of_computation, in_config, using_runtime)
 
@@ -943,11 +947,21 @@ def setup_multinode(process, of_computation, in_config, using_runtime, in_mode=N
     params = parameterize(*describe(of_computation), in_config)
 
     full = generate_inputs(of_computation, in_config)
-    weights = (full.progress_apply(lambda l: estimate_load(to_compute=None)(l()))
-               .dropna().sort_values(ascending=True)).rename("weight")
-    compute_nodes = {"full": prepare_compute_nodes(full, at_dirpath=to_stage/"full",
-                                                   slicing="full" if "slicing" in params else None,
-                                                   unit_weight=weights.max())}
+    if process == setup_compute_node:
+        full_weights = full.progress_apply(lambda l: estimate_load(to_compute=None)(l())).dropna()
+
+        have_zero_weight = np.isclose(full_weights.values, 0.)
+        LOG.info("Inputs with zero weight %s: \n%s", have_zero_weight.sum(), full_weights[have_zero_weight])
+
+        full = full[~have_zero_weight]
+        full_weights = full_weights[~have_zero_weight]
+        max_weight = full_weights.max()
+    else:
+        max_weight = None
+
+    compute_nodes = {"full": prepare_compute_nodes(full, at_dirpath=(to_stage/"full" if "slicing" in params else to_stage),
+                                                   slicing=("full" if "slicing" in params else None),
+                                                   unit_weight=max_weight)}
 
     if "slicing" not in params:
         return compute_nodes
@@ -958,9 +972,10 @@ def setup_multinode(process, of_computation, in_config, using_runtime, in_mode=N
     for slicing, to_slice in slicings.items():
         sliced_inputs = generate_slices(of_tap, inputs=full, using_knives=to_slice)
         compute_nodes[slicing] = prepare_compute_nodes(sliced_inputs, at_dirpath=to_stage/slicing, slicing=slicing,
-                                                       unit_weight=weights.max())
+                                                       unit_weight=None)
 
     return compute_nodes
+
 
 def collect_results(computation_type, setup, from_dirpath, in_connsense_store, slicing):
     """..."""
@@ -1176,11 +1191,18 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
 
         if to_store_batch:
             results = of_input.apply(execute_one)
+            try:
+                results = results.droplevel("compute_node")
+            except KeyError:
+                pass
             result = to_store_batch(in_hdf.format(index), results=collect_batch(results))
-            #framed = pd.concat([results], axis=0, keys=connsense_index.values, names=connsense_index.names)
-            #result = to_store_batch(in_hdf.format(index), results=collect_batch(framed))
         else:
-            result = to_store_one(in_hdf.format(index), update=of_input.apply(to_subtarget))
+            toc = of_input.apply(to_subtarget)
+            try:
+                toc = toc.droplevel("compute_node")
+            except KeyError:
+                pass
+            result = to_store_one(in_hdf.format(index), update=toc)
 
         if in_bowl is not None:
             in_bowl[index] = result
@@ -1192,10 +1214,10 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
     n_batches = batches.batch.max() - batches.batch.min() + 1
 
     if n_compute_nodes == n_total_jobs:
-        bowl = {}
+        results = {}
         for batch, subtargets in batches.groupby("batch"):
             LOG.info("Run Single Node %s process %s / %s batches", on_compute_node, batch, n_batches)
-            bowl[batch] = serial_batch(inputs.loc[subtargets.index], index=batch)
+            results[batch] = serial_batch(inputs.loc[subtargets.index], index=batch)
         LOG.info("DONE Single Node connsense run.")
     else:
         if batching == SERIAL_BATCHES:
@@ -1751,6 +1773,7 @@ def load_control(transformations, lazily=True):
     return [shuffled for ctrl, cfg in controls.items() for shuffled in load_config(ctrl, cfg)]
 
 
+
 def parse_slices(slicing):
     """..."""
     from itertools import product
@@ -1779,6 +1802,22 @@ def parse_slices(slicing):
     return (dict(s) for s in slices)
 
 
+def flatten_slicing(_slice):
+    """..."""
+    def denest(key, value):
+        if not isinstance(value, dict):
+            return value
+        return {f"{key}_{innerkey}": denest(innerkey, innervalue)
+                for innerkey, innervalue in value.items()}
+    if len(_slice) == 1:
+        key, value = next(iter(_slice.items()))
+        return {key: denest(key, value)}
+    flat = {}
+    for var, values in _slice.items():
+        denested = denest(var, values)
+        flat.update(denested)
+    return flat
+
 
 def load_slicing(transformations, using_tap=None, lazily=True):
     """..."""
@@ -1797,22 +1836,6 @@ def load_slicing(transformations, using_tap=None, lazily=True):
         slicing["slices"] = {variable: load_dataset(values) for variable, values in slices.items()}
         return slicing
 
-    def flatten(aslice):
-        """..."""
-        def denest(key, value):
-            if not isinstance(value, dict):
-                return value
-            return {f"{key}_{innerkey}": denest(innerkey, innervalue)
-                    for innerkey, innervalue in value.items()}
-        if len(aslice) == 1:
-            key, value = next(iter(aslice.items()))
-            return {key: denest(key, value)}
-        flat = {}
-        for var, values in aslice.items():
-            denested = denest(var, values)
-            flat.update(denested)
-        return flat
-
     def load(slicing):
         """..."""
         _, algorithm = plugins.import_module(slicing["algorithm"])
@@ -1828,7 +1851,7 @@ def load_slicing(transformations, using_tap=None, lazily=True):
                 return algorithm(**datasets, **aslice, **kwargs)
             return slice_input
         return pd.Series([specify(aslice) for aslice in slices],
-                         index=pd.MultiIndex.from_frame(pd.DataFrame([flatten(aslice) for aslice in slices])))
+                         index=pd.MultiIndex.from_frame(pd.DataFrame([flatten_slicing(_slice) for _slice in slices])))
     return {slicing: load(slicing=s) for slicing, s in transformations.items()}
 
 

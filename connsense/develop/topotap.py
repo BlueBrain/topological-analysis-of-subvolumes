@@ -26,7 +26,7 @@ from connsense.io.write_results import (read as read_dataset,
                                         read_toc_plus_payload)
 from connsense.io import logging
 from connsense.pipeline import ConfigurationError, NotConfiguredError, COMPKEYS
-from connsense.pipeline.parallelization import parallelization as prl
+from .import parallelization as prl
 
 LOG = logging.get_logger(__name__)
 
@@ -56,10 +56,12 @@ from connsense.pipeline import COMPKEYS, PARAMKEY, ConfigurationError, NotConfig
 class TapDataset:
     """A dataset computed by connsense-TAP.
     """
-    def __init__(self, tap, dataset):
+    def __init__(self, tap, dataset, belazy=True):
         """..."""
         self._tap = tap
         self._dataset = dataset
+        self._phenomenon, self._quantity = dataset
+        self._belazy = belazy
 
     def index_ids(self, variable):
         """..."""
@@ -71,6 +73,11 @@ class TapDataset:
 
         return pd.Series(series.index.values, name=f"{series.name}_id",
                          index=pd.Index(series.values, name=series.name))
+
+    @lazy
+    def parameters(self):
+        """Configure parameters for this TapDataset."""
+        return self._tap.describe(self._phenomenon, self._quantity)
 
     @lazy
     def id_subtargets(self):
@@ -88,7 +95,39 @@ class TapDataset:
     @property
     def dataset(self):
         """..."""
-        return self._tap.pour(self._dataset).sort_index()
+        def load_component(c, ):
+            """..."""
+
+
+        def load_slicing(s):
+            """..."""
+            lazydset = self._tap.pour_dataset(self._phenomenon, self._quantity, slicing=s)
+            if self._belazy:
+                return lazydset
+
+            dataset = lazydset.apply(lambda l: l.get_value())
+            slices = prl.parse_slices(self.parameters["slicing"][s])
+            slicing_args = list(prl.flatten_slicing(next(slices)).keys())
+            return (pd.concat([g.droplevel(slicing_args) for _,g in dataset.groupby(slicing_args)], axis=1,
+                              keys=[g for g,_ in dataset.groupby(slicing_args)], names=slicing_args)
+                    .reorder_levels(dataset.columns.names + slicing_args, axis=1))
+
+        if not "slicing" in self.parameters:
+            lazydset = self._tap.pour(self._dataset).sort_index()
+            return (lazydset if self._belazy
+                    else (lazydset.apply(lambda l: l.get_value()) if isinstance(lazydset, pd.Series)
+                          else {component: dset.apply(lambda l: l.get_value())}))
+
+        slicings = self.parameters["slicing"]
+        dataset = {s: load_slicing(s) for s in slicings}
+        try:
+            lazyfull = self._tap.pour_dataset(self._phenomenon, self._quantity, slicing="full")
+        except KeyError as kerr:
+            LOG.warning("No computation results for the full input of %s %s: \n%s", self._phenomenon, self._quantity, kerr)
+            dataset["full"] = None
+        else:
+            dataset["full"] = (lazyfull if self._belazy else lazyfull.apply(lambda l: l.get_value()))
+        return dataset
 
     def index(self, subtarget, circuit=None, connectome=None):
         """Get `connsense-TAP`index for the arguments.
@@ -149,6 +188,15 @@ class HDFStore:
         """
         return {param: config for param, config in tap._config["parameters"].items() if param != "create-index"}
     
+    
+    def read_parameters(tap, computation_type, quantity):
+        """..."""
+        pkey = tap.get_paramkey(computation_tap)
+        if '/' not in quantity:
+            return tap.parameters[computation_tap][pkey][quantity]
+
+        group, quantity = quantity.split('/')
+        return tap.parameters[computation_tap][pkey[group][quantity]
 
     def get_paramkey(tap, computation_type):
         """..."""
@@ -182,7 +230,23 @@ class HDFStore:
             raise ConfigurationError(f"{paramkey} entries for {computation_type}")
     
         def describe_quantity(q):
-            return {"description": config[q].get("description", None), "dataset": (computation_type, q)}
+            if '/' not in q:
+                config_q = {"description": config[q].get("description", "NotAvailable"),
+                            "dataset": (computation_type, q)}
+                for k, v in config[q].items():
+                    if k != "description":
+                        config_q[k] = v
+                return config_q
+    
+            g, q = q.split('/')
+            config_g = {"description": config[g].get("description", "NotAvailable")}
+            config_g[q] = {"description": config[g].get("description", "NotAvailable"),
+                           "dataset": (computation_type, f"{g}/{q}")}
+            for k, v in config[g][q].items():
+                if k != "description":
+                    config_g[q][k] = v
+            return config_g
+    
     
         if not of_quantity:
             return [describe_quantity(q) for q in config]
@@ -191,7 +255,6 @@ class HDFStore:
     
     
 
-    
     def get_path(tap, computation_type):
         """..."""
         return (tap._root, tap._groups[computation_type])
@@ -234,14 +297,14 @@ class HDFStore:
     def pour_analyses(tap, computation_type, quantity, slicing=None):
         """Pour the results of running an analysis computation.
         """
-        LOG.info("Pour analyses for %s", computation_type)
+        LOG.info("Pour analyses for %s quantity %s", computation_type, quantity)
         connsense_h5, hdf_group = tap.get_path(computation_type)
         paramkey = tap.get_paramkey(computation_type)
     
         def pour_component(c, parameters):
             """..."""
             LOG.info("Pour %s %s component %s: \n%s\n from store %s", computation_type, quantity, c,
-                     pformat(parameters), (connsense_h5, '/'.join([dataset, c])))
+                     pformat(parameters), (connsense_h5, '/'.join([hdf_group, c])))
     
             dataset = '/'.join([hdf_group, quantity, c] if not slicing else [hdf_group, quantity, c, slicing])
             store = matrices.get_store(connsense_h5, dataset, parameters["output"], in_mode='r')

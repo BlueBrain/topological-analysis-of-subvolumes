@@ -1,5 +1,5 @@
-#+PROPERTY: header-args:jupyter-python :session ~/Library/Jupyter/runtime/active-py38-ssh.json
-#+PROPERTY: header-args:jupyter :session ~/Library/Jupyter/runtime/active-py38-ssh.json
+#+PROPERTY: header-args:jupyter-python :session ~/Library/Jupyter/runtime/active-2-ssh.json
+#+PROPERTY: header-args:jupyter :session ~/Library/Jupyter/runtime/active-2-ssh.json
 #+STARTUP: overview
 
 #+title: (sub) Target Analysis Pipeline
@@ -40,11 +40,33 @@ Use the config to reproduce analyses on existing or new circuits.
 
 * SUBTARGET
 
-An analysis will be that of the entire circuit, or a ~circuit-subtarget~ that can be represented simply as a collection of neurons. We may parcellate the brain's physical shape into constituent blocks and study how a brain circuit phenomenon varies across these ~subtargets~.
+A ~connsense-TAP~ analysis will be that of a ~circuit-subtarget~, that can be represented simply as a collection of ~node-ids~. For example, we may parcellate the brain's physical shape into constituent blocks, and study how a brain circuit phenomenon varies across the /sub-circuits/ composed of cells in these blocks. In ~connsense-TAP~ these blocks will be considered as ~circuit-subtargets~ for an analysis.
 
-The rat-SSCx circuit has 8 subregions, with a total of 4.5 million neurons. The upcoming mouse-IsoCortex will have the entire neocortex with more than 10 million neurons. We may define each region as a ~subtarget~ and analyze the distribution of neurons across them.
+The rat-SSCx circuit has 8 subregions, with a total of 4.5 million neurons. The upcoming mouse-IsoCortex will have the entire neocortex with more than 10 million neurons. The whole circuit may be too big for an analysis. We have defined representative ~central-columns~ in each of the SSCX-Rat circuit's regions as ~circuit-subtargets~
 
-Or we may be interested in a brain-circuit parcellation that arises from a biological phenomenon, and define ~subtargets~ accordingly. Parcellation of the SSCx into conical ~subtargets~ oriented along cortical layers can be used to study the composition and connectivity of these columnar ~subtargets~ in relation to white-matter innervation that follows a similar columnar pattern.
+Or we may be interested in a brain-circuit parcellation that arises from a biological phenomenon, and define ~subtargets~ accordingly. Parcellation of the SSCx into /conical/ ~flatmap-columns~ oriented along cortical layers is being used to study the composition and connectivity in relation to white-matter innervation that follows a similar columnar pattern.
+
+In ~connsense-TAP~ we can configure analyses of ~flatmap-column~ ~circuit-subtargets~. The diameter of each column at it's base was set to $230.0\mu m$ which is roughly the size of a large L5 TPC.
+
+#+begin_src jupyter-python :tangle develop_topotap.py
+from flatmap_utility import subtargets as fmst, tessellate
+from bluepy import Circuit
+circuit = Circuit("//gpfs/bbp.cscs.ch/project/proj83/circuits/Bio_M/20200805/ch/project"
+                  "/proj83/circuits/Bio_M/20200805/CircuitConfig_TC_WM")
+flat_xys = fmst.fmap_positions(in_data=circuit)
+tritille = tessellate.TriTille(230.0)
+fig_fmap_cells = plt.figure(figsize=(8, 8))
+ax = fig_fmap_cells.add_subplot(111, aspect=1.)
+graphic_fmap_cells = tritille.plot_hextiles(fxys, graphic=(fig, ax),
+                                            annotate=False, with_grid=False, pointmarker=".", pointmarkersize=0.05))
+fig_fmap_cells
+
+#+end_src
+
+#+RESULTS:
+[[file:./.ob-jupyter/1179885101204eb0ecc0024922e22784b9314ed0.png]]
+
+
 
 
 * Interface to TAP: How to work with the analyses data?
@@ -93,9 +115,11 @@ print("We will plot golden aspect ratios: ", GOLDEN)
 #+RESULTS: notebook-init
 : We will plot golden aspect ratios:  1.618033988749895
 
-We have run ~connsense-CRAP~ for the SSCx dissemination variant /Bio-M/, extracting data that we will use to compute the factology. Here is a list of workspaces we will need to generate factsheets.
+We have run ~connsense-TAP~ for the SSCx dissemination variant /Bio-M/, extracting data that we will use to study the circuit's topology. Here are some workspaces that we use to /test-develop/ ~connsense-TAP~ for topology.
 
 *** Workspaces
+
+We have a ~connsense-TAP~ pipeline with circuit data extracted for the ~flatmap-columns~.
 
 #+name: notebook-workspaces
 #+begin_src jupyter-python
@@ -112,24 +136,21 @@ CONNSPACE = PROJSPACE / "home/sood" / "topological-analysis-subvolumes/test/v2"
 
 #+RESULTS: notebook-workspaces
 
-While test-developing it will be good to have direct access to the ~connsense-TAP-store~ we will use,
-
-We can collect the code above in a ~Pyhton~ template file that can be used to generate notebooks,
+While test-developing it will be good to have direct access to the ~connsense-TAP-store~ we will use. We will use a development version of the interface.
 
 *** ~connsense~ Modules
 
 #+name: notebook-connsense-tap
 #+begin_src jupyter-python
-topotap = devtap.HDFStore(CONNSPACE/"pipeline.yaml")
-circuit = tap.get_circuit("Bio_M")
+tap = devtap.HDFStore(CONNSPACE/"pipeline.yaml")
 print("Configured Analyses: ")
-pprint(topotap.analyses)
+pprint(tap.analyses)
 #+end_src
 
 #+RESULTS: notebook-connsense-tap
 : Configured Analyses:
-: {'connectivity': {'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7ffe30d6c580>,
-:                   'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7ffe30d6cf40>}}
+: {'connectivity': {'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7ffdf351a760>,
+:                   'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7ffdf36820a0>}}
 
 *** Notebook template
 
@@ -153,45 +174,160 @@ Finally, here is a template that we can use to start test-developing. We will de
 #+end_src
 
 #+RESULTS:
+: We will plot golden aspect ratios:  1.618033988749895
+: Configured Analyses:
+: {'connectivity': {'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7fff1db69af0>,
+:                   'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7fff1e0ddfd0>}}
+
+
+We will use the deprecated ~connsense-TAP-HDFStore~ to load the circuit. We need the circuit for our discussion. ~connsense-TAP~ can be used without accessing the circuit itself.
+#+begin_src jupyter-python :tangle develop_topotap.py
+otap = tap_store.HDFStore(tap._config)
+circuit = otap.get_circuit("Bio_M")
+#+end_src
+
+#+RESULTS:
+:  2022-11-15 11:41:51,714: Load circuit Bio_M
+
+** Nodes and their Adjacencies
+
+For topological analyses we will need the adjacency-matrix and node-properties for the cells in a ~flatmap-column~. Let us see what these quantities look like.
+
+*** Node properties
+
+#+begin_src jupyter-python :tangle develop_topotap.py
+nodes = tap.nodes
+nodes.dataset
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+:  2022-11-15 15:42:32,774: Load dataset ('extract-node-populations', 'default'):
+: ('The default population will be that of neurons in the SSCx. To extract the '
+:  'neurons we will use a `connsense` method that uses ~bluepy~.')
+:  2022-11-15 15:42:33,308: Initialize a DataFrameStore matrix store loading / writing data at /gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/connsense.h5 / nodes/populations/default
 #+begin_example
-We will plot golden aspect ratios:  1.618033988749895
- 2022-11-08 14:42:26,616: Configure slurm for create-index
- 2022-11-08 14:42:26,617: No runtime configured for computation type create-index
- 2022-11-08 14:42:26,617: Configure slurm for define-subtargets
- 2022-11-08 14:42:26,618: Configure slurm for extract-node-populations
- 2022-11-08 14:42:26,618: Configure slurm for extract-edge-populations
- 2022-11-08 14:42:26,619: Configure slurm for analyze-connectivity
- 2022-11-08 14:42:26,619: Load circuit Bio_M
-Available analyses:
-{'connectivity': {'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7ffec983a370>,
-                  'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7ffecf06bbb0>}}
+subtarget_id  circuit_id
+1             0             <connsense.analyze_connectivity.matrices.BeLaz...
+2             0             <connsense.analyze_connectivity.matrices.BeLaz...
+3             0             <connsense.analyze_connectivity.matrices.BeLaz...
+4             0             <connsense.analyze_connectivity.matrices.BeLaz...
+5             0             <connsense.analyze_connectivity.matrices.BeLaz...
+                                                  ...
+235           0             <connsense.analyze_connectivity.matrices.BeLaz...
+236           0             <connsense.analyze_connectivity.matrices.BeLaz...
+237           0             <connsense.analyze_connectivity.matrices.BeLaz...
+238           0             <connsense.analyze_connectivity.matrices.BeLaz...
+239           0             <connsense.analyze_connectivity.matrices.BeLaz...
+Length: 239, dtype: object
+#+end_example
+:END:
+
+Each entry in the dataset is /lazy/, and can be loaded to get the node properties,
+
+#+begin_src jupyter-python :tangle develop_topotap.py
+nodes.dataset.iloc[0].get_value()
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+:  2022-11-15 12:25:37,667: Initialize a DataFrameStore matrix store loading / writing data at /gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/connsense.h5 / nodes/populations/default
+#+begin_example
+             gid region  layer            x            y            z  \
+node_id
+0        1636113   S1HL      6  1717.806055  1429.243660 -1947.592157
+1         996599   S1HL      6  1706.644663  1483.742710 -1753.324454
+2        3524820   S1HL      5  1753.483392  1376.686423 -1307.496527
+3          14591   S1HL      3  1870.540963  1503.039073  -832.308098
+4        4075085   S1HL      5  1762.695366  1617.381668 -1350.106825
+...          ...    ...    ...          ...          ...          ...
+4565     2482024   S1HL      4  1870.852629  1417.927526 -1074.505226
+4566      149550   S1HL      3  1801.080746  1381.376679  -936.636220
+4567     1262062   S1HL      6  1726.608297  1578.411602 -1954.463973
+4568     2482234   S1HL      4  1815.534162  1368.098461 -1149.196962
+4569     2565585   S1HL      4  1849.944804  1458.358325 -1125.779489
+
+        synapse_class     mtype   etype  \
+node_id
+0                 EXC    L6_IPC  cADpyr
+1                 EXC    L6_UPC  cADpyr
+2                 EXC    L5_UPC  cADpyr
+3                 EXC  L3_TPC:A  cADpyr
+4                 EXC  L5_TPC:A  cADpyr
+...               ...       ...     ...
+4565              EXC    L4_TPC  cADpyr
+4566              EXC  L3_TPC:A  cADpyr
+4567              EXC    L6_HPC  cADpyr
+4568              EXC    L4_TPC  cADpyr
+4569              EXC    L4_TPC  cADpyr
+
+                                                morphology        depth
+node_id
+0        dend-mtC040800E_idF_axon-tkb061213a1_ch0_cc1_h...  1417.501919
+1            dend-Fluo12_right_axon-Fluo41_right_-_Clone_0  1020.287498
+2        dend-vd110524_idB_axon-rp100426-1_idF_-_Scale_...   560.620309
+3        dend-C190898A-P3_axon-mtC221001B_idE_-_Scale_x...   305.047515
+4        dend-rp090908_c3_axon-rp111203_C3_idA_-_Scale_...   765.092867
+...                                                    ...          ...
+4565                dend-rp120608_P_3_idA_axon-C310897A-P4   514.898934
+4566     dend-rr110125B_idA_axon-C280199C-P1_-_Scale_x1...   366.843276
+4567     dend-og060905b1-4_idC_axon-cr161021_A_idB_-_Sc...  1465.592792
+4568     dend-C310897A-P4_axon-rp120531_P_2_idC_-_Scale...   395.760671
+4569     dend-rp120914_P_1_idC_axon-sm100429a1-5_INT_id...   569.395353
+
+[4570 rows x 11 columns]
+#+end_example
+:END:
+
+*** Adjacency
+
+We can have more than one connectome in the circuit, and thus ~connsense-TAP-adjacency~ will be a ~dict~,
+
+#+begin_src jupyter-python :tangle develop_topotap.py
+adjacencies = topotap.adjacency
+adjacencies["local"].dataset
+#+end_src
+
+#+RESULTS:
+#+begin_example
+subtarget_id  circuit_id  connectome_id
+1             0           0                <connsense.io.write_results.LazyMatrix object ...
+2             0           0                <connsense.io.write_results.LazyMatrix object ...
+3             0           0                <connsense.io.write_results.LazyMatrix object ...
+4             0           0                <connsense.io.write_results.LazyMatrix object ...
+5             0           0                <connsense.io.write_results.LazyMatrix object ...
+                                                                 ...
+235           0           0                <connsense.io.write_results.LazyMatrix object ...
+236           0           0                <connsense.io.write_results.LazyMatrix object ...
+237           0           0                <connsense.io.write_results.LazyMatrix object ...
+238           0           0                <connsense.io.write_results.LazyMatrix object ...
+239           0           0                <connsense.io.write_results.LazyMatrix object ...
+Length: 239, dtype: object
 #+end_example
 
+The contents of each adjacency dataset is also lazy,
 
+#+begin_src jupyter-python :tangle develop_topotap.py
+adjacencies["local"].dataset.iloc[0].get_value()
+#+end_src
 
-
-
-** TODO SUGGESTION: explain what the subtargets are.
-
-** TODO Present nodes and adjacencies with topotap
+#+RESULTS:
+: <4570x4570 sparse matrix of type '<class 'numpy.int64'>'
+: 	with 431358 stored elements in Compressed Sparse Row format>
 
 ** Extract small subtargets: An exercise in interacting with TAP HDFStore.
 
 
-We have already extracted data for the pipeline. To reduce test-development time we will extract a small subset of all the 240 subtargets and save that to an ~extract~ directory. Structurally this will be exactly the same as the complete pipeline, just with a smaller size. The exercise will use the ~connsense-TAP-HDFStore~ and thus serve as an introduction to how to use ~connsense-TAP~ to develop the analyses resuts further.
+We have already extracted circuit data for the pipeline. To reduce test-development time we will extract a small subset of all the 240 subtargets and save to an ~extract~ directory. Structurally this will be exactly the same as the complete pipeline, just with a smaller size. The exercise will use the ~connsense-TAP-HDFStore~ and thus serve as an introduction the use of ~connsense-TAP~ to develop the analyses results further.
 
 #+name: noteook-connsense-extract
 #+begin_src jupyter-python
-subtarget_gids = topotap.pour_dataset("define-subtargets", "flatmap-columns/data") #gids") use
+subtarget_gids = tap.pour_dataset("define-subtargets", "flatmap-columns/data") #gids") use
 subtarget_sizes = subtarget_gids.apply(len)
 subtarget_sizes
 #+end_src
 
 #+RESULTS: noteook-connsense-extract
-:RESULTS:
-:  2022-11-08 14:49:52,228: Note: detected 80 virtual cores but NumExpr set to maximum of 64, check "NUMEXPR_MAX_THREADS" environment variable.
-:  2022-11-08 14:49:52,229: Note: NumExpr detected 80 cores but "NUMEXPR_MAX_THREADS" not set, so enforcing safe limit of 8.
-:  2022-11-08 14:49:52,229: NumExpr defaulting to 8 threads.
 #+begin_example
 subtarget_id  circuit_id
 1             0              4570
@@ -207,16 +343,17 @@ subtarget_id  circuit_id
 240           0                 0
 Name: gids, Length: 240, dtype: int64
 #+end_example
-:END:
 
 Let us take everything below a size of 5000
 #+begin_src jupyter-python
-subtargets_to_extract = subtarget_sizes.index[subtarget_sizes < 5000].get_level_values("subtarget_id")
-print("Number < 5000", len(subtargets_to_extract))
+subtargets_to_extract = (subtarget_sizes.index[np.logical_and(2000 <= subtarget_sizes.values,
+                                                             subtarget_sizes.values < 5000)]
+                                               .get_level_values("subtarget_id"))
+print("Number 2000 <= subtarget-size < 5000", len(subtargets_to_extract))
 #+end_src
 
 #+RESULTS:
-: Number < 5000 48
+: Number 2000 <= subtarget-size < 5000 16
 
 that we can use to define the extracted subtargets. There are three datasets associated with subtargets.
 
@@ -231,130 +368,172 @@ display(extract_gids)
 
 #+RESULTS:
 :RESULTS:
-:  2022-11-08 14:51:14,346: Load dataset ('define-subtargets', 'flatmap-columns'):
-: ('Hexaongal prism like columns oriented along cortical layers, from '
-:  'white-matter to pia. The data is loaded from an NRRD file that maps each '
-:  'circuit voxel to a subtarget ids corresponding to a flatmap column.The '
-:  'subtarget ids should be mapped to the subtargets they refer to in a '
-:  'dataframe provided as the input `info`.')
 #+begin_example
              subtarget  flat_i  flat_j        flat_x  flat_y
 subtarget_id
 1               R18;C0     -27      27  3.802528e-13  6210.0
-2               R19;C0     -28      29  1.991858e+02  6555.0
 57              R19;C5     -23      34  2.191044e+03  6555.0
 58               R1;C0      -1       2  1.991858e+02   345.0
 71               R0;C3       3       3  1.195115e+03     0.0
-93              R19;C6     -22      35  2.589416e+03  6555.0
-113             R14;C7     -14      28  2.788602e+03  4830.0
-122             R15;C7     -15      30  2.987788e+03  5175.0
-123             R19;C7     -21      36  2.987788e+03  6555.0
-130             R16;C8     -16      32  3.186973e+03  5520.0
 136              R0;C7       7       7  2.788602e+03     0.0
-139             R11;C7      -9      24  2.987788e+03  3795.0
-140             R17;C8     -17      34  3.386159e+03  5865.0
-148             R18;C9     -18      36  3.585345e+03  6210.0
-149             R19;C8     -20      37  3.386159e+03  6555.0
-156             R10;C8      -7      23  3.186973e+03  3450.0
-159              R0;C8       8       8  3.186973e+03     0.0
 181             R8;C10      -2      22  3.983717e+03  2760.0
 186             R3;C10       6      15  4.182903e+03  1035.0
-189            R10;C12      -3      27  4.780460e+03  3450.0
-193             R8;C11      -1      23  4.382089e+03  2760.0
-195            R12;C12      -6      30  4.780460e+03  4140.0
-196             R8;C12       0      24  4.780460e+03  2760.0
-200             R13;C7     -12      27  2.987788e+03  4485.0
-204            R11;C12      -4      29  4.979646e+03  3795.0
 205            R12;C13      -5      31  5.178832e+03  4140.0
-211            R13;C12      -7      32  4.979646e+03  4485.0
-212            R14;C13      -8      34  5.178832e+03  4830.0
 215            R13;C13      -6      33  5.378018e+03  4485.0
 216             R0;C11      11      11  4.382089e+03     0.0
 217             R5;C13       6      21  5.378018e+03  1725.0
 218             R7;C14       4      25  5.776389e+03  2415.0
-225            R11;C15      -1      32  6.174761e+03  3795.0
 226            R14;C14      -7      35  5.577204e+03  4830.0
-227             R8;C15       3      27  5.975575e+03  2760.0
 228             R2;C11       8      14  4.382089e+03   690.0
-229            R12;C16      -2      34  6.373947e+03  4140.0
 230            R13;C15      -4      35  6.174761e+03  4485.0
-231             R1;C11      10      13  4.581274e+03   345.0
 232            R14;C15      -6      36  5.975575e+03  4830.0
-233             R0;C12      12      12  4.780460e+03     0.0
-234              R9;C8      -5      22  3.386159e+03  3105.0
-235            R15;C14      -8      37  5.776389e+03  5175.0
-236             R4;C12       6      18  4.780460e+03  1380.0
-237             R9;C15       2      29  6.174761e+03  3105.0
-238            R15;C13      -9      36  5.378018e+03  5175.0
-239             R3;C11       7      16  4.581274e+03  1035.0
-240            R15;C15      -7      38  6.174761e+03  5175.0
 #+end_example
 #+begin_example
 subtarget_id  circuit_id
 1             0             [1636113, 996599, 3524820, 14591, 4075085, 141...
-2             0             [1266252, 366210, 3411327, 4030175, 2328537, 3...
 57            0             [1101211, 2018531, 1028613, 3799927, 1101208, ...
 58            0             [215573, 1402361, 1768805, 3677280, 1174919, 3...
 71            0             [3388343, 600993, 3961385, 2680002, 2156742, 2...
-93            0             [1331416, 703677, 2471943, 1901147, 4164719, 3...
-113           0             [1438965, 726859, 3033401, 1248961, 2143513, 8...
-122           0             [1599355, 3255779, 3320862, 1420298, 2139662, ...
-123           0             [2029595, 672897, 3281015, 3850243, 3453445, 6...
-130           0             [3604641, 1007762, 915999, 1722022, 1107177, 1...
 136           0             [1669658, 1215301, 1576560, 2144297, 3157284, ...
-139           0             [1917602, 1076033, 899933, 2007417, 1237071, 3...
-140           0             [1452168, 1943969, 521933, 619172, 3076583, 32...
-148           0             [786542, 1914950, 1569489, 2706432, 3947619, 9...
-149           0             [2886945, 2981820, 2533665, 2418322, 3345536, ...
-156           0             [2027335, 2140677, 1981834, 1668897, 763464, 2...
-159           0             [2782221, 4217551, 1195432, 2960433, 3335007, ...
 181           0             [2753113, 2959883, 1484253, 3811261, 1843970, ...
 186           0             [1030593, 839524, 2494450, 202186, 815469, 318...
-189           0             [833518, 2083123, 1668673, 2094171, 1040063, 1...
-193           0                                            [1012855, 1272301]
-195           0             [1012416, 1936777, 882083, 1745429, 1433237, 1...
-196           0             [2356102, 2369177, 1151607, 3207272, 3938680, ...
-200           0                                              [653242, 687610]
-204           0             [1196649, 888037, 1360779, 1022158, 2035792, 1...
 205           0             [1205543, 1176196, 1774839, 2015050, 1364632, ...
-211           0                           [930019, 1434936, 1763177, 2151130]
-212           0             [2129137, 1840061, 1928000, 1942617, 966777, 1...
 215           0             [1308008, 1496173, 1464634, 2194140, 1034037, ...
 216           0             [3408364, 3145681, 3953930, 325523, 3143500, 2...
 217           0             [3629373, 1993272, 92014, 3613841, 209440, 368...
 218           0             [3552622, 1981658, 567749, 3058573, 1018407, 1...
-225           0             [3028865, 1418509, 1425477, 3028803, 717127, 2...
 226           0             [4096837, 2697489, 3249118, 110587, 4200169, 3...
-227           0             [4006995, 2503014, 1156933, 4015401, 2610205, ...
 228           0             [3165401, 3108200, 3212141, 3101038, 2467433, ...
-229           0             [91590, 1382294, 2920671, 2309560, 486626, 384...
 230           0             [463147, 2694306, 2288539, 2335832, 4179316, 3...
-231           0             [3053387, 3261361, 3260675, 175323, 3253018, 6...
 232           0             [296143, 3478705, 166027, 2306898, 3394905, 49...
-233           0             [3242725, 2921720, 3119775, 3405658, 2945966, ...
-234           0                                                      [655474]
-235           0             [3006421, 400107, 129972, 3006579, 3214201, 10...
-236           0             [3309209, 3274179, 2991788, 3349409, 3333216, ...
-237           0             [3355052, 3727664, 3262333, 2671785, 3257184, ...
-238           0             [682556, 3059490, 677400, 3139700, 3180953, 30...
-239           0                                                      [651271]
-240           0                                                            []
 Name: gids, dtype: object
 #+end_example
 :END:
 
 We can just write them to the workplace
 #+begin_src jupyter-python
+EXTRACTSPC = CONNSPACE / "extract-3"
+EXTRACTSPC.mkdir(parents=False, exist_ok=True)
 extract_info.to_hdf(EXTRACTSPC/"connsense.h5", key="subtargets/flatmap-columns/info")
 extract_names.to_hdf(EXTRACTSPC/"connsense.h5", key="subtargets/flatmap-columns/name")
 extract_gids.to_hdf(EXTRACTSPC/"connsense.h5", key="subtargets/flatmap-columns/data")
 
 #+end_src
 
+#+RESULTS:
+: /gpfs/bbp.cscs.ch/home/sood/work/workspaces/venvs/py39/lib/python3.9/site-packages/tables/path.py:137: NaturalNameWarning: object name is not a valid Python identifier: 'flatmap-columns'; it does not match the pattern ``^[a-zA-Z_][a-zA-Z0-9_]*$``; you will not be able to use natural naming to access this object; using ``getattr()`` will still work, though
+:   check_attribute_name(name)
+: /gpfs/bbp.cscs.ch/ssd/apps/bsd/2022-01-10/stage_applications/install_gcc-11.2.0-skylake/py-pandas-1.3.4-exvllw/lib/python3.9/site-packages/pandas/core/generic.py:2703: PerformanceWarning:
+: your performance may suffer as PyTables will pickle object types that it cannot
+: map directly to c-types [inferred_type->mixed,key->values] [items->None]
+:
+:   pytables.to_hdf(
+
+#+begin_src jupyter-python
+def count_mtypes(value):
+    def in_subtarget(s):
+        nodes = s.get_value()
+        shapes = nodes.mtype.apply(lambda m: '_'.join(m.split('_')[1:]))
+        mcs = shapes == value
+        return mcs.sum()
+    return count_mtypes
+#+end_src
+
+#+RESULTS:
+
 
 * Running the pipeline
 
 We have already configured the extract. Let us take a look into the configuration.
+
+** Setup Launch Collect
+
+Execution of a ~connsense-TAP-pipeline~ is done three stages:
+
+#+begin_src shell
+tap --configure=pipeline.yaml --parallelize=runtime.yaml --mode=develop setup analyze-connectivity simplex-counts
+#+end_src
+
+where we use the same ~dataset-references~ that we use in the ~connsense-TAP~ interface. The ~mode=develop~ is necessary at the moment as we have an older implementation in ~mode=prod~.
+
+The result of setting up simplex-counts will be a workspace layout of the compute nodes where simplex-counts will be computed.
+#+begin_src shell
+>> tree run
+├── description.json
+├── full
+│   ├── compute-node-0
+│   ├── compute-node-1
+│   ├── compute-node-10
+│   ├── compute-node-11
+│   ├── compute-node-12
+│   ├── compute-node-13
+│   ├── compute-node-14
+│   ├── compute-node-15
+│   ├── compute-node-16
+│   ├── compute-node-17
+│   ├── compute-node-18
+│   ├── compute-node-19
+│   ├── compute-node-2
+│   ├── compute-node-3
+│   ├── compute-node-4
+│   ├── compute-node-5
+│   ├── compute-node-6
+│   ├── compute-node-7
+│   ├── compute-node-8
+│   ├── compute-node-9
+│   ├── description.json
+│   ├── launchscript.sh
+│   ├── pipeline.yaml -> /gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/extract-2/run/pipeline.yaml
+│   ├── runtime.yaml -> /gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/extract-2/run/runtime.yaml
+│   ├── setup.json
+│   └── subtargets.h5
+├── layer
+│   ├── compute-node-0
+│   ├── compute-node-1
+│   ├── compute-node-10
+│   ├── compute-node-11
+│   ├── compute-node-13
+│   ├── compute-node-15
+│   ├── compute-node-17
+│   ├── compute-node-19
+│   ├── compute-node-2
+│   ├── compute-node-3
+│   ├── compute-node-4
+│   ├── compute-node-5
+│   ├── compute-node-6
+│   ├── compute-node-7
+│   ├── compute-node-8
+│   ├── compute-node-9
+│   ├── description.json
+│   ├── launchscript.sh
+│   ├── pipeline.yaml -> /gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/extract-2/run/pipeline.yaml
+│   ├── runtime.yaml -> /gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/extract-2/run/runtime.yaml
+│   ├── setup.json
+│   └── subtargets.h5
+├── pipeline.yaml -> /gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/extract-2/run/pipeline.yaml
+└── runtime.yaml -> /gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/extract-2/run/runtime.yaml
+
+#+end_src
+
+Each ~slicing~ will be computed in it's own directory. This can be useful in tracking the results during the development stages of a circuit-analyses suite.
+
+** Launch
+
+At the moment the launching of jobs is manual, but not more than a few lines. In the case of ~simplex-counts~ we will do
+
+#+begin_src shell
+>> source full/launchscript.sh
+>> source layer/launchscript.sh
+#+end_src
+
+Running individual ~slicings~ can help debug during the development stages. The result of the launch will be that jobs will be queued on the cluster. We have implemented some error analysis of the jobs in ~connsense-TAP~, but error-handling is only partial at the moment. For example failure of parallel processes is not caught. We rely on reading the logs to find out-of-memory bugs, or other crashes, and plan on improving error-handling.
+
+** Collect
+Once we are satisfied with results of our analysis, we will to collect them into the master ~connsense-TAP-HDFStore~. .
+#+begin_src shell
+tap --configure=pipeline.yaml --parallelize=runtime.yaml --mode=develop collect analyze-connectivity simplex-counts
+#+end_src
+
 
 ** TODO: Outline of the setup->launch->collect cycle
 *** TODO Briefly about the two configs.
@@ -392,6 +571,7 @@ We can see if ~topotap~ already has these data.
 where we have the adjacency matrices for the /local/ edge population
 
 ** Runtime Config maybe next time
+
 
 * TAP config
 There are two ~TAP~ config sections we need to fill,
