@@ -212,10 +212,10 @@ class HDFStore:
             #elif step == "extract-node-types":
             #    self.datasets[step][dset] = self.read_node_types(dset).sort_index()
             elif step == "extract-node-populations":
-                store = matrices.get_store(h5, group+"/"+dset, pd.DataFrame)
+                store = matrices.get_store(h5, group+"/"+dset, pd.DataFrame, in_mode="r")
                 self.datasets[step][dset] = store.toc
             elif step == "sample-edge-populations":
-                store = matrices.get_store(h5, group+"/"+dset, pd.DataFrame)
+                store = matrices.get_store(h5, group+"/"+dset, pd.DataFrame, in_mode="r")
                 self.datasets[step][dset] = store.toc
             else:
                 read = self.get_reader(step)

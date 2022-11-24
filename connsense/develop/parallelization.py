@@ -124,31 +124,46 @@ def batch_multinode(computation, of_inputs, in_config, at_dirpath, using_paralle
     n_parallel_jobs_per_node_biggest_subtarget = int(n_parallel_jobs / n_compute_nodes)
 
     LOG.info("Assign compute-nodes to %s inputs", len(of_inputs))
-    weights = (of_inputs.progress_apply(lambda l: estimate_load(to_compute=None)(l()))
-               .dropna().sort_values(ascending=True)).rename("weight")
-    weights = weights[~np.isclose(weights.values, 0.)]
+    toc_index = of_inputs.index
+    weights = of_inputs.progress_apply(lambda l: estimate_load(to_compute=None)(l())).dropna()
+    weights = (weights[~np.isclose(weights, 0.)].groupby(toc_index.names).max()
+               .sort_values(ascending=True)).rename("weight")
+
     unit_weight = max(unit_weight or 0.,  weights.max())
 
     compute_nodes = ((n_compute_nodes * (np.cumsum(weights) / weights.sum() - 1.e-6))
                      .astype(int).rename("compute_node"))
     LOG.info("Assign batches to compute node subtargets")
 
+    def weigh_one(compute_node):
+        return weights.loc[compute_node.index]
+
     def batch(compute_node):
         """..."""
-        cn_weights = weights.loc[compute_node.index]
+        cn_weights = weigh_one(compute_node)
         n_parallel = min(int(n_parallel_jobs_per_node_biggest_subtarget * unit_weight / cn_weights.max()),
                          len(cn_weights))
         return pd.Series(np.linspace(0, n_parallel - 1.e-6, len(cn_weights), dtype=int), name="batch",
                          index=cn_weights.index)
-    batches = pd.DataFrame(compute_nodes).groupby("compute_node").apply(batch)
-    batches = batches.reorder_levels(compute_nodes.index.names + ["compute_node"])
+
+    batches = ((pd.concat([batch(compute_nodes)], keys=[compute_nodes.unique()[0]], names=["compute_node"])
+                if compute_nodes.nunique() == 1
+                else pd.DataFrame(compute_nodes).groupby("compute_node").apply(batch))
+               .reorder_levels(compute_nodes.index.names + ["compute_node"]))
+
     if not with_weights:
         return batches
 
     if not isinstance(weights.index, pd.MultiIndex):
         weights.index = pd.MultiIndex.from_arrays([weights.index.values], names=[weights.index.name])
 
-    assignment =  pd.concat([batches, weights.loc[batches.index]], axis=1) if with_weights else batches
+    cn_weights = ((pd.concat([weigh_one(compute_nodes)], keys=[compute_nodes.unique()[0]], names=["compute_node"])
+                   if compute_nodes.nunique() == 1
+                   else pd.DataFrame(compute_nodes).groupby("compute_node").apply(weigh_one))
+                  .reorder_levels(compute_nodes.index.names + ["compute_node"]))
+
+    assignment =  pd.concat([batches, cn_weights], axis=1) if with_weights else batches
+
     if at_dirpath:
         assignment_h5, dataset = COMPUTE_NODE_ASSIGNMENT
         assignment.to_hdf(at_dirpath/assignment_h5, key=dataset)
@@ -283,7 +298,8 @@ def slice_units(of_computation, in_tap):
 def filter_datasets(described):
     """..."""
     return {var: val for var, val in described.items()
-            if var not in ("circuit", "connectome") and isinstance(val, Mapping) and "dataset" in val}
+            if (var not in ("circuit", "connectome") and isinstance(val, Mapping)
+                and ("dataset" in val or "datacall" in val))}
 
 
 def lazily(to_evaluate):
@@ -298,8 +314,6 @@ def load_dataset(tap, variable, values):
     """...Load a configured `computation-variable` from `connsense-TAP`
        values: as configured
     """
-    dataset = tap.pour_dataset(*values["dataset"])
-
     def unpack_value(v):
         """..."""
         try:
@@ -313,40 +327,81 @@ def load_dataset(tap, variable, values):
             return v
         return get()
 
-    LOG.info("Pour %s dataset ", variable)
 
-    return dataset.apply(lazily(to_evaluate=unpack_value))
+    try:
+        dset = values["dataset"]
+    except KeyError:
+        try:
+            to_call = values["datacall"]
+        except KeyError:
+            raise ValueError("values need to define either dataset or datacall")
+        dataset = brew_dataset(tap, to_call)
+    else:
+        LOG.info("Pour %s dataset: \n%s", variable, dset)
+        dataset = tap.pour_dataset(*dset).apply(lazily(to_evaluate=unpack_value))
+
+    if isinstance(dataset, pd.DataFrame):
+        return pd.Series([r for _, r in dataset.iterrows()], index=dataset.index).apply(DataCall)
+
+    return dataset if "reindex" not in values else reindex(tap, dataset, values["reindex"])
+
+
+def bind_belazy(call):
+    """..."""
+    def get_value(belazy):
+        """..."""
+        def f(): raise TypeError("not a callable, i am")
+        f.get_value = lambda : call(belazy.get_value())
+        return f
+    return get_value
+
+
+def bind_lazy(call, **kwargs):
+    """..."""
+    def datacall(in_store):
+        return DataCall(in_store, transform=(call, kwargs))
+    return datacall
+
+
+def brew_dataset(tap, call):
+    """..."""
+    in_store = pour(tap, call["input"]).apply(lazy_keyword).apply(DataCall)
+    _, recipe = plugins.import_module(call["recipe"])
+    return in_store.apply(bind_lazy(call=recipe, **call["kwargs"]))
 
 
 def lazy_keyword(input_datasets):
     """...Repack a Mapping[String->CallData[D]] to CallData[Mapping[String->Data]]
     """
-    return lambda: {var: value() for var, value in input_datasets.items()}
+    def unpack(value):
+        """..."""
+        if callable(value):
+            return value()
+
+        try:
+            get_value = value.get_value()
+        except AttributeError:
+            pass
+        else:
+            return get_value()
+
+        return value
+
+    return lambda: {var: unpack(value) for var, value in input_datasets.items()}
+
 
 
 def pour(tap, datasets):
     """..."""
     LOG.info("Pour tap \n%s\n to get values for variables:\n%s", tap._root, pformat(datasets))
-    datasets = sorted([(variable, load_dataset(tap, variable, values)) for variable, values in datasets.items()],
-                      key=lambda x: len(x[1].index.names), reverse=True)
+    dsets = sorted([(variable, load_dataset(tap, variable, values)) for variable, values in datasets.items()],
+                   key=lambda x: len(x[1].index.names), reverse=True)
 
-    hindex = datasets[0][1].index
+    common_index = dsets[0][1].index
 
-    return (pd.concat([dset.loc[hindex] for _, dset in datasets], axis=1, keys=[name for name, _ in datasets])
+    return (pd.concat([dset.reindex(common_index) for _, dset in dsets],
+                      axis=1, keys=[name for name, _ in dsets])
             .apply(lambda row: row.to_dict(), axis=1))
-
-    def collect(aggregated, datasets):
-        """..."""
-        if not datasets:
-            return aggregated
-
-        head, dset_head = datasets[0]
-        vars, dset_agg = aggregated
-        combined = pd.concat([dset_agg, dset_head.loc[dset_agg.index]], axis=1, keys=vars+[head])
-        return collect((vars+[head], combined), datasets[1:])
-
-    variable, primary = datasets[0]
-    return collect(([variable], primary), datasets[1:])[1].apply(lambda row: row.to_dict(), axis=1)
 
 
 def get_workspace(for_computation, in_config, in_mode=None):
@@ -487,6 +542,8 @@ def read_runtime_config(for_parallelization, *, of_pipeline=None, return_path=Fa
 
         def configure_quantity(q):
             """..."""
+            LOG.info("configure quantity %s", q)
+
             q_cfg = deepcopy(configured.get(q) or {})
             if "sbatch" not in q_cfg:
                 q_cfg["sbatch"] = default_sbatch()
@@ -507,6 +564,7 @@ def read_runtime_config(for_parallelization, *, of_pipeline=None, return_path=Fa
 
                 return cfg
 
+            LOG.info("decomposed quantity: \n%s", decompose_quantity(q))
             for c in decompose_quantity(q):
                 q_cfg[c] = configure_component(c)
 
@@ -576,11 +634,30 @@ def write_description(of_computation, in_config, at_dirpath):
     configured["name"] = of_quantity
     return read_pipeline.write(configured, to_json=at_dirpath/"description.json")
 
+
+def reindex(tap, inputs, variables):
+    """..."""
+    connsense_ids = {v: tap.index_variable(value) for v, value in variables.items()}
+    def index_ids(subtarget):
+        return pd.MultiIndex.from_frame(pd.DataFrame({f"{var}_id": connsense_ids[var].loc[values.values].values
+                                                      for var, values in subtarget.index.to_frame().items()}))
+    reinputs = inputs.apply(lambda s: pd.DataFrame(s()).set_index(index_ids(subtarget=s())))
+    frame = pd.concat(reinputs.values, keys=reinputs.index)
+    groups_of_inner_frames = list(frame.groupby(frame.index.names))
+    return (pd.Series([d.reset_index(drop=True) for _, d in groups_of_inner_frames],
+                      index=pd.MultiIndex.from_tuples([i for i,_ in groups_of_inner_frames],
+                                                      names=frame.index.names))
+            .apply(DataCall))
+
+
+
+
 class DataCall:
     """Call data..."""
-    def __init__(self, dataitem, transform=None):
+    def __init__(self, dataitem, transform=None, cache=False):
         self._dataitem = dataitem
-        self._transform = transform or (lambda d: d)
+        self._transform = transform
+        self._cache = None if not cache else {}
 
     @lazy
     def dataset(self):
@@ -591,79 +668,40 @@ class DataCall:
     def shape(self):
         """..."""
         original = self._dataitem() if callable(self._dataitem) else self._dataitem
+        if self._cache is not None:
+            self._cache["original"] = original
+
         if isinstance(original, Mapping):
             return next(v for v in original.values()).shape
-        return original.shape
+        try:
+            return original.shape
+        except AttributeError:
+            pass
+
+        try:
+            return len(original)
+        except TypeError:
+            pass
+
+        return 1.
 
     def __call__(self):
         """Call Me."""
-        return self._transform(self._dataitem() if callable(self._dataitem) else self._dataitem)
-
-
-def generate_inputs_0(of_computation, in_config):
-    """..."""
-    from connsense.develop.topotap import HDFStore
-    LOG.info("Generate inputs for %s.", of_computation)
-
-    computation_type, of_quantity = describe(of_computation)
-    params = parameterize(computation_type, of_quantity, in_config)
-    tap = HDFStore(in_config)
-
-    datasets = pour(tap=HDFStore(in_config), datasets=filter_datasets(params["input"]))
-    original = datasets.apply(lazy_keyword).apply(DataCall)
-
-    def tap_datasets(for_inputs, and_additionally=None):
-        """..."""
-        LOG.info("Get input data from tap: \n%s", for_inputs)
-        references = deepcopy(for_inputs)
-        if and_additionally:
-            LOG.info("And additionally: \n%s", and_additionally)
-            references.update({key: {"dataset": ref} for key, ref in and_additionally.items()} or {})
-        datasets = pour(tap, datasets=references)
-        return datasets.apply(lazy_keyword).apply(DataCall)
-
-    def datacall(transformation):
-        """..."""
-        def transform(dataitem):
-            """..."""
-            return DataCall(dataitem, transformation)
-        return transform
-
-    try:
-        randomizations = params["input"]["controls"]
-    except KeyError:
-        LOG.warning("It seems no controls have been configured for the input of %s", of_computation)
-        result = original
-    else:
-        controls = apply_controls()
-
-        controls = load_control(randomizations, lazily=False)
-        if controls:
-            for_input = filter_datasets(params["input"])
-            controlled = pd.concat([tap_datasets(for_input, and_additionally=to_tap).apply(datacall(shuffle))
-                                    for _, shuffle, to_tap in controls], axis=0,
-                                keys=[control_label for control_label, _, _ in controls], names=["control"])
-            original = pd.concat([original], axis=0, keys=["original"], names=["control"])
-            result = pd.concat([original, controlled])
-            result = result.reorder_levels([l for l in result.index.names if l != "control"] + ["control"])
+        if self._cache is not None and "original" in self._cache:
+            original = self._cache["original"]
         else:
-            result = original
+            original = self._dataitem() if callable(self._dataitem) else self._dataitem
+            if self._cache is not None:
+                self._cache["original"] = original
 
-    try:
-        slicings = params["input"]["slicing"]
-    except KeyError:
-        LOG.warning("No slicing configured for the input of %s", of_computation)
-        return result
+        if not self._transform:
+            return original
 
-    slicing = load_slicing(slicings, lazily=False)
-    if slicing:
-        sliced = pd.concat([result.apply(datacall(sliced_input)) for _, sliced_input in slicing], axis=0,
-                               keys=[slicing_label for slicing_label,_ in slicing], names=["slicing"])
-        result = pd.concat([result], axis=0, keys=["full"], names=["slicing"])
-        result = pd.concat([result, sliced])
-        result = result.reorder_levels([l for l in result.index.names if l != "slicing"] + ["slicing"])
+        if callable(self._transform):
+            return self._transform(original)
 
-    return result
+        transform, kwargs = self._transform
+        return transform(**original, **kwargs)
 
 
 def generate_inputs(of_computation, in_config, slicing=None):
@@ -959,7 +997,8 @@ def setup_multinode(process, of_computation, in_config, using_runtime, in_mode=N
     else:
         max_weight = None
 
-    compute_nodes = {"full": prepare_compute_nodes(full, at_dirpath=(to_stage/"full" if "slicing" in params else to_stage),
+    compute_nodes = {"full": prepare_compute_nodes(full, at_dirpath=(to_stage/"full" if "slicing" in params
+                                                                     else to_stage),
                                                    slicing=("full" if "slicing" in params else None),
                                                    unit_weight=max_weight)}
 
@@ -1125,6 +1164,7 @@ PARALLEL_BATCHES = "parallel-batches"
 def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
                      batching=SERIAL_BATCHES, slicing=None):
     """..."""
+    from connsense.develop.topotap import HDFStore
     on_compute_node = run_cleanup(on_compute_node)
 
     run_in_progress = on_compute_node.joinpath(INPROGRESS)
@@ -1779,7 +1819,7 @@ def parse_slices(slicing):
     from itertools import product
     def prepare_singleton(slicespec):
         """..."""
-        assert len(slicespec) == 2, slicespec
+        assert len(slicespec) == 2, "must be a tuple from a dict items"
         key, values = slicespec
         if isinstance(values, list):
             return ((key, value) for value in values)
@@ -1790,7 +1830,7 @@ def parse_slices(slicing):
                     innervalues = [innervalues]
                 return ((key, {innerkey: val}) for val in innervalues)
             innerdicts = product(*(s for s in (prepare_singleton(slicespec=s)  for s in values.items())))
-            return ((key, dvalue) for dvalue in innerdicts)
+            return ((key, dict(dvalue)) for dvalue in innerdicts)
 
         return ((key, value) for value in [values])
 
@@ -1822,6 +1862,7 @@ def flatten_slicing(_slice):
 def load_slicing(transformations, using_tap=None, lazily=True):
     """..."""
     from copy import deepcopy
+
     def load_dataset(slicing):
         """..."""
         slicing = deepcopy(slicing)
@@ -1851,7 +1892,7 @@ def load_slicing(transformations, using_tap=None, lazily=True):
                 return algorithm(**datasets, **aslice, **kwargs)
             return slice_input
         return pd.Series([specify(aslice) for aslice in slices],
-                         index=pd.MultiIndex.from_frame(pd.DataFrame([flatten_slicing(_slice) for _slice in slices])))
+                         index=pd.MultiIndex.from_frame(pd.DataFrame([flatten_slicing(s) for s in slices])))
     return {slicing: load(slicing=s) for slicing, s in transformations.items()}
 
 

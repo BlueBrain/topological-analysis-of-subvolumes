@@ -832,7 +832,10 @@ def pour_analyses(tap, computation_type, quantity, slicing=None):
     """
     LOG.info("Pour analyses for %s quantity %s", computation_type, quantity)
     connsense_h5, hdf_group = tap.get_path(computation_type)
-    paramkey = tap.get_paramkey(computation_type)
+
+#    if quantity == "psp/traces":
+#        return pd.read_hdf(connsense_h5, '/'.join([hdf_group, quantitye))
+
 
     def pour_component(c, parameters):
         """..."""
@@ -859,14 +862,14 @@ def pour_analyses(tap, computation_type, quantity, slicing=None):
 
 With methods to pour datasets from a ~connsense-TAP~, we can provide some convenient interfaces to get subtargets, nodes, adjacencies, analyses. In its H5 data, ~connsense-TAP~ will index the computations using the configuration entry for ~parameters/create-index~,
 
-#+name: tap-create-index
+#+name: tap-create-index-create
 #+begin_src python
 def create_index(tap, variable):
     """..."""
     described = tap._config["parameters"]["create-index"]["variables"][variable]
 
     if isinstance(described, pd.Series):
-        values = descibed.values
+        values = described.values
     elif isinstance(described, Mapping):
         try:
             dataset = described["dataset"]
@@ -881,6 +884,26 @@ def create_index(tap, variable):
 
     return pd.Series(values, name=variable, index=pd.RangeIndex(0, len(values), 1, name=f"{variable}_id"))
 
+
+#+end_src
+
+We might want want to index ids of a variable,
+#+name: tap-create-index
+#+begin_src python :noweb yes
+<<tap-create-index-create>>
+
+def index_variable(tap, name, value=None):
+    """..."""
+    import numpy as np
+
+    index = tap.create_index(variable=name)
+
+    if value is not None and not isinstance(value, (list, np.ndarray)):
+        idx = index.index.values[index == value]
+        return idx[0] if len(idx) == 1 else idx
+
+    reverse = pd.Series(index.index.values, name=index.name, index=pd.Index(index.values, name=index.name))
+    return reverse.reindex(value) if value is not None else reverse
 
 #+end_src
 
@@ -994,8 +1017,9 @@ class TapDataset:
     @lazy
     def dataset(self):
         """..."""
-        def load_component(c, ):
+        def load_component(c):
             """..."""
+            raise NotImplementedError("INPROGRESS")
 
 
         def load_slicing(s):
@@ -1015,7 +1039,8 @@ class TapDataset:
             lazydset = self._tap.pour(self._dataset).sort_index()
             return (lazydset if self._belazy
                     else (lazydset.apply(lambda l: l.get_value()) if isinstance(lazydset, pd.Series)
-                          else {component: dset.apply(lambda l: l.get_value())}))
+                          else {component: dset.apply(lambda l: l.get_value())
+                                for component, dset in load_components(lazydset)}))
 
         slicings = self.parameters["slicing"]
         dataset = {s: load_slicing(s) for s in slicings if s not in ("description", "do-full")}
@@ -1110,8 +1135,9 @@ def get_phenomenon(tap, computation_type):
     """..."""
     analysis = computation_type.split('-')
     if analysis[0] != "analyze":
-        LOG.warn("%s is not an analysis", computaiton_tyoe)
+        LOG.warn("%s is not an analysis", computation_type)
         return None
+
 
     return '-'.join(analysis[1:])
 
@@ -1151,12 +1177,13 @@ def get_analyses(tap, phenomenon, quantity, control=None, slicing=None):
 
     return dataset[slicing] if slicing else dataset
 
-
-def load_controls(tap, phenomenon, quantity, label=None, subtargets=):
+def load_controls(tap, phenomenon, quantity, label=None, subtargets=None):
     """..."""
     pass
 
 def load_adjacency_controls(tap, analysis, subtargets, control_name):
+    """..."""
+    pass
 
 
 #+end_src
@@ -1176,10 +1203,13 @@ def nodes(tap):
 
 *** TODO TAP controls on demand
 Add a method
-#+begin_src jupyter-python
+#+begin_src python
 def get_controls(subtargets, analysis="connectivity/simplex-count", controls=None):
+    """..."""
+    pass
 
 #+end_src
+
 
 ** Results
 

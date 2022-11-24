@@ -63,6 +63,10 @@ class TapDataset:
         self._phenomenon, self._quantity = dataset
         self._belazy = belazy
 
+    def load(self):
+        """.."""
+        return TapDataset(self._tap, self._dataset, belazy=False)
+
     def index_ids(self, variable):
         """..."""
         try:
@@ -92,11 +96,12 @@ class TapDataset:
         """..."""
         return self.index_ids("connectome")
 
-    @property
+    @lazy
     def dataset(self):
         """..."""
-        def load_component(c, ):
+        def load_component(c):
             """..."""
+            raise NotImplementedError("INPROGRESS")
 
 
         def load_slicing(s):
@@ -116,10 +121,11 @@ class TapDataset:
             lazydset = self._tap.pour(self._dataset).sort_index()
             return (lazydset if self._belazy
                     else (lazydset.apply(lambda l: l.get_value()) if isinstance(lazydset, pd.Series)
-                          else {component: dset.apply(lambda l: l.get_value())}))
+                          else {component: dset.apply(lambda l: l.get_value())
+                                for component, dset in load_components(lazydset)}))
 
         slicings = self.parameters["slicing"]
-        dataset = {s: load_slicing(s) for s in slicings}
+        dataset = {s: load_slicing(s) for s in slicings if s not in ("description", "do-full")}
         try:
             lazyfull = self._tap.pour_dataset(self._phenomenon, self._quantity, slicing="full")
         except KeyError as kerr:
@@ -146,6 +152,11 @@ class TapDataset:
         connectome_id = self.id_connectomes.loc[connectome]
         return (subtarget_id, circuit_id, connectome_id)
 
+    def load_adjacency_controls(self, subtargets, control_names, belazy=False):
+        """...Load adjacency and control them by the provided name.
+        Return pandas Series for the controls, each with an adjacency matrix.
+        """
+        raise NotImplementedError("INPROGRESS")
 
     def __call__(self, subtarget, circuit=None, connectome=None):
         """Call to get data using the names for (subtarget, circuit, connectome).
@@ -191,12 +202,13 @@ class HDFStore:
     
     def read_parameters(tap, computation_type, quantity):
         """..."""
-        pkey = tap.get_paramkey(computation_tap)
+        pkey = tap.get_paramkey(computation_type)
         if '/' not in quantity:
-            return tap.parameters[computation_tap][pkey][quantity]
-
+            return tap.parameters[computation_type][pkey][quantity]
+    
         group, quantity = quantity.split('/')
-        return tap.parameters[computation_tap][pkey[group][quantity]
+        return tap.parameters[computation_type][pkey][group][quantity]
+    
 
     def get_paramkey(tap, computation_type):
         """..."""
@@ -299,7 +311,10 @@ class HDFStore:
         """
         LOG.info("Pour analyses for %s quantity %s", computation_type, quantity)
         connsense_h5, hdf_group = tap.get_path(computation_type)
-        paramkey = tap.get_paramkey(computation_type)
+    
+    #    if quantity == "psp/traces":
+    #        return pd.read_hdf(connsense_h5, '/'.join([hdf_group, quantitye))
+    
     
         def pour_component(c, parameters):
             """..."""
@@ -313,7 +328,7 @@ class HDFStore:
         components = tap.decompose(computation_type, quantity)
         if not components:
             dataset = '/'.join([hdf_group, quantity] if not slicing else [hdf_group, quantity, slicing])
-            parameters = tap.parameters[computation_type][paramkey][quantity]
+            parameters = tap.read_parameters(computation_type, quantity)
             store = matrices.get_store(connsense_h5, dataset, parameters["output"], in_mode='r')
             return store.toc if store else None
     
@@ -326,7 +341,7 @@ class HDFStore:
         described = tap._config["parameters"]["create-index"]["variables"][variable]
     
         if isinstance(described, pd.Series):
-            values = descibed.values
+            values = described.values
         elif isinstance(described, Mapping):
             try:
                 dataset = described["dataset"]
@@ -341,6 +356,20 @@ class HDFStore:
     
         return pd.Series(values, name=variable, index=pd.RangeIndex(0, len(values), 1, name=f"{variable}_id"))
     
+    
+    
+    def index_variable(tap, name, value=None):
+        """..."""
+        import numpy as np
+    
+        index = tap.create_index(variable=name)
+    
+        if value is not None and not isinstance(value, (list, np.ndarray)):
+            idx = index.index.values[index == value]
+            return idx[0] if len(idx) == 1 else idx
+    
+        reverse = pd.Series(index.index.values, name=index.name, index=pd.Index(index.values, name=index.name))
+        return reverse.reindex(value) if value is not None else reverse
     
 
     @lazy
@@ -416,8 +445,9 @@ class HDFStore:
         """..."""
         analysis = computation_type.split('-')
         if analysis[0] != "analyze":
-            LOG.warn("%s is not an analysis", computaiton_tyoe)
+            LOG.warn("%s is not an analysis", computation_type)
             return None
+    
     
         return '-'.join(analysis[1:])
     
@@ -450,3 +480,17 @@ class HDFStore:
         analyses = tap.describe_analyses()
         return {phenomenon: {q["dataset"][1]: TapDataset(tap, q["dataset"]) for q in quantities}
                 for phenomenon, quantities in analyses.items()}
+    
+    def get_analyses(tap, phenomenon, quantity, control=None, slicing=None):
+        """..."""
+        dataset = tap.analyses[phenomenon][quantity].load().dataset
+    
+        return dataset[slicing] if slicing else dataset
+    
+    def load_controls(tap, phenomenon, quantity, label=None, subtargets=None):
+        """..."""
+        pass
+    
+    def load_adjacency_controls(tap, analysis, subtargets, control_name):
+        """..."""
+        pass

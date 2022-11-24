@@ -15,11 +15,11 @@ Let us setup an interactive ~Python~ session where we can run the code developed
 
 #+begin_src jupyter
 from pathlib import Path
-print("Welcome to EMACS Jupyter in %s"%(Path.cwd()))
+print("WelCome to EMACS Jupyter in %s"%(Path.cwd()))
 #+end_src
 
 #+RESULTS:
-: Welcome to EMACS Jupyter in /gpfs/bbp.cscs.ch/home/sood/work/workspaces
+: WelCome to EMACS Jupyter in /gpfs/bbp.cscs.ch/home/sood/work/workspaces
 
 ** Introduction
 
@@ -143,32 +143,32 @@ pprint(topotap.analyses)
 #+RESULTS:
 #+begin_example
 We will plot golden aspect ratios:  1.618033988749895
- 2022-11-12 10:44:59,634: Configure slurm for define-subtargets
- 2022-11-12 10:44:59,650: Configure slurm for extract-node-types
- 2022-11-12 10:44:59,651: Configure slurm for analyze-node-types
- 2022-11-12 10:44:59,652: Configure slurm for create-index
- 2022-11-12 10:44:59,653: No runtime configured for computation type create-index
- 2022-11-12 10:44:59,655: Configure slurm for extract-node-populations
- 2022-11-12 10:44:59,656: Configure slurm for extract-edge-populations
- 2022-11-12 10:44:59,657: Configure slurm for sample-edge-populations
- 2022-11-12 10:44:59,658: Configure slurm for analyze-composition
- 2022-11-12 10:44:59,659: Configure slurm for analyze-connectivity
- 2022-11-12 10:44:59,660: Configure slurm for configure-inputs
- 2022-11-12 10:44:59,661: No runtime configured for computation type configure-inputs
- 2022-11-12 10:44:59,662: Configure slurm for analyze-physiology
+ 2022-11-23 12:16:44,198: Configure slurm for define-subtargets
+ 2022-11-23 12:16:44,199: Configure slurm for extract-node-types
+ 2022-11-23 12:16:44,200: Configure slurm for analyze-node-types
+ 2022-11-23 12:16:44,200: Configure slurm for create-index
+ 2022-11-23 12:16:44,201: No runtime configured for computation type create-index
+ 2022-11-23 12:16:44,201: Configure slurm for extract-node-populations
+ 2022-11-23 12:16:44,202: Configure slurm for extract-edge-populations
+ 2022-11-23 12:16:44,202: Configure slurm for sample-edge-populations
+ 2022-11-23 12:16:44,203: Configure slurm for analyze-composition
+ 2022-11-23 12:16:44,204: Configure slurm for analyze-connectivity
+ 2022-11-23 12:16:44,204: Configure slurm for configure-inputs
+ 2022-11-23 12:16:44,205: No runtime configured for computation type configure-inputs
+ 2022-11-23 12:16:44,205: Configure slurm for analyze-physiology
 Available analyses:
 Available analyses:
-{'composition': {'sample-bouton-density': <connsense.develop.topotap.TapDataset object at 0x7ffeec89e250>,
-                 'synapse-morphology-locations': <connsense.develop.topotap.TapDataset object at 0x7ffeec89ec10>,
-                 'synapse-properties': <connsense.develop.topotap.TapDataset object at 0x7ffeec89e160>},
- 'connectivity': {'common-neighbor-bias': <connsense.develop.topotap.TapDataset object at 0x7ffeec89e190>,
-                  'connection-probability': <connsense.develop.topotap.TapDataset object at 0x7ffeec89e4c0>,
-                  'pair-counts-by-soma-distance': <connsense.develop.topotap.TapDataset object at 0x7ffeec89e700>,
-                  'pathway-strength': <connsense.develop.topotap.TapDataset object at 0x7ffeec89e040>,
-                  'pathway-strength-metype': <connsense.develop.topotap.TapDataset object at 0x7ffeec89e370>,
-                  'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7ffeec89e3d0>},
- 'node-types': {'morphometrics': <connsense.develop.topotap.TapDataset object at 0x7ffeec89e0a0>},
- 'physiology': {'psp': <connsense.develop.topotap.TapDataset object at 0x7ffeec89e580>}}
+{'composition': {'sample-bouton-density': <connsense.develop.topotap.TapDataset object at 0x7fff5c1a9100>,
+                 'synapse-morphology-locations': <connsense.develop.topotap.TapDataset object at 0x7fff5c1a91f0>,
+                 'synapse-properties': <connsense.develop.topotap.TapDataset object at 0x7fff5c1a90d0>},
+ 'connectivity': {'common-neighbor-bias': <connsense.develop.topotap.TapDataset object at 0x7fff5c1f34f0>,
+                  'connection-probability': <connsense.develop.topotap.TapDataset object at 0x7fff5c1f3880>,
+                  'pair-counts-by-soma-distance': <connsense.develop.topotap.TapDataset object at 0x7fff5c1f3850>,
+                  'pathway-strength': <connsense.develop.topotap.TapDataset object at 0x7fff5c1f3970>,
+                  'pathway-strength-metype': <connsense.develop.topotap.TapDataset object at 0x7fff5c1f3a90>,
+                  'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7fff5c1f37f0>},
+ 'node-types': {'morphometrics': <connsense.develop.topotap.TapDataset object at 0x7fff5c1a90a0>},
+ 'physiology': {'psp': <connsense.develop.topotap.TapDataset object at 0x7fff5c1f3760>}}
 #+end_example
 
 
@@ -322,31 +322,46 @@ def batch_multinode(computation, of_inputs, in_config, at_dirpath, using_paralle
     n_parallel_jobs_per_node_biggest_subtarget = int(n_parallel_jobs / n_compute_nodes)
 
     LOG.info("Assign compute-nodes to %s inputs", len(of_inputs))
-    weights = (of_inputs.progress_apply(lambda l: estimate_load(to_compute=None)(l()))
-               .dropna().sort_values(ascending=True)).rename("weight")
-    weights = weights[~np.isclose(weights.values, 0.)]
+    toc_index = of_inputs.index
+    weights = of_inputs.progress_apply(lambda l: estimate_load(to_compute=None)(l())).dropna()
+    weights = (weights[~np.isclose(weights, 0.)].groupby(toc_index.names).max()
+               .sort_values(ascending=True)).rename("weight")
+
     unit_weight = max(unit_weight or 0.,  weights.max())
 
     compute_nodes = ((n_compute_nodes * (np.cumsum(weights) / weights.sum() - 1.e-6))
                      .astype(int).rename("compute_node"))
     LOG.info("Assign batches to compute node subtargets")
 
+    def weigh_one(compute_node):
+        return weights.loc[compute_node.index]
+
     def batch(compute_node):
         """..."""
-        cn_weights = weights.loc[compute_node.index]
+        cn_weights = weigh_one(compute_node)
         n_parallel = min(int(n_parallel_jobs_per_node_biggest_subtarget * unit_weight / cn_weights.max()),
                          len(cn_weights))
         return pd.Series(np.linspace(0, n_parallel - 1.e-6, len(cn_weights), dtype=int), name="batch",
                          index=cn_weights.index)
-    batches = pd.DataFrame(compute_nodes).groupby("compute_node").apply(batch)
-    batches = batches.reorder_levels(compute_nodes.index.names + ["compute_node"])
+
+    batches = ((pd.concat([batch(compute_nodes)], keys=[compute_nodes.unique()[0]], names=["compute_node"])
+                if compute_nodes.nunique() == 1
+                else pd.DataFrame(compute_nodes).groupby("compute_node").apply(batch))
+               .reorder_levels(compute_nodes.index.names + ["compute_node"]))
+
     if not with_weights:
         return batches
 
     if not isinstance(weights.index, pd.MultiIndex):
         weights.index = pd.MultiIndex.from_arrays([weights.index.values], names=[weights.index.name])
 
-    assignment =  pd.concat([batches, weights.loc[batches.index]], axis=1) if with_weights else batches
+    cn_weights = ((pd.concat([weigh_one(compute_nodes)], keys=[compute_nodes.unique()[0]], names=["compute_node"])
+                   if compute_nodes.nunique() == 1
+                   else pd.DataFrame(compute_nodes).groupby("compute_node").apply(weigh_one))
+                  .reorder_levels(compute_nodes.index.names + ["compute_node"]))
+
+    assignment =  pd.concat([batches, cn_weights], axis=1) if with_weights else batches
+
     if at_dirpath:
         assignment_h5, dataset = COMPUTE_NODE_ASSIGNMENT
         assignment.to_hdf(at_dirpath/assignment_h5, key=dataset)
@@ -392,9 +407,6 @@ def batch_parallel_groups(of_inputs, upto_number, to_compute=None, return_load=F
     return batches if not return_load else pd.concat([batches, weights/weights.sum()], axis=1)
 
 #+end_src
-
-#+RESULTS: develop-parallelization-batched-inputs-parallel-groups
-: None
 
 We infer the computational load to compute the result of an input from the first argument among the inputs. In ~connsense-TAP~, the inputs are ~lazyvals / lambdas~, /i.e./ ~unit-computations~ that can be called upon to return the input value defined in them. We assume that the cost of a computation will depend on the /size/ of it's inputs.  A ~connsense-TAP~ ~computation~ may take more than one input argument passed around as a ~dict~. We assume that the size of the input can be infered from the first argument in this ~dict~.  The estimate method we implement should work for other types of inputs as well.
 
@@ -536,7 +548,8 @@ We will need to map each entry in a ~computation~'s ~inputs-index~ to an ~input-
 def filter_datasets(described):
     """..."""
     return {var: val for var, val in described.items()
-            if var not in ("circuit", "connectome") and isinstance(val, Mapping) and "dataset" in val}
+            if (var not in ("circuit", "connectome") and isinstance(val, Mapping)
+                and ("dataset" in val or "datacall" in val))}
 
 #+end_src
 
@@ -561,8 +574,6 @@ def load_dataset(tap, variable, values):
     """...Load a configured `computation-variable` from `connsense-TAP`
        values: as configured
     """
-    dataset = tap.pour_dataset(*values["dataset"])
-
     def unpack_value(v):
         """..."""
         try:
@@ -576,11 +587,51 @@ def load_dataset(tap, variable, values):
             return v
         return get()
 
-    LOG.info("Pour %s dataset ", variable)
 
-    return dataset.apply(lazily(to_evaluate=unpack_value))
+    try:
+        dset = values["dataset"]
+    except KeyError:
+        try:
+            to_call = values["datacall"]
+        except KeyError:
+            raise ValueError("values need to define either dataset or datacall")
+        dataset = brew_dataset(tap, to_call)
+    else:
+        LOG.info("Pour %s dataset: \n%s", variable, dset)
+        dataset = tap.pour_dataset(*dset).apply(lazily(to_evaluate=unpack_value))
+
+    if isinstance(dataset, pd.DataFrame):
+        return pd.Series([r for _, r in dataset.iterrows()], index=dataset.index).apply(DataCall)
+
+    return dataset if "reindex" not in values else reindex(tap, dataset, values["reindex"])
+
+
+def bind_belazy(call):
+    """..."""
+    def get_value(belazy):
+        """..."""
+        def f(): raise TypeError("not a callable, i am")
+        f.get_value = lambda : call(belazy.get_value())
+        return f
+    return get_value
+
+
+def bind_lazy(call, **kwargs):
+    """..."""
+    def datacall(in_store):
+        return DataCall(in_store, transform=(call, kwargs))
+    return datacall
+
+
+def brew_dataset(tap, call):
+    """..."""
+    in_store = pour(tap, call["input"]).apply(lazy_keyword).apply(DataCall)
+    _, recipe = plugins.import_module(call["recipe"])
+    return in_store.apply(bind_lazy(call=recipe, **call["kwargs"]))
 
 #+end_src
+
+While we can ~pour~ ~datasets~ that are already in ~connsense-TAP-HDFStore~, sometimes we may want to define a ~dataset~ that we do not want to keep in ~connsense-TAP-HDFStore~, but use as input in another --- /i.e./ we want to ~brew~ a fresh ~dataset~,
 
 Let us use Haskel notation to understand the types we want to manipulate for chained function calls.
 #+begin_src haskell
@@ -595,7 +646,21 @@ argue_keywords :: Map[String -> (-> DataSet)] -> [-> (String -> DataSet)]
 def lazy_keyword(input_datasets):
     """...Repack a Mapping[String->CallData[D]] to CallData[Mapping[String->Data]]
     """
-    return lambda: {var: value() for var, value in input_datasets.items()}
+    def unpack(value):
+        """..."""
+        if callable(value):
+            return value()
+
+        try:
+            get_value = value.get_value()
+        except AttributeError:
+            pass
+        else:
+            return get_value()
+
+        return value
+
+    return lambda: {var: unpack(value) for var, value in input_datasets.items()}
 
 #+end_src
 
@@ -603,31 +668,23 @@ We can load datasets for all the input variables in a computation.
 
 #+name: develop-parallelization-inputs-pour-datasets
 #+begin_src python
+
 def pour(tap, datasets):
     """..."""
     LOG.info("Pour tap \n%s\n to get values for variables:\n%s", tap._root, pformat(datasets))
-    datasets = sorted([(variable, load_dataset(tap, variable, values)) for variable, values in datasets.items()],
-                      key=lambda x: len(x[1].index.names), reverse=True)
+    dsets = sorted([(variable, load_dataset(tap, variable, values)) for variable, values in datasets.items()],
+                   key=lambda x: len(x[1].index.names), reverse=True)
 
-    hindex = datasets[0][1].index
+    common_index = dsets[0][1].index
 
-    return (pd.concat([dset.loc[hindex] for _, dset in datasets], axis=1, keys=[name for name, _ in datasets])
+    return (pd.concat([dset.reindex(common_index) for _, dset in dsets],
+                      axis=1, keys=[name for name, _ in dsets])
             .apply(lambda row: row.to_dict(), axis=1))
 
-    def collect(aggregated, datasets):
-        """..."""
-        if not datasets:
-            return aggregated
-
-        head, dset_head = datasets[0]
-        vars, dset_agg = aggregated
-        combined = pd.concat([dset_agg, dset_head.loc[dset_agg.index]], axis=1, keys=vars+[head])
-        return collect((vars+[head], combined), datasets[1:])
-
-    variable, primary = datasets[0]
-    return collect(([variable], primary), datasets[1:])[1].apply(lambda row: row.to_dict(), axis=1)
-
 #+end_src
+
+#+RESULTS: develop-parallelization-inputs-pour-datasets
+: None
 
 If a ~transformation~ has been specified, we need to apply it. What should we expect of a ~dataset-transformation~?
 
@@ -642,26 +699,28 @@ input:
   connections:
     dataset: ["analyze-physiology", "psp/connections"]
     reindex:
-      source_mtype:
-        dataset: ["extract-node-types", "biophysical/mtype"]
-      target_mtype:
-        dataset: ["extract-node-types", "biophysical/mtype"]
+      source_mtype: "mtype"
+      target_mtype: "mtype"
 #+end_src
 
 We can use the configured information to reindex a ~connsense-TAP-dataset~. A ~connsense-TAP-dataset~ values are always held as a ~pandas.Series~ of lazy data --- data-methods that can be loaded with ~()~ operator to load the data of a single ~computation-subtarget~. For reindexing, we do not need to load the data value, but just manipulate the index.
 
 #+name: develop-parallelization-inputs-reindex-datasets
 #+begin_src python
-def reindex_input(transformations, to_tap, variable, dataset, of_analysis):
-    """..."""
-    try:
-        to_reindex = transformations["reindex"]
-    except KeyError:
-        LOG.info("No reindexing configured for %s of analysis %s", variable, of_analysis)
-        return dataset
 
-    original = dataset.apply(lambda subtarget: to_tap.reindex(subtarget, variables=to_reindex))
-    return pd.concat(original.values, axis=0, keys=original.index.values, names=original.index.values)
+def reindex(tap, inputs, variables):
+    """..."""
+    connsense_ids = {v: tap.index_variable(value) for v, value in variables.items()}
+    def index_ids(subtarget):
+        return pd.MultiIndex.from_frame(pd.DataFrame({f"{var}_id": connsense_ids[var].loc[values.values].values
+                                                      for var, values in subtarget.index.to_frame().items()}))
+    reinputs = inputs.apply(lambda s: pd.DataFrame(s()).set_index(index_ids(subtarget=s())))
+    frame = pd.concat(reinputs.values, keys=reinputs.index)
+    groups_of_inner_frames = list(frame.groupby(frame.index.names))
+    return (pd.Series([d.reset_index(drop=True) for _, d in groups_of_inner_frames],
+                      index=pd.MultiIndex.from_tuples([i for i,_ in groups_of_inner_frames],
+                                                      names=frame.index.names))
+            .apply(DataCall))
 
 
 #+end_src
@@ -753,9 +812,6 @@ def load_control(transformations, lazily=True):
     return [shuffled for ctrl, cfg in controls.items() for shuffled in load_config(ctrl, cfg)]
 
 #+end_src
-
-#+RESULTS: develop-parallelization-inputs-control-datasets
-: None
 
 *** Test develop
 
@@ -1152,7 +1208,7 @@ def parse_slices(slicing):
     from itertools import product
     def prepare_singleton(slicespec):
         """..."""
-        assert len(slicespec) == 2, slicespec
+        assert len(slicespec) == 2, "must be a tuple from a dict items"
         key, values = slicespec
         if isinstance(values, list):
             return ((key, value) for value in values)
@@ -1163,7 +1219,7 @@ def parse_slices(slicing):
                     innervalues = [innervalues]
                 return ((key, {innerkey: val}) for val in innervalues)
             innerdicts = product(*(s for s in (prepare_singleton(slicespec=s)  for s in values.items())))
-            return ((key, dvalue) for dvalue in innerdicts)
+            return ((key, dict(dvalue)) for dvalue in innerdicts)
 
         return ((key, value) for value in [values])
 
@@ -1202,6 +1258,7 @@ def flatten_slicing(_slice):
 def load_slicing(transformations, using_tap=None, lazily=True):
     """..."""
     from copy import deepcopy
+
     def load_dataset(slicing):
         """..."""
         slicing = deepcopy(slicing)
@@ -1231,7 +1288,7 @@ def load_slicing(transformations, using_tap=None, lazily=True):
                 return algorithm(**datasets, **aslice, **kwargs)
             return slice_input
         return pd.Series([specify(aslice) for aslice in slices],
-                         index=pd.MultiIndex.from_frame(pd.DataFrame([flatten_slicing(_slice) for _slice in slices])))
+                         index=pd.MultiIndex.from_frame(pd.DataFrame([flatten_slicing(s) for s in slices])))
     return {slicing: load(slicing=s) for slicing, s in transformations.items()}
 
 #+end_src
@@ -1366,18 +1423,19 @@ def input_units(computation, to_tap):
 
 #+end_src
 
-
 ** Call data
 
 We will use callables that return dataset values,
 
 #+name: develop-parallelization-multinode-datacall
 #+begin_src python
+
 class DataCall:
     """Call data..."""
-    def __init__(self, dataitem, transform=None):
+    def __init__(self, dataitem, transform=None, cache=False):
         self._dataitem = dataitem
-        self._transform = transform or (lambda d: d)
+        self._transform = transform
+        self._cache = None if not cache else {}
 
     @lazy
     def dataset(self):
@@ -1388,15 +1446,44 @@ class DataCall:
     def shape(self):
         """..."""
         original = self._dataitem() if callable(self._dataitem) else self._dataitem
+        if self._cache is not None:
+            self._cache["original"] = original
+
         if isinstance(original, Mapping):
             return next(v for v in original.values()).shape
-        return original.shape
+        try:
+            return original.shape
+        except AttributeError:
+            pass
+
+        try:
+            return len(original)
+        except TypeError:
+            pass
+
+        return 1.
 
     def __call__(self):
         """Call Me."""
-        return self._transform(self._dataitem() if callable(self._dataitem) else self._dataitem)
+        if self._cache is not None and "original" in self._cache:
+            original = self._cache["original"]
+        else:
+            original = self._dataitem() if callable(self._dataitem) else self._dataitem
+            if self._cache is not None:
+                self._cache["original"] = original
+
+        if not self._transform:
+            return original
+
+        if callable(self._transform):
+            return self._transform(original)
+
+        transform, kwargs = self._transform
+        return transform(**original, **kwargs)
 
 #+end_src
+
+#+RESULTS: develop-parallelization-multinode-datacall
 
 ** Generate input datasets
 
@@ -1554,7 +1641,7 @@ def control_inputs(of_computation, in_config, using_tap):
 
 And a similar procedure for
 
-#+name: develop-parallelization-multinode-gneerate-inputs-slice-controls
+#+name: develop-parallelization-multinode-generate-inputs-slice-controls
 #+begin_src python
 def slice_inputs(of_computation, in_config, datasets=None, using_tap=None):
     """..."""
@@ -1661,7 +1748,8 @@ def setup_multinode(process, of_computation, in_config, using_runtime, in_mode=N
     else:
         max_weight = None
 
-    compute_nodes = {"full": prepare_compute_nodes(full, at_dirpath=(to_stage/"full" if "slicing" in params else to_stage),
+    compute_nodes = {"full": prepare_compute_nodes(full, at_dirpath=(to_stage/"full" if "slicing" in params
+                                                                     else to_stage),
                                                    slicing=("full" if "slicing" in params else None),
                                                    unit_weight=max_weight)}
 
@@ -1680,8 +1768,38 @@ def setup_multinode(process, of_computation, in_config, using_runtime, in_mode=N
 
 #+end_src
 
-#+RESULTS: develop-parallelization-multinode-setup
-: None
+To check the compute nodes,
+#+begin_src python
+
+def check_compute_node(setup, master_inputs, n=None):
+    """..."""
+    if isinstance(n, (int, np.int)):
+        dirpath = Path(setup[n]["dirpath"])
+        inputs = (master_inputs.loc[pd.read_hdf(setup[n]["input"], key="subtargets").index]
+                .apply(lambda l: l.shape[0]))
+        tap_cn = devtap.HDFStore(tap._config, setup[n]["output"])
+        tap_traces_dset = devtap.TapDataset(tap_cn, dataset=["analyze-physiology", "psp/traces"],
+                                            belazy=False)
+        try:
+            tap_traces = (pd.concat(tap_traces_dset.dataset.values, keys=tap_traces_dset.dataset.index)
+                          .n_trials.groupby(inputs.index.names).size())
+        except FileNotFoundError:
+            tap_traces = inputs.apply(lambda _: 0)
+
+        status = ("DONE" if (dirpath/"DONE").exists()
+                  else ("INPROGRESS" if (dirpath/"INPROGRESS").exists()
+                        else None))
+
+        return (pd.concat([inputs, tap_traces], axis=1, keys=["inputs", "outputs"])
+                .assign(status=status))
+
+    cns = (pd.Index(range(len(setup)), name="compute_node").to_series() if n is None
+           else pd.Index(n, name="compute_node").to_series())
+
+    cns_check = cns.apply(lambda n: check_compute_node(setup, master_inputs, n))
+    return pd.concat(cns_check.values, keys=cns_check.index)
+
+#+end_src
 
 The version that sequences slicing and full together.
 
@@ -1907,6 +2025,8 @@ def read_runtime_config(for_parallelization, *, of_pipeline=None, return_path=Fa
 
         def configure_quantity(q):
             """..."""
+            LOG.info("configure quantity %s", q)
+
             q_cfg = deepcopy(configured.get(q) or {})
             if "sbatch" not in q_cfg:
                 q_cfg["sbatch"] = default_sbatch()
@@ -1927,6 +2047,7 @@ def read_runtime_config(for_parallelization, *, of_pipeline=None, return_path=Fa
 
                 return cfg
 
+            LOG.info("decomposed quantity: \n%s", decompose_quantity(q))
             for c in decompose_quantity(q):
                 q_cfg[c] = configure_component(c)
 
@@ -1940,6 +2061,9 @@ def read_runtime_config(for_parallelization, *, of_pipeline=None, return_path=Fa
 
 
 #+end_src
+
+#+RESULTS: develop-parallelization-multinode-read-runtime
+: None
 
 We can read the runtime config, and use the information to prepare parallelization of a computation.
 
@@ -2326,6 +2450,7 @@ PARALLEL_BATCHES = "parallel-batches"
 def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
                      batching=SERIAL_BATCHES, slicing=None):
     """..."""
+    from connsense.develop.topotap import HDFStore
     on_compute_node = run_cleanup(on_compute_node)
 
     run_in_progress = on_compute_node.joinpath(INPROGRESS)
@@ -2481,6 +2606,9 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
     return collected
 
 #+end_src
+
+#+RESULTS: develop-parallelization-single-node-multiprocess
+: None
 
 ** Circuit and connectome
 
@@ -5382,15 +5510,15 @@ class IllegalParallelComputationError(ValueError):
 
 <<develop-parallelization-multinode-description>>
 
-<<develop-parallelization-multinode-datacall>>
+<<develop-parallelization-inputs-reindex-datasets>>
 
-<<develop-parallelization-multinode-generate-inputs-0>>
+<<develop-parallelization-multinode-datacall>>
 
 <<develop-parallelization-multinode-generate-inputs>>
 
 <<develop-parallelization-multinode-generate-inputs-apply-controls>>
 
-<<develop-parallelization-multinode-gneerate-inputs-slice-controls>>
+<<develop-parallelization-multinode-generate-inputs-slice-controls>>
 
 <<develop-parallelization-multinode-configure-runtime-slurm>>
 

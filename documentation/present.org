@@ -610,6 +610,7 @@ As the config above suggests, we will have four distinct steps in our ~connsense
 
 ** Parameters
 
+*** Introduction
 The second section concerns with the parameters that ~connsense-TAP~ will use to run computations. The starting point will be the definitions of ~circuit-subtargets~. We consider spatially defined subtargets, hexagonal prism shaped columns defined using a mapping to the circuit's ~flatmap~. To track the computations as the pipeline progresses, ~connsense-TAP~ will use an indexing scheme. We need to declare the variables to use in the index. Here we want to study a circuit's connectivity --- so the circuit's connectome will be one of the variables. We will have ~subtargets~ within the circuit connectome that we want to study as indpendent circuits.
 
 #+name: config-parameters
@@ -633,7 +634,6 @@ We have used a  reference to a dataset that our ~connsense-TAP~ instance is expe
 We have entered this /zeroth/ ~step~ because it is not really a ~computation~ that is run independently. The information is used within ~connsense-TAP~ for indexing.
 
 Let us look at the steps that contain science,
-
 
 *** Define Subtargets
 
@@ -669,8 +669,38 @@ This step will save data under the references
 2. ~["define-subtargets", "flatmap-columns/info"]~ that is the ~info~ for each ~subtarget~
 3. ~["define-subtargets", "flatmap-columns"]~ that are the gids contained in each ~subtarget~
 
-
 *** Extract Node Properties
+
+Extract node properties by configuring ~extract-node-populations~,
+
+**** populations
+***** default
+The default population will be that of the /biophysical-neurons/ in the SSCx.
+***** input
+We will extract properties of nodes in each of the subtargets.
+****** subtarget
+- dataset :: ["define-subtargets", "flatmap-columns"]
+****** circuit
+- "Bio_M"
+***** kwargs
+- properties ::
+   - region
+   - layer
+   - x
+   - y
+   - z
+   - depth
+   - synapse_class
+   - mtype
+   - etype
+   - morphology
+***** extractor:
+ - source :: connsense.extract_nodes.bluepy
+ - method :: extract_node_properties
+***** output
+"pandas.DataFrame"
+
+**** yaml
 
 We will need node properties for each of the subtargets. We follow /SONATA/ to extract ~node-populations~ from the circuit.
 
@@ -712,6 +742,7 @@ The configuration above can be used as a template to understand the general /syn
 For example, to extract nodes, we have listed ~populations~ whose nodes will be extracted. For the SSCx circuits we have only one population of biophysical cells that we named ~default~.
 
 For each ~quantity~ to be computed, ~connsense-TAP~ will need to load it's input. In our case the inputs are the ~flatmap-columns~ that we have referenced as shown in the config. We may have more than one circuit to analyze, so that too goes in the ~inputs~. The workhorse will be the ~extractor~ specified above --- a method within ~connsense~ ---. The ~inputs~ are the arguments to the referenced ~Python~ method, and ~kwargs~ it's key-word arguments. We follow the convention that ~inputs~ can be loaded from other ~connsense-TAP~ steps and hence entered as /implicity/ references, while ~kwargs~ are some other parameters that the scientist will need to enter /explitcitly/. In the example of ~extract-node-populations~ we have specified extraction of cell properties. The ~output~ type of the method used is required by ~connsense-TAP~ to format the saved data.
+
 
 *** Extract edges
 
@@ -756,12 +787,45 @@ analyze-connectivity:
 We can list as many analyses as we want. Let us start with a computationally simple one,
 
 **** Simplex counts
+Number of simplices by dimension.
+***** input:
+****** adjacency ::
+   - dataset :: ["extract-edge-populations", "local"]
+****** node_properties
+   - dataset :: ["extract-node-populations", "default"]
+***** slicing:
+Configure `do-full: true` to run the analyses on the full subtarget as a separate dataset than the slices. If `false`, analyses will not be run for full. If you do not want to analyze slices, then
+****** do-full
+false
+****** intralayer:
+Intralayer subgraphs.
+******* slices:
+- layer: [1, 2, 3, 4, 5, 6]
+******* algorithm:
+******** source
+"/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py"
+******** method
+"subgraph_intralayer"
+****** interlayer:
+Interlayer subgraphs.
+******* slices:
+- source_layer :: [1, 2, 3, 4, 5, 6]
+- target_layer :: [1, 2, 3, 4, 5, 6]
+******* algorithm:
+******** source
+"/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py"
+******** method
+"subgraph_interlayer"
 
-To configure a ~connsense-TAP~ computation of ~simplex-counts~ over all the subtargets,
+***** computation:
+****** source
+"/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py"
+****** method
+"simplex_counts"
+***** output
+"pandas.Series"
 
-*TODO*  What about the ordering of original->control->slicing
-One or the other -- user is responsible for whether they have controlled slices or sliced controls.
-
+**** YAML
 #+name: config-analyze-connectivity-simplex-counts
 #+begin_src yaml
 simplex-counts:
