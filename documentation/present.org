@@ -1,5 +1,5 @@
-#+PROPERTY: header-args:jupyter-python :session ~/Library/Jupyter/runtime/active-2-ssh.json
-#+PROPERTY: header-args:jupyter :session ~/Library/Jupyter/runtime/active-2-ssh.json
+#+PROPERTY: header-args:jupyter-python :session ~/Library/Jupyter/runtime/active-ssh.json
+#+PROPERTY: header-args:jupyter :session ~/Library/Jupyter/runtime/active-ssh.json
 #+STARTUP: overview
 
 #+title: (sub) Target Analysis Pipeline
@@ -635,10 +635,32 @@ We have entered this /zeroth/ ~step~ because it is not really a ~computation~ th
 
 Let us look at the steps that contain science,
 
+
 *** Define Subtargets
+**** Introduction
 
 The /first/ step is to define the ~subtargets~. Each ~subtarget~ will have a name, and a set of ~gids~ associated with it. There is a variety of specifications that ~connsense-TAP~ understands. For our use we will specify path to an ~NRRD~ that maps ~voxel --> subtarget_id~, with information that maps ~subtarget_id --> subtarget info~. Along with paths to data ~connsense-TAP~ will need a method that /defines/ the subtargets. We point to a method within ~connsense~.
 
+**** definitions
+***** flatmap-columns:
+Hexaongal prism like columns oriented along cortical layers, from white-matter to pia.
+The data is loaded from an NRRD file that maps each circuit voxel to a subtarget ids
+corresponding to a flatmap column.The subtarget ids should be mapped to the subtargets
+they refer to in a dataframe provided as the input `info`.
+****** input:
+******* circuit
+- "Bio_M"
+****** kwargs
+- path :: "/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/column_identities.nrrd"
+- info :: "/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/voxel-based-hex-grid-info.h5"
+****** loader
+******* source:
+connsense.define_subtargets.flatmap
+******* method:
+load_nrrd
+****** output
+pandas.DataFrame
+**** YAML
 #+name: config-define-subtargets
 #+begin_src yaml
 define-subtargets:
@@ -669,9 +691,11 @@ This step will save data under the references
 2. ~["define-subtargets", "flatmap-columns/info"]~ that is the ~info~ for each ~subtarget~
 3. ~["define-subtargets", "flatmap-columns"]~ that are the gids contained in each ~subtarget~
 
-*** Extract Node Properties
 
+*** Extract Node Properties
+**** Introduction
 Extract node properties by configuring ~extract-node-populations~,
+
 
 **** populations
 ***** default
@@ -773,8 +797,9 @@ extract-edge-populations:
 
 There is nothing new here, other than the details of the computation. We specify that the inputs will be ~(subtarget, circuit, connectome)~ with their values or references. In ~kwargs~ we have set ~sources~ as /intrinsic/ which allows the ~extractor~ to distinguish extraction of connections among the /biophysical/ SSCx population from an extraction where the ~sources~ are extrinsic, for example the virtual thalamic cells defined in the reconstruction.
 
-*** Analyze Connectivity
 
+*** Analyze Connectivity
+**** Introduction
 We can have several ~analyzes-computation-types~, each motivated by the needs of the computations required by specific circuit phenomena. The scientist can choose their own name prefixed by ~analyze-~.  For our case, a study of the circuit's network topology we are interested in ~analyze-connectivity~,
 
 #+name: config-analyze-connectivity
@@ -786,10 +811,11 @@ analyze-connectivity:
 
 We can list as many analyses as we want. Let us start with a computationally simple one,
 
+
 **** Simplex counts
 Number of simplices by dimension.
 ***** input:
-****** adjacency ::
+****** adjacency
    - dataset :: ["extract-edge-populations", "local"]
 ****** node_properties
    - dataset :: ["extract-node-populations", "default"]
@@ -816,7 +842,6 @@ Interlayer subgraphs.
 "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py"
 ******** method
 "subgraph_interlayer"
-
 ***** computation:
 ****** source
 "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py"
@@ -894,6 +919,7 @@ We can reference a ~connsense-TAP-Dataset~ by combining ~[computation-type, of_q
 #+end_src
 
 ~connsense-TAP~ will use the subset of this dataset that applies to the configured ~index~.
+
 
 *** Result
 

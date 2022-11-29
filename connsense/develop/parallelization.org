@@ -1,5 +1,5 @@
-#+PROPERTY: header-args:jupyter :session  ~/Library/Jupyter/runtime/active-1-ssh.json :pandoc t
-#+PROPERTY: header-args:jupyter-python :session ~/Library/Jupyter/runtime/active-1-ssh.json :pandoc t
+#+PROPERTY: header-args:jupyter :session  ~/Library/Jupyter/runtime/active-ssh-1.json :pandoc t
+#+PROPERTY: header-args:jupyter-python :session ~/Library/Jupyter/runtime/active-ssh-1.json :pandoc t
 #+STARTUP: overview
 
 #+title: Parallelization

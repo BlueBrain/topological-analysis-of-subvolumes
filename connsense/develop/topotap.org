@@ -1,5 +1,5 @@
-#+PROPERTY: header-args:jupyter-python :session ~/Library/Jupyter/runtime/active-2-ssh.json
-#+PROPERTY: header-args:jupyter :session ~/Library/Jupyter/runtime/active-2-ssh.json
+#+PROPERTY: header-args:jupyter-python :session ~/Library/Jupyter/runtime/active-1-ssh.json
+#+PROPERTY: header-args:jupyter :session ~/Library/Jupyter/runtime/active-1-ssh.json
 #+STARTUP: overview
 
 #+title: Topotap
@@ -108,7 +108,7 @@ pprint(topotap.analyses)
 : {'connectivity': {'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7ffec6bc2970>,
 :                   'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7ffed04aea90>}}
 
-
+** Notebook template
 Finally, here is a template that we can use to start test-developing. We will deposit the code in a sub-directory, of the directory holding this file.
 
 #+begin_src jupyter-python :tangle develop_topotap.py :comments no :noweb yes :padline yes
@@ -130,17 +130,17 @@ Finally, here is a template that we can use to start test-developing. We will de
 
 #+RESULTS:
 #+begin_example
- 2022-10-25 14:37:45,622: Configure slurm for create-index
- 2022-10-25 14:37:45,623: No runtime configured for computation type create-index
- 2022-10-25 14:37:45,624: Configure slurm for define-subtargets
- 2022-10-25 14:37:45,625: Configure slurm for extract-node-populations
- 2022-10-25 14:37:45,626: Configure slurm for extract-edge-populations
- 2022-10-25 14:37:45,627: Configure slurm for analyze-connectivity
- 2022-10-25 14:37:45,628: Load circuit Bio_M
+ 2022-11-29 09:49:48,929: Configure slurm for create-index
 We will plot golden aspect ratios:  1.618033988749895
+ 2022-11-29 09:49:48,929: No runtime configured for computation type create-index
+ 2022-11-29 09:49:48,930: Configure slurm for define-subtargets
+ 2022-11-29 09:49:48,931: Configure slurm for extract-node-populations
+ 2022-11-29 09:49:48,931: Configure slurm for extract-edge-populations
+ 2022-11-29 09:49:48,932: Configure slurm for analyze-connectivity
+ 2022-11-29 09:49:48,933: Load circuit Bio_M
 Available analyses:
-{'connectivity': {'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7ffec68e1250>,
-                  'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7ffec6ba27c0>}}
+{'connectivity': {'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7ffeec9931f0>,
+                  'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7ffeec993490>}}
 #+end_example
 
 
@@ -967,9 +967,10 @@ def nodes(tap):
 
 *** TAP Dataset
 
-#+name: tap-dataset
-#+begin_src python
+The ~HDFStore~ will rely on ~TapDataset~ to provide clean interfaces to the data computed by ~connsense-TAP~. With the large datasets in store we should be able to look around a ~TapDataset~'s contents without loading any data. This will require indices,
 
+#+name: tap-dataset-0
+#+begin_src python
 
 class TapDataset:
     """A dataset computed by connsense-TAP.
@@ -1014,6 +1015,30 @@ class TapDataset:
         """..."""
         return self.index_ids("connectome")
 
+    def index(self, subtarget, circuit=None, connectome=None):
+        """Get `connsense-TAP`index for the arguments.
+        """
+        subtarget_id = self.id_subtargets.loc[subtarget]
+
+        if not circuit:
+            assert not connectome, f"connectome must be of a circuit"
+            return (subtarget_id,)
+
+        circuit_id = self.id_circuits.loc[circuit]
+
+        if not connectome:
+            return (subtarget_id, circuit_id)
+
+        connectome_id = self.id_connectomes.loc[connectome]
+        return (subtarget_id, circuit_id, connectome_id)
+
+#+end_src
+
+A ~TapDataset~ can use ~self._tap: HDFStore~ to pour datasets, taking care of each ~slicing~ as separate from ~full~,
+#+name: tap-dataset-1
+#+begin_src python :noweb yes
+<<tap-dataset-0>>
+
     @lazy
     def dataset(self):
         """..."""
@@ -1053,49 +1078,61 @@ class TapDataset:
             dataset["full"] = (lazyfull if self._belazy else lazyfull.apply(lambda l: l.get_value()))
         return dataset
 
-    def index(self, subtarget, circuit=None, connectome=None):
-        """Get `connsense-TAP`index for the arguments.
+#+end_src
+
+While its ~dataset~ provides a ~dict~ (/i.e./ ~[]~) interface to ~connsense-TAP-datasets~, the loaded data is indexed by ~ids~ and not ~subtarget~ names. We can provide a ~call~ (/i.e./ ~()~) interface to ~TapDataset~ easier to use,
+#+name: tap-dataset
+#+begin_src python :noweb yes
+<<tap-dataset-1>>
+
+    def __call__(self, subtarget, circuit=None, connectome=None, control=None, slicing=None):
+        """Call to get data using the names for (subtarget, circuit, connectome).
         """
-        subtarget_id = self.id_subtargets.loc[subtarget]
+        idx = self.index(subtarget, circuit, connectome)
 
-        if not circuit:
-            assert not connectome, f"connectome must be of a circuit"
-            return (subtarget_id,)
+        if "slicing" not in self.parameters:
+            result = self.dataset.loc[self.index(subtarget, circuit, connectome)]
 
-        circuit_id = self.id_circuits.loc[circuit]
+            try:
+                evaluate = result.get_value
+            except AttributeError:
+                pass
+            else:
+                return evaluate()
 
-        if not connectome:
-            return (subtarget_id, circuit_id)
+            if len(result) == 1:
+                return result.iloc[0].get_value()
+            return result
 
-        connectome_id = self.id_connectomes.loc[connectome]
-        return (subtarget_id, circuit_id, connectome_id)
+        slicings = {key for key in self.parameters["slicing"] if key not in ("do-full", "description")}
 
+        if not slicing:
+            if "full" not in self.dataset:
+                LOG.info("TapDataset %s was configured with slicings, but not full."
+                         "\n Please provide a `slicing=<value>`.", self._dataset)
+                raise ValueError("TapDataset %s was configured with slicings, but not full."
+                                 "\n Please provide a `slicing=<value>`."%(self._dataset,))
+            return self.dataset["full"].loc[idx]
+
+        if slicing:
+            if slicing not in slicings:
+                LOG.warning("Slicing %s was not among those configured: \n%s", slcicing, slicings)
+                raise ValueError("Slicing %s was not among those configured: \n%s"%(slcicing, slicings))
+
+            return self.dataset[slicing].loc[idx]
+
+
+#+end_src
+
+Additional, planned and requested features.
+#+begin_src
     def load_adjacency_controls(self, subtargets, control_names, belazy=False):
         """...Load adjacency and control them by the provided name.
         Return pandas Series for the controls, each with an adjacency matrix.
         """
         raise NotImplementedError("INPROGRESS")
 
-    def __call__(self, subtarget, circuit=None, connectome=None):
-        """Call to get data using the names for (subtarget, circuit, connectome).
-        """
-        result = self.dataset.loc[self.index(subtarget, circuit, connectome)]
-
-        try:
-            evaluate = result.get_value
-        except AttributeError:
-            pass
-        else:
-            return evaluate()
-
-        if len(result) == 1:
-            return result.iloc[0].get_value()
-        return result
-
-
 #+end_src
-
-#+RESULTS: tap-dataset
 
 #+RESULTS: eap-dataset
 : None
@@ -1174,7 +1211,7 @@ def analyses(tap):
 def get_analyses(tap, phenomenon, quantity, control=None, slicing=None):
     """..."""
     dataset = tap.analyses[phenomenon][quantity].load().dataset
-
+    print("get analyses dataset", dataset.keys())
     return dataset[slicing] if slicing else dataset
 
 def load_controls(tap, phenomenon, quantity, label=None, subtargets=None):
@@ -1209,7 +1246,6 @@ def get_controls(subtargets, analysis="connectivity/simplex-count", controls=Non
     pass
 
 #+end_src
-
 
 ** Results
 

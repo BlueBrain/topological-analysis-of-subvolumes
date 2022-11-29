@@ -52,7 +52,6 @@ MORPHOLOGY_ID = "morphology_id"
 from connsense.pipeline import COMPKEYS, PARAMKEY, ConfigurationError, NotConfiguredError
 
 
-
 class TapDataset:
     """A dataset computed by connsense-TAP.
     """
@@ -96,6 +95,24 @@ class TapDataset:
         """..."""
         return self.index_ids("connectome")
 
+    def index(self, subtarget, circuit=None, connectome=None):
+        """Get `connsense-TAP`index for the arguments.
+        """
+        subtarget_id = self.id_subtargets.loc[subtarget]
+
+        if not circuit:
+            assert not connectome, f"connectome must be of a circuit"
+            return (subtarget_id,)
+
+        circuit_id = self.id_circuits.loc[circuit]
+
+        if not connectome:
+            return (subtarget_id, circuit_id)
+
+        connectome_id = self.id_connectomes.loc[connectome]
+        return (subtarget_id, circuit_id, connectome_id)
+
+
     @lazy
     def dataset(self):
         """..."""
@@ -135,44 +152,42 @@ class TapDataset:
             dataset["full"] = (lazyfull if self._belazy else lazyfull.apply(lambda l: l.get_value()))
         return dataset
 
-    def index(self, subtarget, circuit=None, connectome=None):
-        """Get `connsense-TAP`index for the arguments.
-        """
-        subtarget_id = self.id_subtargets.loc[subtarget]
 
-        if not circuit:
-            assert not connectome, f"connectome must be of a circuit"
-            return (subtarget_id,)
-
-        circuit_id = self.id_circuits.loc[circuit]
-
-        if not connectome:
-            return (subtarget_id, circuit_id)
-
-        connectome_id = self.id_connectomes.loc[connectome]
-        return (subtarget_id, circuit_id, connectome_id)
-
-    def load_adjacency_controls(self, subtargets, control_names, belazy=False):
-        """...Load adjacency and control them by the provided name.
-        Return pandas Series for the controls, each with an adjacency matrix.
-        """
-        raise NotImplementedError("INPROGRESS")
-
-    def __call__(self, subtarget, circuit=None, connectome=None):
+    def __call__(self, subtarget, circuit=None, connectome=None, control=None, slicing=None):
         """Call to get data using the names for (subtarget, circuit, connectome).
         """
-        result = self.dataset.loc[self.index(subtarget, circuit, connectome)]
+        idx = self.index(subtarget, circuit, connectome)
 
-        try:
-            evaluate = result.get_value
-        except AttributeError:
-            pass
-        else:
-            return evaluate()
+        if "slicing" not in self.parameters:
+            result = self.dataset.loc[self.index(subtarget, circuit, connectome)]
 
-        if len(result) == 1:
-            return result.iloc[0].get_value()
-        return result
+            try:
+                evaluate = result.get_value
+            except AttributeError:
+                pass
+            else:
+                return evaluate()
+
+            if len(result) == 1:
+                return result.iloc[0].get_value()
+            return result
+
+        slicings = {key for key in self.parameters["slicing"] if key not in ("do-full", "description")}
+
+        if not slicing:
+            if "full" not in self.dataset:
+                LOG.info("TapDataset %s was configured with slicings, but not full."
+                         "\n Please provide a `slicing=<value>`.", self._dataset)
+                raise ValueError("TapDataset %s was configured with slicings, but not full."
+                                 "\n Please provide a `slicing=<value>`."%(self._dataset,))
+            return self.dataset["full"].loc[idx]
+
+        if slicing:
+            if slicing not in slicings:
+                LOG.warning("Slicing %s was not among those configured: \n%s", slcicing, slicings)
+                raise ValueError("Slicing %s was not among those configured: \n%s"%(slcicing, slicings))
+
+            return self.dataset[slicing].loc[idx]
 
 
 
@@ -484,7 +499,7 @@ class HDFStore:
     def get_analyses(tap, phenomenon, quantity, control=None, slicing=None):
         """..."""
         dataset = tap.analyses[phenomenon][quantity].load().dataset
-    
+        print("get analyses dataset", dataset.keys())
         return dataset[slicing] if slicing else dataset
     
     def load_controls(tap, phenomenon, quantity, label=None, subtargets=None):
