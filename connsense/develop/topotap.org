@@ -130,17 +130,17 @@ Finally, here is a template that we can use to start test-developing. We will de
 
 #+RESULTS:
 #+begin_example
- 2022-11-29 09:49:48,929: Configure slurm for create-index
+ 2022-11-29 14:51:13,922: Configure slurm for create-index
+ 2022-11-29 14:51:13,923: No runtime configured for computation type create-index
+ 2022-11-29 14:51:13,923: Configure slurm for define-subtargets
+ 2022-11-29 14:51:13,924: Configure slurm for extract-node-populations
+ 2022-11-29 14:51:13,924: Configure slurm for extract-edge-populations
+ 2022-11-29 14:51:13,925: Configure slurm for analyze-connectivity
+ 2022-11-29 14:51:13,927: Load circuit Bio_M
 We will plot golden aspect ratios:  1.618033988749895
- 2022-11-29 09:49:48,929: No runtime configured for computation type create-index
- 2022-11-29 09:49:48,930: Configure slurm for define-subtargets
- 2022-11-29 09:49:48,931: Configure slurm for extract-node-populations
- 2022-11-29 09:49:48,931: Configure slurm for extract-edge-populations
- 2022-11-29 09:49:48,932: Configure slurm for analyze-connectivity
- 2022-11-29 09:49:48,933: Load circuit Bio_M
 Available analyses:
-{'connectivity': {'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7ffeec9931f0>,
-                  'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7ffeec993490>}}
+{'connectivity': {'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7ffe0bff6520>,
+                  'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7ffed51e5760>}}
 #+end_example
 
 
@@ -1081,7 +1081,7 @@ A ~TapDataset~ can use ~self._tap: HDFStore~ to pour datasets, taking care of ea
 #+end_src
 
 While its ~dataset~ provides a ~dict~ (/i.e./ ~[]~) interface to ~connsense-TAP-datasets~, the loaded data is indexed by ~ids~ and not ~subtarget~ names. We can provide a ~call~ (/i.e./ ~()~) interface to ~TapDataset~ easier to use,
-#+name: tap-dataset
+#+name: tap-dataset-2
 #+begin_src python :noweb yes
 <<tap-dataset-1>>
 
@@ -1121,6 +1121,40 @@ While its ~dataset~ provides a ~dict~ (/i.e./ ~[]~) interface to ~connsense-TAP-
 
             return self.dataset[slicing].loc[idx]
 
+#+end_src
+
+Some analyses may have controls. We do not save the controlled inputs during the execution of the pipeline. While the original input can be loaded from the HDFStore, we will need to generate the controlled input in order to provide a controlled input. Let us implement a ~TapDataset~ method that returns the input of the ~pipeline-step~ associated with the ~TapDataset~,
+
+#+name: tap-dataset
+#+begin_src python :noweb yes
+<<tap-dataset-2>>
+
+    def input(self, subtarget, circuit=None, connectome=None, *, controls=None, belazy=False):
+        """..."""
+        from connsense.develop import parallelization as devprl
+
+        toc_idx = self.index(subtarget, circuit, connectome)
+        inputs = devprl.generate_inputs(self._dataset, self._tap._config).loc[toc_idx]
+
+        if not controls:
+            return inputs
+
+        try:
+            configured = self.parameters["controls"]
+        except KeyError as kerr:
+            Log.warning("No controls have been set for the TapDataset %s", self._dataset)
+            raise kerr
+
+        controls_configured = devprl.load_control(configured)
+
+        controls_argued = [c for c, _, _ in controls_configured if c.startswith(f"{controls}-")]
+
+        datacalls = pd.concat([inputs.xs(c, level="control") for c in controls_argued], axis=0,
+                              keys=[c.replace(controls, '')[1:] for c in controls_argued], names=[controls])
+
+        if belazy:
+            return datacalls
+        return datacalls.apply(lambda l: l())
 
 #+end_src
 

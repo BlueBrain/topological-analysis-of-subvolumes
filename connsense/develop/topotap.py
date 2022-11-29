@@ -190,6 +190,33 @@ class TapDataset:
             return self.dataset[slicing].loc[idx]
 
 
+    def input(self, subtarget, circuit=None, connectome=None, *, controls=None, belazy=False):
+        """..."""
+        from connsense.develop import parallelization as devprl
+
+        toc_idx = self.index(subtarget, circuit, connectome)
+        inputs = devprl.generate_inputs(self._dataset, self._tap._config).loc[toc_idx]
+
+        if not controls:
+            return inputs
+
+        try:
+            configured = self.parameters["controls"]
+        except KeyError as kerr:
+            Log.warning("No controls have been set for the TapDataset %s", self._dataset)
+            raise kerr
+
+        controls_configured = devprl.load_control(configured)
+
+        controls_argued = [c for c, _, _ in controls_configured if c.startswith(f"{controls}-")]
+
+        datacalls = pd.concat([inputs.xs(c, level="control") for c in controls_argued], axis=0,
+                              keys=[c.replace(controls, '')[1:] for c in controls_argued], names=[controls])
+
+        if belazy:
+            return datacalls
+        return datacalls.apply(lambda l: l())
+
 
 class HDFStore:
     """An interface to the H5 data extracted by connsense-TAP.

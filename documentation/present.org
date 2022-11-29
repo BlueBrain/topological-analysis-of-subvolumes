@@ -441,6 +441,17 @@ def count_mtypes(value):
 
 #+RESULTS:
 
+** Working with analysis data
+For our extraction we have computed ~simplex-counts~. Here we use ~TAP~ to load the data programmatically,
+#+begin_src jupyter-python
+tap_3 = devtap.HDFStore(EXT3SPC/"pipeline.yaml")
+simplex_counts = tap_3.analyses["connectivity"]["simplex-counts"].load()
+#+end_src
+
+We have to say ~.load()~ to load the actual data, and not just a ~table-of-contents~ of ~datacalls~. We can get datasets,
+#+begin_src jupyter-python
+simplex_counts.datasets
+#+end_src
 
 * Running the pipeline
 
