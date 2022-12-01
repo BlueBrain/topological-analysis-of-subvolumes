@@ -700,11 +700,11 @@ def describe(tap, computation_type=None, of_quantity=None):
                     config_q[k] = v
             return config_q
 
-        g, q = q.split('/')
+        g, qq = q.split('/')
         config_g = {"description": config[g].get("description", "NotAvailable")}
         config_g[q] = {"description": config[g].get("description", "NotAvailable"),
-                       "dataset": (computation_type, f"{g}/{q}")}
-        for k, v in config[g][q].items():
+                       "dataset": (computation_type, f"{g}/{qq}")}
+        for k, v in config[g][qq].items():
             if k != "description":
                 config_g[q][k] = v
         return config_g
@@ -975,16 +975,17 @@ The ~HDFStore~ will rely on ~TapDataset~ to provide clean interfaces to the data
 class TapDataset:
     """A dataset computed by connsense-TAP.
     """
-    def __init__(self, tap, dataset, belazy=True):
+    def __init__(self, tap, dataset, belazy=True, transform=None):
         """..."""
         self._tap = tap
         self._dataset = dataset
         self._phenomenon, self._quantity = dataset
         self._belazy = belazy
+        self._transform = transform
 
     def load(self):
         """.."""
-        return TapDataset(self._tap, self._dataset, belazy=False)
+        return TapDataset(self._tap, self._dataset, belazy=False, transform=self._transform)
 
     def index_ids(self, variable):
         """..."""
@@ -1000,7 +1001,7 @@ class TapDataset:
     @lazy
     def parameters(self):
         """Configure parameters for this TapDataset."""
-        return self._tap.describe(self._phenomenon, self._quantity)
+        return self._tap.describe(self._phenomenon, self._quantity)[self._quantity]
 
     @lazy
     def id_subtargets(self):
@@ -1014,6 +1015,11 @@ class TapDataset:
     def id_connectomes(self):
         """..."""
         return self.index_ids("connectome")
+
+    @lazy
+    def id_mtypes(self):
+        """..."""
+        return self.index_ids("mtype")
 
     def index(self, subtarget, circuit=None, connectome=None):
         """Get `connsense-TAP`index for the arguments.
@@ -1032,6 +1038,13 @@ class TapDataset:
         connectome_id = self.id_connectomes.loc[connectome]
         return (subtarget_id, circuit_id, connectome_id)
 
+    @lazy
+    def toc(self):
+        """TAP Table of Contents"""
+        primary_ids = ["subtarget_id", "circuit_id", "connectome_id"]
+        secondary_ids = [var_id for var_id in self.dataset.index.names if var_id not in primary_ids]
+
+
 #+end_src
 
 A ~TapDataset~ can use ~self._tap: HDFStore~ to pour datasets, taking care of each ~slicing~ as separate from ~full~,
@@ -1042,10 +1055,15 @@ A ~TapDataset~ can use ~self._tap: HDFStore~ to pour datasets, taking care of ea
     @lazy
     def dataset(self):
         """..."""
+        from connsense.develop.parallelization import DataCall
+
+        def call(dataitem):
+            """..."""
+            return DataCall(dataitem, self._transform)
+
         def load_component(c):
             """..."""
             raise NotImplementedError("INPROGRESS")
-
 
         def load_slicing(s):
             """..."""
@@ -1060,12 +1078,22 @@ A ~TapDataset~ can use ~self._tap: HDFStore~ to pour datasets, taking care of ea
                               keys=[g for g,_ in dataset.groupby(slicing_args)], names=slicing_args)
                     .reorder_levels(dataset.columns.names + slicing_args, axis=1))
 
+            if not self._belazy:
+                return lazydset.apply(call).apply(lambda lzval: lzval.get_value())
+            return lazydset.apply(call)
+
         if not "slicing" in self.parameters:
             lazydset = self._tap.pour(self._dataset).sort_index()
-            return (lazydset if self._belazy
-                    else (lazydset.apply(lambda l: l.get_value()) if isinstance(lazydset, pd.Series)
-                          else {component: dset.apply(lambda l: l.get_value())
-                                for component, dset in load_components(lazydset)}))
+            if not isinstance(lazydset, pd.Series):
+                raise TypeError(f"Unexpected type of TAP-dataset {type(lazydset)}.\n"
+                                "If you defined this TapDataset for measurement of a phenomenon/quantity,\n"
+                                "we are still figuring out how to handle that. We may remove such a "
+                                "possibility and define a TapDatasetGroup.\n "
+                                "Thus we will keep TapDataset to contain only a single type of data"
+                                "i.e. data that originates from a single TAP-computation")
+
+            lazycalls = lazydset.apply(call)
+            return lazycalls if self._belazy else lazycalls.apply(lambda l: l())
 
         slicings = self.parameters["slicing"]
         dataset = {s: load_slicing(s) for s in slicings if s not in ("description", "do-full")}
@@ -1078,6 +1106,17 @@ A ~TapDataset~ can use ~self._tap: HDFStore~ to pour datasets, taking care of ea
             dataset["full"] = (lazyfull if self._belazy else lazyfull.apply(lambda l: l.get_value()))
         return dataset
 
+    def summarize(self, method):
+        """..."""
+        if callable(method):
+            return TapDataset(self._tap, self._dataset, belazy=self._belazy, transform=method)
+
+        if isinstance(method, (list, str)):
+            return TapDataset(self._tap, self._dataset, belazy=self._belazy,
+                              transform=lambda measurement: measurement.agg(method))
+
+        raise NotImplementedError(f"Method to handle of type {type(method)}")
+
 #+end_src
 
 While its ~dataset~ provides a ~dict~ (/i.e./ ~[]~) interface to ~connsense-TAP-datasets~, the loaded data is indexed by ~ids~ and not ~subtarget~ names. We can provide a ~call~ (/i.e./ ~()~) interface to ~TapDataset~ easier to use,
@@ -1085,13 +1124,60 @@ While its ~dataset~ provides a ~dict~ (/i.e./ ~[]~) interface to ~connsense-TAP-
 #+begin_src python :noweb yes
 <<tap-dataset-1>>
 
-    def __call__(self, subtarget, circuit=None, connectome=None, control=None, slicing=None):
+    def check_reindexing(self):
+        """Figure out other variables (than subtarget, circuit, connectome) in the index and name them."""
+        from connsense.develop import parallelization as prl
+
+        datasets = {variable: config["dataset"] for variable, config in self.parameters["input"].items()
+                    if isinstance(config, Mapping) and "dataset" in config}
+        try:
+            return datasets["reindex"]
+        except KeyError:
+            pass
+
+        for _, variable_dataset in datasets.items():
+            variable_inputs = prl.parameterize(*variable_dataset, self._tap._config)["input"]
+            for _, input_dataset in variable_inputs.items():
+                try:
+                    return input_dataset["reindex"]
+                except KeyError:
+                    pass
+        return None
+
+    def name_index(self, result, variable_id, index_only_variable=False):
+        """..."""
+        variable = variable_id.strip("_id")
+        varindex = result.index.get_level_values(variable_id)
+        return pd.Series(self._tap.create_index(variable).loc[varindex].values, name=variable,
+                         index=(varindex if index_only_variable else result.index))
+
+    def name_index_variables(self, result):
+        """..."""
+        assert ("subtarget_id"  not in result.index.names
+                and "circuit_id" not in result.index.names
+                and "connectome_id" not in result.index.names)
+        of_indices = pd.DataFrame({variable:(self._tap.create_index(variable)
+                                             .loc[result.index.get_level_values(f"{variable}_id").values]
+                                             .values)
+                                   for variable in self.check_reindexing()})
+
+        named_index = pd.MultiIndex.from_frame(of_indices)
+
+        if isinstance(result, pd.Series):
+            return pd.Series(result.values, index=named_index)
+
+        if isinstance(result, pd.DataFrame):
+            return result.set_index(named_index)
+
+        raise TypeError("Unexpect type %s of result", type(result))
+
+    def __call__(self, subtarget, circuit=None, connectome=None, *, control=None, slicing=None):
         """Call to get data using the names for (subtarget, circuit, connectome).
         """
         idx = self.index(subtarget, circuit, connectome)
 
         if "slicing" not in self.parameters:
-            result = self.dataset.loc[self.index(subtarget, circuit, connectome)]
+            result = self.dataset.loc[idx]
 
             try:
                 evaluate = result.get_value
@@ -1102,7 +1188,8 @@ While its ~dataset~ provides a ~dict~ (/i.e./ ~[]~) interface to ~connsense-TAP-
 
             if len(result) == 1:
                 return result.iloc[0].get_value()
-            return result
+
+            return self.name_index_variables(result[~result.index.duplicated(keep="first")])
 
         slicings = {key for key in self.parameters["slicing"] if key not in ("do-full", "description")}
 
@@ -1120,6 +1207,28 @@ While its ~dataset~ provides a ~dict~ (/i.e./ ~[]~) interface to ~connsense-TAP-
                 raise ValueError("Slicing %s was not among those configured: \n%s"%(slcicing, slicings))
 
             return self.dataset[slicing].loc[idx]
+
+    @lazy
+    def variable_ids(self):
+        """..."""
+        return self.dataset.index.names
+
+    @lazy
+    def frame(self):
+        """..."""
+        index = pd.concat([self.name_index(self.dataset, varid) for varid in self.variable_ids], axis=1)
+        series = pd.Series(self.dataset.values, index=pd.MultiIndex.from_frame(index))
+        return pd.concat(series.values, keys=series.index)
+
+    def frame_fun(self, subtarget, circuit, connectome, summarize=None):
+        """..."""
+        data = self(subtarget, circuit, connectome)
+        try:
+            data = data.apply(lambda d: d())
+        except TypeError:
+            pass
+        frame = pd.concat(data.values, keys=data.index)
+        return frame.groupby(data.index.names).agg(summarize) if summarize else frame
 
 #+end_src
 

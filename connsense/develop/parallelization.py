@@ -690,7 +690,14 @@ class DataCall:
         if self._cache is not None and "original" in self._cache:
             original = self._cache["original"]
         else:
-            original = self._dataitem() if callable(self._dataitem) else self._dataitem
+            try:
+                original = self._dataitem()
+            except TypeError:
+                try:
+                    original = self._dataitem.get_value()
+                except AttributeError:
+                    original = self._dataitem
+
             if self._cache is not None:
                 self._cache["original"] = original
 
