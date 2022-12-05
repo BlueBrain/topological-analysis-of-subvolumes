@@ -711,7 +711,7 @@ class DataCall:
         return transform(**original, **kwargs)
 
 
-def generate_inputs(of_computation, in_config, slicing=None):
+def generate_inputs(of_computation, in_config, slicing=None, circuit_args=None):
     """..."""
     from connsense.develop.topotap import HDFStore
     LOG.info("Generate inputs for %s.", of_computation)
@@ -731,13 +731,24 @@ def generate_inputs(of_computation, in_config, slicing=None):
     else:
         full = original
 
+    def index_circuit_args(inputs):
+        """..."""
+        if not circuit_args:
+            return inputs
+        missing = {f"{var}_id": tap.index_variable(var, value) for var, value in circuit_args.items()
+                   if f"{var}_id" not in inputs.index.names}
+        for variable_id, value in missing.items():
+            inputs = (pd.concat([inputs], axis=0, keys=[value], names=[variable_id])
+                      .reorder_levels(inputs.index.names + [variable_id]))
+        return inputs
+
     if not slicing or slicing == "full":
-        return full
+        return index_circuit_args(full)
 
     assert slicing in params["slicing"]
     cfg = {slicing: params["slicing"][slicing]}
-    return generate_slices(tap, inputs=full,
-                           using_knives=load_slicing(cfg, tap, lazily=False)[slicing])
+    return index_circuit_args(generate_slices(tap, inputs=full,
+                                              using_knives=load_slicing(cfg, tap, lazily=False)[slicing]))
 
 def generate_slices(of_tap, inputs, using_knives):
     """Generate slices of inputs accoring to configured knives."""
@@ -991,7 +1002,8 @@ def setup_multinode(process, of_computation, in_config, using_runtime, in_mode=N
     computation_type, of_quantity = describe(of_computation)
     params = parameterize(*describe(of_computation), in_config)
 
-    full = generate_inputs(of_computation, in_config)
+    full = generate_inputs(of_computation, in_config,
+                           circuit_args=input_circuit_args(of_computation, in_config, load_circuit=True))
     if process == setup_compute_node:
         full_weights = full.progress_apply(lambda l: estimate_load(to_compute=None)(l())).dropna()
 
@@ -1196,7 +1208,7 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
 
     kwargs = load_kwargs(parameters, HDFStore(in_config), on_compute_node)
 
-    inputs = generate_inputs(of_computation, in_config, slicing)
+    inputs = generate_inputs(of_computation, in_config, slicing, circuit_kwargs)
 
     collector = plugins.import_module(parameters["collector"]) if "collector" in parameters else None
 

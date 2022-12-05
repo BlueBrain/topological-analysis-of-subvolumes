@@ -286,6 +286,7 @@ class TapDataset:
         """..."""
         index = pd.concat([self.name_index(self.dataset, varid) for varid in self.variable_ids], axis=1)
         series = pd.Series(self.dataset.values, index=pd.MultiIndex.from_frame(index))
+        series = series[~series.index.duplicated(keep="first")]
         return pd.concat(series.values, keys=series.index)
 
     def frame_fun(self, subtarget, circuit, connectome, summarize=None):
