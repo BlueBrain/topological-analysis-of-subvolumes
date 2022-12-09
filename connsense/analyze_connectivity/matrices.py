@@ -205,7 +205,7 @@ class MatrixStore:
         """..."""
         return self.append_toc(of_paths=matrices.apply(self.write))
 
-    def collect(self, stores):
+    def collect(self, stores, overwrite=True):
         """Collect a batch of stores into this one.
         """
         raise NotImplementedError("Collection of a batch of stores into {}"
@@ -380,7 +380,7 @@ class DataFrameStore(MatrixStore):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, using_handler=DataFrameHelper, **kwargs)
 
-    def collect(self, stores):
+    def collect(self, stores, overwrite=True):
         """Collect a bunch of `DataFrameStores` into this one.
         """
         LOG.info("Collect %s batches of stores", len(stores))
@@ -402,7 +402,8 @@ class DataFrameStore(MatrixStore):
                      store.count, batch, Path(store._root).name, Path(self._root).name,
                      current_size)
 
-            saved = store.toc.apply(write_subtarget)
+            update = store.toc if overwrite else store.toc.loc[store.toc.index.difference(self.toc.index)]
+            saved = update.apply(write_subtarget)
             update = self.prepare_toc(of_paths=saved)
 
             update_size = update.shape[0]
@@ -420,7 +421,7 @@ class SeriesStore(MatrixStore):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, using_handler=SeriesHelper, **kwargs)
 
-    def collect(self, stores):
+    def collect(self, stores, overwrite=True):
         """Collect a bunch of `DataFrameStores` into this one.
         """
         LOG.info("Collect %s batches of stores", len(stores))
@@ -442,7 +443,8 @@ class SeriesStore(MatrixStore):
                      store.count, batch, Path(store._root).name, Path(self._root).name,
                      current_size)
 
-            saved = store.toc.apply(write_subtarget)
+            saved = (store.toc if overwrite else
+                     store.toc.loc[store.toc.index.difference(self.toc.index)]).apply(write_subtarget))
             update = self.prepare_toc(of_paths=saved)
 
             update_size = update.shape[0]
@@ -485,7 +487,7 @@ class SeriesOfMatricesStore(MatrixStore):
         p = self.prepare_toc(of_paths=content.apply(self.write, axis=1))
         return self.append_toc(of_paths=p)
 
-    def collect(self, stores):
+    def collect(self, stores, overwrite=True):
         """Collect a batch of stores into this one.
         """
         LOG.info("Collect %s batches of stores", len(stores))
@@ -493,7 +495,9 @@ class SeriesOfMatricesStore(MatrixStore):
         def frame(b, batch):
             """A table of contents (TOC) dataframe.
             """
-            long = batch.toc
+            long = (batch.toc if overwrite else
+                    batch.toc.loc[batch.tock.index.difference(self.toc.index)])
+
             LOG.info("series of matrices %s --> a dataframe input: %s", b, long.shape)
             colvars = long.index.get_level_values(-1).unique()
             colidxname = long.index.names[-1]
@@ -505,6 +509,9 @@ class SeriesOfMatricesStore(MatrixStore):
         def move(b, batch):
             """..."""
             framed = frame(b, batch)
+            if framed is None:
+                return framed
+
             i = 0
 
             def write_row(r):

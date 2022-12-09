@@ -498,7 +498,6 @@ def group_launchscripts(compute_nodes, max_entries):
 In ~connsense-TAP~ we develop the concept of a ~unit-computation~. A single ~unit-computation~ will run as a single process from ~connsense-TAP~'s viewpoint. The compuation's method might have it's own mind, and even run it's own implementation of a muliticore process. This can be setup using ~number_tasks_per_compute_node=1~ in the ~runtime-config~. This allows for an external parallelization scheme that ~connsense-TAP~'s parallelization model does not allow. To implement such a feature, we will have to manipulate the ~connsense-TAP-index~ that we will demonstrate in one of the computations implemented for ~connsense-TAP~. Here, let us first define a ~unit-computation~.
 
 For a given ~computation~, it's ~unit-computation~ is configured as the config section entry ~index~. If an ~index~ is not configured, the configured ~input~ will be used.
-
 #+name: develop-parallelization-inputs-index
 #+begin_src python
 def read_index(of_computation, in_config):
@@ -542,7 +541,6 @@ If all input ~unit-computations~ could be determined from the configured ~index~
 While the inputs' index is read from config section ~index~, inputs are listed in section ~input~. An input may be the circuit to analyze, or a connectome of that circuit. Such inputs are not computed by ~connsense-TAP~ --- they are entered as strings in the config. However an input can be specified as a dataset that is a result of another ~connsense-TAP-computation~. We can configure analyses that transform such  ~connsense-dataset-inputs~. Transformation of inputs allows for analyses with statistical controls.
 
 We will need to map each entry in a ~computation~'s ~inputs-index~ to an ~input-value~. The circuit and connectome can be provided by just reading the config. Let us make a device that delivers ~connsense-dataset-inputs~.
-
 #+name: develop-parallelization-inputs-filter-datasets
 #+begin_src python
 def filter_datasets(described):
@@ -552,9 +550,7 @@ def filter_datasets(described):
                 and ("dataset" in val or "datacall" in val))}
 
 #+end_src
-
 We can load a ~dataset~ from ~connsense-TAP~, and subject it to any configured transformations. There may be too many datasets (one per ~computation-subtarget~), and thus not feasible to load them all to memory. So we load only one at at time.
-
 #+name: develop-parallelization-inputs-dataset-lazy-load
 #+begin_src python
 def lazily(to_evaluate):
@@ -565,9 +561,7 @@ def lazily(to_evaluate):
     return evaluate_subtarget
 
 #+end_src
-
 So instead of a dataset with all it's members loaded, we will return methods ready to do so when needed.
-
 #+name: develop-parallelization-inputs-variable-load-dataset
 #+begin_src python
 def load_dataset(tap, variable, values):
@@ -630,7 +624,6 @@ def brew_dataset(tap, call):
     return in_store.apply(bind_lazy(call=recipe, **call["kwargs"]))
 
 #+end_src
-
 While we can ~pour~ ~datasets~ that are already in ~connsense-TAP-HDFStore~, sometimes we may want to define a ~dataset~ that we do not want to keep in ~connsense-TAP-HDFStore~, but use as input in another --- /i.e./ we want to ~brew~ a fresh ~dataset~,
 
 Let us use Haskel notation to understand the types we want to manipulate for chained function calls.
@@ -640,7 +633,6 @@ load_dataset Type => :: TapStore -> Variable -> Value[Type] -> [-> DataSet[Type]
 
 argue_keywords :: Map[String -> (-> DataSet)] -> [-> (String -> DataSet)]
 #+end_src
-
 #+name: develop-parallelization-inputs-lazy-dataset-keywords
 #+begin_src python
 def lazy_keyword(input_datasets):
@@ -665,7 +657,6 @@ def lazy_keyword(input_datasets):
 #+end_src
 
 We can load datasets for all the input variables in a computation.
-
 #+name: develop-parallelization-inputs-pour-datasets
 #+begin_src python
 
@@ -682,18 +673,11 @@ def pour(tap, datasets):
             .apply(lambda row: row.to_dict(), axis=1))
 
 #+end_src
-
-#+RESULTS: develop-parallelization-inputs-pour-datasets
-: None
-
 If a ~transformation~ has been specified, we need to apply it. What should we expect of a ~dataset-transformation~?
-
 Let us consider specific cases that we want.
 
 ** Reindex the input
-
 A ~connsense-TAP-dataset~ is saved as a ~pandas.Series~ indexed by the ~computation-subtargets~ that the dataset applies to. For example for the SSCx-Portal we have saved a sample of connections for each pathway in each central-column. In ~connsense-TAP~ this data is saved per ~subtarget-id, circuit-id, connectome-id~ as a ~pandas.DataFrame~ containing values of the source and target ~node-id~. We want to compute PSP traces for each    connection, but grouped by their pathway. Within ~connsense-TAP~ we can reindex the data, concatenating with additional levels for the source and target pathways. The scheme to reindex can be specified in the config,
-
 #+begin_src yaml
 input:
   connections:
@@ -704,7 +688,6 @@ input:
 #+end_src
 
 We can use the configured information to reindex a ~connsense-TAP-dataset~. A ~connsense-TAP-dataset~ values are always held as a ~pandas.Series~ of lazy data --- data-methods that can be loaded with ~()~ operator to load the data of a single ~computation-subtarget~. For reindexing, we do not need to load the data value, but just manipulate the index.
-
 #+name: develop-parallelization-inputs-reindex-datasets
 #+begin_src python
 
@@ -2317,7 +2300,6 @@ def collect_results(computation_type, setup, from_dirpath, in_connsense_store, s
 #+end_src
 
 To collect nodes,
-
 #+name: develop-parallelization-multinode-collect-node-population
 #+begin_src python
 def collect_node_population(setup, from_dirpath, in_connsense_store):
@@ -2337,7 +2319,7 @@ def collect_node_population(setup, from_dirpath, in_connsense_store):
             with open(Path(of_compute_node["dirpath"]) / "output.json", 'r') as f:
                 output = json.load(f)
         except FileNotFoundError as ferr:
-            raise RuntimeError(f"No output configured for compute node {of_compute_node}") from ferr
+            raise RuntimeError(f"No output configured for compute node {pformat(of_compute_node)}") from ferr
         return output
 
     outputs = {c: describe_output(of_compute_node) for c, of_compute_node in setup.items()}
@@ -2358,7 +2340,6 @@ def collect_node_population(setup, from_dirpath, in_connsense_store):
 #+end_src
 
 To collect edges,
-
 #+name: develop-parallelization-multinode-collect-edge-population
 #+begin_src python
 def collect_edge_population(setup, from_dirpath, in_connsense_store):
@@ -2409,7 +2390,6 @@ def collect_edge_population(setup, from_dirpath, in_connsense_store):
 #+end_src
 
 To collect analyses
-
 #+name: develop-parallelization-multinode-collect-analyze-step
 #+begin_src python
 def collect_analyze_step(setup, from_dirpath, in_connsense_store, slicing):
@@ -2434,7 +2414,9 @@ def collect_analyze_step(setup, from_dirpath, in_connsense_store, slicing):
             with open(Path(of_compute_node["dirpath"]) / "output.json", 'r') as f:
                 output = json.load(f)
         except FileNotFoundError as ferr:
-            raise RuntimeError(f"No output configured for compute node {of_compute_node}") from ferr
+            LOG.info("No output configured fo compute node %s: \n%s", pformat(of_compute_node), ferr)
+            #raise RuntimeError(f"No output configured for compute node {of_compute_node}") from ferr
+            return None
         return output
 
     outputs = {c: describe_output(of_compute_node) for c, of_compute_node in setup.items()}
@@ -2451,10 +2433,69 @@ def collect_analyze_step(setup, from_dirpath, in_connsense_store, slicing):
         return in_store(at_path=h5, hdf_group=g)
 
     return (in_store(connsense_h5, hdf_group)
-            .collect({c: move(compute_node=c, output=o) for c, o in outputs.items()}))
-
+            .collect({c: move(compute_node=c, output=o) for c, o in outputs.items() if o}))
 
 #+end_src
+
+Depending on the scientific and computational complexity of an analysis, we may have to run a pipeline computation iteratively. After an initial run, and collect, we do not want to collect the results that are already in the main ~connsense-TAP-HDFStore~ after each /re-run/ of the computation. Either we ~clean-up~, or ~update~.
+#+name: develop-parallelization-multinode-update-analyze-step
+#+begin_src python
+def update_analyze_step(setup, from_dirpath, in_connsense_store, slicing):
+    """..."""
+    try:
+        with open(from_dirpath/"description.json", 'r') as f:
+            analysis = json.load(f)
+    except FileNotFoundError as ferr:
+        raise RuntimeError(f"NOTFOUND a description of the analysis extracted: {from_dirpath}") from ferr
+
+    connsense_h5, group = in_connsense_store
+    hdf_group = group + '/' + analysis["name"]
+    if slicing:
+        hdf_group = hdf_group + "/" + slicing
+    output_type = analysis["output"]
+
+    def describe_output(of_compute_node):
+        """..."""
+        try:
+            with open(Path(of_compute_node["dirpath"]) / "output.json", 'r') as f:
+                output = json.load(f)
+        except FileNotFoundError as ferr:
+            LOG.info("No output configured fo compute node %s: \n%s", pformat(of_compute_node), ferr)
+            #raise RuntimeError(f"No output configured for compute node {of_compute_node}") from ferr
+            return None
+        return output
+
+    outputs = {c: describe_output(of_compute_node) for c, of_compute_node in setup.items()}
+    LOG.info("Analysis %s reported outputs: \n%s", analysis["name"], pformat(outputs))
+
+    def in_store(at_path, hdf_group):
+        """..."""
+        return matrices.get_store(at_path, hdf_group or hdf_analysis, output_type)
+
+    master_store = in_store(connsense_h5, hdf_group)
+
+    def find_update(compute_node, output):
+        """..."""
+        cn_connsense_h5, g = output
+        cn_store = in_store(cn_connsense_h5, hdf_group=g)
+        return cn_store.loc[cn_store.index.difference(master_store.index)]
+
+    return master_store.collect({c: find_})
+    return {c: move(compute_node=c, output=o) for c, o in outputs.items() if o}
+
+    def move(compute_node, output):
+        """..."""
+        LOG.info("Get analysis store for compute-node %s output %s", compute_node, output)
+        h5, g = output
+        return in_store(at_path=h5, hdf_group=g)
+
+
+    return (in_store(connsense_h5, hdf_group)
+            .collect({c: move(compute_node=c, output=o) for c, o in outputs.items() if o}))
+
+#+end_src
+
+
 
 
 * Multiprocess on a single compute-node
@@ -2486,11 +2527,9 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
 
     in_hdf = "connsense-{}.h5"
 
-    circuit_kwargs = input_circuit_args(of_computation, in_config, load_circuit=True)
-    circuit_args = tuple(k for k in ["circuit", "connectome"] if circuit_kwargs[k])
-    circuit_args_values = tuple(v for v in (circuit_kwargs["circuit"], circuit_kwargs["connectome"]) if v)
-    circuit_args_names = tuple(v for v in ((lambda c: c.variant if c else None)(circuit_kwargs["circuit"]),
-                                           circuit_kwargs["connectome"]) if v)
+    circuit_kwargs = input_circuit_args(of_computation, in_config,
+                                        load_circuit=True, load_connectome=False, drop_nulls=False)
+    circuit_args_values = tuple(v for v in (circuit_kwargs.get("circuit"), circuit_kwargs.get("connectome")) if v)
 
     kwargs = load_kwargs(parameters, HDFStore(in_config), on_compute_node)
 
@@ -2665,7 +2704,8 @@ def input_connectome(labeled, in_circuit):
     return in_circuit.projection[labeled]
 
 
-def input_circuit_args(computation, in_config, load_circuit=True, load_connectome=False):
+def input_circuit_args(computation, in_config, load_circuit=True, load_connectome=False, *,
+                       drop_nulls=True):
     """..."""
     computation_type, of_quantity = describe(computation)
     parameters = parameterize(computation_type, of_quantity, in_config)
@@ -2690,7 +2730,7 @@ def input_circuit_args(computation, in_config, load_circuit=True, load_connectom
     else:
         x = None
     connectome = input_connectome(x, in_circuit) if load_connectome else x
-    return {"circuit": circuit, "connectome": connectome}
+    return {key: value for key, value in {"circuit": circuit, "connectome": connectome}.items() if value}
 
 
 def subtarget_circuit_args(computation, in_config, load_circuit=False, load_connectome=False):

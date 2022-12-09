@@ -81,7 +81,8 @@ class TapDataset:
     @lazy
     def parameters(self):
         """Configure parameters for this TapDataset."""
-        return self._tap.describe(self._phenomenon, self._quantity)[self._quantity]
+        description = self._tap.describe(self._phenomenon, self._quantity)
+        return description[self._quantity] if '/' in self._quantity else description
 
     @lazy
     def id_subtargets(self):
@@ -214,10 +215,14 @@ class TapDataset:
 
     def name_index(self, result, variable_id, index_only_variable=False):
         """..."""
-        variable = variable_id.strip("_id")
         varindex = result.index.get_level_values(variable_id)
-        return pd.Series(self._tap.create_index(variable).loc[varindex].values, name=variable,
+
+        if variable_id.endswith("_id"):
+            variable = variable_id.strip("_id")
+            return pd.Series(self._tap.create_index(variable).loc[varindex].values, name=variable,
                          index=(varindex if index_only_variable else result.index))
+
+        return pd.Series(varindex.values, name=variable_id, index=result.index)
 
     def name_index_variables(self, result):
         """..."""
@@ -279,15 +284,43 @@ class TapDataset:
     @lazy
     def variable_ids(self):
         """..."""
-        return self.dataset.index.names
+        if not isinstance(self.dataset, Mapping):
+            return self.dataset.index.names
+        return {component: dset.index.names for component, dset in self.dataset.items()}
+
+    def frame_component(self, c=None):
+        """..."""
+        LOG.info("Frame TapDataset %s/%s component %s", self._phenomenon, self._quantity, c)
+
+        if isinstance(c, str):
+            assert isinstance(self.dataset, Mapping)
+            component = self.dataset[c]
+            variable_ids = self.variable_ids[c]
+        else:
+            assert c is None and not isinstance(self.dataset, Mapping), c
+            component = self.dataset
+            variable_ids = self.variable_ids
+
+        index = pd.concat([self.name_index(component, varid) for varid in variable_ids], axis=1)
+
+        if isinstance(component, pd.Series):
+            series = pd.Series(component.values, index=pd.MultiIndex.from_frame(index))
+            series = series[~series.index.duplicated(keep="first")]
+            return pd.concat(series.values, keys=series.index)
+
+        assert isinstance(component, pd.DataFrame), f"Invalid type {type(component)}"
+        return component.set_index(pd.MultiIndex.from_frame(index))
 
     @lazy
     def frame(self):
         """..."""
-        index = pd.concat([self.name_index(self.dataset, varid) for varid in self.variable_ids], axis=1)
-        series = pd.Series(self.dataset.values, index=pd.MultiIndex.from_frame(index))
-        series = series[~series.index.duplicated(keep="first")]
-        return pd.concat(series.values, keys=series.index)
+        if isinstance(self.dataset, Mapping):
+            return {c: self.frame_component(c) for c in self.dataset}
+        return self.frame_component()
+        #index = pd.concat([self.name_index(self.dataset, varid) for varid in self.variable_ids], axis=1)
+        #series = pd.Series(self.dataset.values, index=pd.MultiIndex.from_frame(index))
+        #series = series[~series.index.duplicated(keep="first")]
+        #return pd.concat(series.values, keys=series.index)
 
     def frame_fun(self, subtarget, circuit, connectome, summarize=None):
         """..."""
@@ -300,15 +333,18 @@ class TapDataset:
         return frame.groupby(data.index.names).agg(summarize) if summarize else frame
 
 
-    def input(self, subtarget, circuit=None, connectome=None, *, controls=None, belazy=False):
+    def input(self, subtarget, circuit=None, connectome=None, *, controls=None):
         """..."""
         from connsense.develop import parallelization as devprl
 
         toc_idx = self.index(subtarget, circuit, connectome)
         inputs = devprl.generate_inputs(self._dataset, self._tap._config).loc[toc_idx]
 
+        if not isinstance(inputs.index, pd.MultiIndex):
+            inputs.index = pd.MultiIndex.from_tuples([(v,) for v in inputs.index.values], names=[inputs.index.name])
+
         if not controls:
-            return inputs
+            return inputs.apply(lambda l: l()) if self._belazy else inputs
 
         try:
             configured = self.parameters["controls"]
@@ -320,12 +356,10 @@ class TapDataset:
 
         controls_argued = [c for c, _, _ in controls_configured if c.startswith(f"{controls}-")]
 
-        datacalls = pd.concat([inputs.xs(c, level="control") for c in controls_argued], axis=0,
-                              keys=[c.replace(controls, '')[1:] for c in controls_argued], names=[controls])
+        control_inputs = pd.concat([inputs.xs(c, level="control") for c in controls_argued], axis=0,
+                                   keys=[c.replace(controls, '')[1:] for c in controls_argued], names=[controls])
 
-        if belazy:
-            return datacalls
-        return datacalls.apply(lambda l: l())
+        return control_inputs.apply(lambda l: l()) if not self._belazy else control_inputs
 
 
 class HDFStore:

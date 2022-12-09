@@ -2,6 +2,13 @@
 #+PROPERTY: header-args:jupyter :session ~/Library/Jupyter/runtime/active-1-ssh.json
 #+STARTUP: overview
 
+#+begin_src jupyter
+print("Welcome to EMACS Jupyter")
+#+end_src
+
+#+RESULTS:
+: Welcome to EMACS Jupyter
+
 #+title: (sub) Target Analysis Pipeline
 
 
@@ -74,21 +81,10 @@ fig_fmap_cells
 We can use a ~class~ defined in ~connsense-TAP~ to interface with the data that has been extracted.
 
 ** Setup
-*** A notebook template to explore and develop
-
 Let us setup an interactive ~Python~ session where we can run the code developed here.
-
-#+begin_src jupyter
-print("Welcome to EMACS Jupyter")
-#+end_src
-
-#+RESULTS:
-: Welcome to EMACS Jupyter
-
 *** Introduction
-
 #+name: notebook-init
-#+begin_src jupyter-python
+#+begin_src jupyter-python :comments org :padline no :tangle present.py
 from importlib import reload
 from collections.abc import Mapping
 from collections import OrderedDict
@@ -111,18 +107,11 @@ from bluepy import Synapse, Cell, Circuit
 
 print("We will plot golden aspect ratios: ", GOLDEN)
 #+end_src
-
-#+RESULTS: notebook-init
-: We will plot golden aspect ratios:  1.618033988749895
-
 We have run ~connsense-TAP~ for the SSCx dissemination variant /Bio-M/, extracting data that we will use to study the circuit's topology. Here are some workspaces that we use to /test-develop/ ~connsense-TAP~ for topology.
-
 *** Workspaces
-
 We have a ~connsense-TAP~ pipeline with circuit data extracted for the ~flatmap-columns~.
-
 #+name: notebook-workspaces
-#+begin_src jupyter-python
+#+begin_src jupyter-python :comments org :padline no :tangle present.py
 from connsense.pipeline import pipeline
 from connsense.develop import parallelization as devprl
 
@@ -133,15 +122,10 @@ ROOTSPACE = Path("/")
 PROJSPACE = ROOTSPACE / "gpfs/bbp.cscs.ch/project/proj83"
 CONNSPACE = PROJSPACE / "home/sood" / "topological-analysis-subvolumes/test/v2"
 #+end_src
-
-#+RESULTS: notebook-workspaces
-
 While test-developing it will be good to have direct access to the ~connsense-TAP-store~ we will use. We will use a development version of the interface.
-
 *** ~connsense~ Modules
-
 #+name: notebook-connsense-tap
-#+begin_src jupyter-python
+#+begin_src jupyter-python :comments org :padline no :tangle present.py
 tap = devtap.HDFStore(CONNSPACE/"pipeline.yaml")
 print("Configured Analyses: ")
 pprint(tap.analyses)
@@ -149,14 +133,14 @@ pprint(tap.analyses)
 
 #+RESULTS: notebook-connsense-tap
 : Configured Analyses:
-: {'connectivity': {'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7ffdf351a760>,
-:                   'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7ffdf36820a0>}}
+: {'connectivity': {'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7fffa92000a0>,
+:                   'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7fffe0174af0>}}
 
 *** Notebook template
 
 Finally, here is a template that we can use to start test-developing. We will deposit the code in a sub-directory, of the directory holding this file.
 
-#+begin_src jupyter-python :tangle develop_topotap.py :comments no :noweb yes :padline yes
+#+begin_src jupyter-python :comments no :noweb yes :padline no :tangle no
 # %% [markdown]
 """# Test Develop a Circuit Factology
 """
@@ -176,18 +160,18 @@ Finally, here is a template that we can use to start test-developing. We will de
 #+RESULTS:
 : We will plot golden aspect ratios:  1.618033988749895
 : Configured Analyses:
-: {'connectivity': {'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7fff1db69af0>,
-:                   'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7fff1e0ddfd0>}}
+: {'connectivity': {'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7fff345e60d0>,
+:                   'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7fff345c7f70>}}
 
 
 We will use the deprecated ~connsense-TAP-HDFStore~ to load the circuit. We need the circuit for our discussion. ~connsense-TAP~ can be used without accessing the circuit itself.
-#+begin_src jupyter-python :tangle develop_topotap.py
+#+begin_src jupyter-python :comments org :padline no :tangle present.py
 otap = tap_store.HDFStore(tap._config)
 circuit = otap.get_circuit("Bio_M")
 #+end_src
 
 #+RESULTS:
-:  2022-11-15 11:41:51,714: Load circuit Bio_M
+:  2022-12-06 09:40:49,991: Load circuit Bio_M
 
 ** Nodes and their Adjacencies
 
@@ -448,126 +432,24 @@ tap_3 = devtap.HDFStore(EXT3SPC/"pipeline.yaml")
 simplex_counts = tap_3.analyses["connectivity"]["simplex-counts"].load()
 #+end_src
 
-#+RESULTS:
-
 We have to say ~.load()~ to load the actual data, and not just a ~table-of-contents~ of ~datacalls~. We can get datasets,
 #+begin_src jupyter-python
 simplex_counts.dataset["full"][ [0, 1, 2, 3] ]
 #+end_src
-
-#+RESULTS:
-#+begin_example
-dim                                         0         1          2          3
-subtarget_id circuit_id control
-1            0          erdos-renyi-0  4570.0  431358.0   840153.0    33636.0
-                        original       4570.0  431358.0  2302299.0  1155649.0
-57           0          erdos-renyi-0  3847.0  337286.0   673438.0    30354.0
-                        original       3847.0  337286.0  1682733.0   764834.0
-58           0          erdos-renyi-0  2848.0  188621.0   290366.0    10409.0
-                        original       2848.0  188621.0   800842.0   353430.0
-71           0          erdos-renyi-0  3694.0  269210.0   386776.0    11018.0
-                        original       3694.0  269210.0  1197872.0   552570.0
-136          0          erdos-renyi-0  2374.0  141944.0   213721.0     8159.0
-                        original       2374.0  141944.0   576372.0   261690.0
-181          0          erdos-renyi-0  3205.0  225633.0   349975.0    11822.0
-                        original       3205.0  225633.0   993657.0   434499.0
-186          0          erdos-renyi-0  2984.0  149416.0   125325.0     1758.0
-                        original       2984.0  149416.0   547792.0   255172.0
-205          0          erdos-renyi-0  2156.0  141003.0   280578.0    17094.0
-                        original       2156.0  141003.0   707028.0   428920.0
-215          0          erdos-renyi-0  4494.0  483092.0  1244045.0    76965.0
-                        original       4494.0  483092.0  3240852.0  2317485.0
-216          0          erdos-renyi-0  2947.0  221897.0   427678.0    20991.0
-                        original       2947.0  221897.0  1086887.0   574999.0
-217          0          erdos-renyi-0  2602.0  161116.0   237144.0     8527.0
-                        original       2602.0  161116.0   619491.0   234433.0
-218          0          erdos-renyi-0  3697.0  307983.0   578546.0    24451.0
-                        original       3697.0  307983.0  1563867.0   780629.0
-226          0          erdos-renyi-0  4944.0  526118.0  1203088.0    59375.0
-                        original       4944.0  526118.0  3241978.0  1875925.0
-228          0          erdos-renyi-0  2663.0  183403.0   326945.0    14986.0
-                        original       2663.0  183403.0   922528.0   540581.0
-230          0          erdos-renyi-0  3804.0  332390.0   668711.0    31131.0
-                        original       3804.0  332390.0  1807222.0  1012530.0
-232          0          erdos-renyi-0  4893.0  517354.0  1181543.0    58270.0
-                        original       4893.0  517354.0  3150123.0  1818743.0
-#+end_example
-
 or
-
 #+begin_src jupyter-python
 simplex_counts.dataset["layer"][ [0, 1] ]
 #+end_src
-
-#+RESULTS:
-#+begin_example
-dim                                        0              1
-layer                                      1       2      1        2
-subtarget_id circuit_id control
-1            0          erdos-renyi-0   49.0   484.0   50.0   4802.0
-                        original        49.0   484.0   52.0  11524.0
-57           0          erdos-renyi-0   29.0   573.0   19.0   7597.0
-                        original        29.0   573.0   20.0  15270.0
-58           0          erdos-renyi-0   16.0   347.0    9.0   2837.0
-                        original        16.0   347.0    9.0   5605.0
-71           0          erdos-renyi-0   25.0   398.0    9.0   3092.0
-                        original        25.0   398.0   27.0   7489.0
-136          0          erdos-renyi-0    7.0   217.0    1.0   1186.0
-                        original         7.0   217.0    3.0   3214.0
-181          0          erdos-renyi-0   29.0   474.0   19.0   4984.0
-                        original        29.0   474.0   26.0  10842.0
-186          0          erdos-renyi-0   86.0  1038.0  118.0  18099.0
-                        original        86.0  1038.0  134.0  37112.0
-216          0          erdos-renyi-0   52.0   875.0   78.0  19315.0
-                        original        52.0   875.0   59.0  31534.0
-217          0          erdos-renyi-0   39.0   409.0   35.0   3850.0
-                        original        39.0   409.0   33.0   8028.0
-218          0          erdos-renyi-0   40.0   615.0   49.0   8525.0
-                        original        40.0   615.0   32.0  17561.0
-226          0          erdos-renyi-0   24.0   436.0   10.0   4110.0
-                        original        24.0   436.0   14.0  10808.0
-228          0          erdos-renyi-0  137.0  1560.0  458.0  62994.0
-                        original       137.0  1560.0  197.0  77924.0
-230          0          erdos-renyi-0   53.0   973.0   62.0  21605.0
-                        original        53.0   973.0   55.0  34844.0
-232          0          erdos-renyi-0   85.0  1359.0  165.0  39528.0
-                        original        85.0  1359.0  130.0  59438.0
-#+end_example
-
 We can also query by ~subtarget~ names,
 #+begin_src jupyter-python
 simplex_counts("R18;C0", "Bio_M")
 #+end_src
-
-#+RESULTS:
-: dim                 0         1          2          3        4      5    6
-: control
-: erdos-renyi-0  4570.0  431358.0   840153.0    33636.0     27.0    NaN  NaN
-: original       4570.0  431358.0  2302299.0  1155649.0  75857.0  916.0  2.0
-
 #+begin_src jupyter-python
 simplex_counts("R18;C0", "Bio_M", slicing="layer")[ [0, 1, 2, 3, 4] ]
 #+end_src
-
-#+RESULTS:
-: dim               0            1             2            3           4
-: layer             1      2     1        2    1        2   1       2   1      2
-: control
-: erdos-renyi-0  49.0  484.0  50.0   4802.0  NaN    984.0 NaN     4.0 NaN    NaN
-: original       49.0  484.0  52.0  11524.0  4.0  28073.0 NaN  9309.0 NaN  454.0
-
 #+begin_src jupyter-python
 simplex_counts("R18;C0", "Bio_M", control="erdos-renyi-0", slicing="layer")[ [0, 1, 2, 3, 4] ]
 #+end_src
-
-#+RESULTS:
-: dim               0            1             2            3           4
-: layer             1      2     1        2    1        2   1       2   1      2
-: control
-: erdos-renyi-0  49.0  484.0  50.0   4802.0  NaN    984.0 NaN     4.0 NaN    NaN
-: original       49.0  484.0  52.0  11524.0  4.0  28073.0 NaN  9309.0 NaN  454.0
-
-
 We can also get ~inputs~ of a ~TapDataset~,
 #+begin_src jupyter-python
 simplex_counts.input("R18;C0", "Bio_M")

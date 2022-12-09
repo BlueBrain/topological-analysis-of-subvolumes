@@ -1200,11 +1200,9 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
 
     in_hdf = "connsense-{}.h5"
 
-    circuit_kwargs = input_circuit_args(of_computation, in_config, load_circuit=True)
-    circuit_args = tuple(k for k in ["circuit", "connectome"] if circuit_kwargs[k])
-    circuit_args_values = tuple(v for v in (circuit_kwargs["circuit"], circuit_kwargs["connectome"]) if v)
-    circuit_args_names = tuple(v for v in ((lambda c: c.variant if c else None)(circuit_kwargs["circuit"]),
-                                           circuit_kwargs["connectome"]) if v)
+    circuit_kwargs = input_circuit_args(of_computation, in_config,
+                                        load_circuit=True, load_connectome=False, drop_nulls=False)
+    circuit_args_values = tuple(v for v in (circuit_kwargs.get("circuit"), circuit_kwargs.get("connectome")) if v)
 
     kwargs = load_kwargs(parameters, HDFStore(in_config), on_compute_node)
 
@@ -1362,7 +1360,8 @@ def input_connectome(labeled, in_circuit):
     return in_circuit.projection[labeled]
 
 
-def input_circuit_args(computation, in_config, load_circuit=True, load_connectome=False):
+def input_circuit_args(computation, in_config, load_circuit=True, load_connectome=False, *,
+                       drop_nulls=True):
     """..."""
     computation_type, of_quantity = describe(computation)
     parameters = parameterize(computation_type, of_quantity, in_config)
@@ -1387,7 +1386,7 @@ def input_circuit_args(computation, in_config, load_circuit=True, load_connectom
     else:
         x = None
     connectome = input_connectome(x, in_circuit) if load_connectome else x
-    return {"circuit": circuit, "connectome": connectome}
+    return {key: value for key, value in {"circuit": circuit, "connectome": connectome}.items() if value}
 
 
 def subtarget_circuit_args(computation, in_config, load_circuit=False, load_connectome=False):
