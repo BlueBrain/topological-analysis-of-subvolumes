@@ -29,11 +29,11 @@ class BeLazy:
     def get_value(self):
         """Get value for the data specified lazily in this instance.
         """
-        if isinstance(self._path, str):
+        if isinstance(self._path, (str, tuple)):
             return self._store.read(self._path)
 
         assert pd.isna(self._path),\
-            f"Neither a string, nor NA, what is {self._path}: type {type(self._path)}"
+            f"Neither a string, nor a tuple, nor NA, what is {self._path}: type {type(self._path)}"
         return None
 
     @lazy
@@ -128,8 +128,7 @@ class MatrixStore:
     @property
     def toc(self):
         """"..."""
-        key = self.group_identifier_toc
-        return pd.read_hdf(self._root, key).apply(self.but_lazily).sort_index()
+        return pd.read_hdf(self._root, self.group_identifier_toc).apply(self.but_lazily).sort_index()
 
     @property
     def keys(self):
@@ -142,7 +141,7 @@ class MatrixStore:
     @property
     def count(self):
         """..."""
-        return self.keys.shape[0]
+        return len(self.keys)
 
     def next_key(self):
         """..."""
@@ -270,8 +269,7 @@ class DataFrameHelper:
         at_path = to_hdf_store_at_path
         under_key = lambda key: '/'.join([under_group, as_dataset, key] if key else [under_group, as_dataset])
         LOG.info("Write DataFrame with shape %s at path %s, under group %s %s: \n%s",
-                 frame.shape, at_path, under_group, as_dataset, frame.head())
-        #frame.to_hdf(at_path, under_key, mode='a', format="table")
+                 frame.shape, at_path, under_group, as_dataset, frame.describe())
 
         index = frame.index.to_frame().reset_index(drop=True)
         index.to_hdf(at_path, under_key("index"), format="table")
@@ -301,8 +299,8 @@ class SeriesHelper:
     @staticmethod
     def write(series, to_hdf_store_at_path, under_group, as_dataset):
         """..."""
-        LOG.info("SeriesHelper write series at %s group %s as dataset %s: \n%s",
-                 to_hdf_store_at_path, under_group, as_dataset, series.describe())
+        LOG.debug("SeriesHelper write series at %s group %s as dataset %s: \n%s",
+                  to_hdf_store_at_path, under_group, as_dataset, series.describe())
 
         at_path = to_hdf_store_at_path
         under_key = lambda key: '/'.join([under_group, as_dataset, key] if key else [under_group, as_dataset])
@@ -331,7 +329,6 @@ class SeriesHelper:
 
         #under_key = under_group + "/" + dataset
         #return pd.read_hdf(at_path, under_key)
-
 
 class SeriesOfMatricesHelper:
     """Handle a series that contains matrices in its values."""
@@ -383,7 +380,7 @@ class DataFrameStore(MatrixStore):
     def collect(self, stores, overwrite=True):
         """Collect a bunch of `DataFrameStores` into this one.
         """
-        LOG.info("Collect %s batches of stores", len(stores))
+        LOG.info("Collect upto %s batches of stores, and overwrite? %s", len(stores), overwrite)
 
         def move(batch, store):
             """..."""
@@ -398,12 +395,15 @@ class DataFrameStore(MatrixStore):
                 return written
 
             current_size = self.count
-            LOG.info("Move a %s subtarget batch %s from %s to %s containing %s subtargets.",
-                     store.count, batch, Path(store._root).name, Path(self._root).name,
-                     current_size)
+            delta_toc = store.toc if overwrite else store.toc.loc[store.toc.index.difference(self.toc.index)]
+            if delta_toc.empty:
+                LOG.info("Nothing to move from %s", store._root)
+                return None
 
-            update = store.toc if overwrite else store.toc.loc[store.toc.index.difference(self.toc.index)]
-            saved = update.apply(write_subtarget)
+            LOG.info("Move a %s subtarget updating %s batch %s from %s to %s containing %s subtargets:\n%s",
+                     store.count, len(delta_toc), batch, store._root, self._root, current_size, delta_toc)
+
+            saved = delta_toc.apply(write_subtarget)
             update = self.prepare_toc(of_paths=saved)
 
             update_size = update.shape[0]
@@ -414,6 +414,28 @@ class DataFrameStore(MatrixStore):
             return update
 
         return {batch: move(batch, store) for batch, store in stores.items()}
+
+    def check(self, stores, overwrite=True):
+        """Check the TOC of the `stores` to see what is missing from this one.
+        Icompute_nodef `overwrite == True`, then all the reults in `stores` will be listed.
+        NOTE:
+        This method does not care about what is stored, and can be moved to the baseclass.
+        """
+        LOG.info("Check to collect upto %s batches of stores, and overwrite? %s", len(stores), overwrite)
+
+        def check(compute_node, store):
+            """...
+            """
+            current_size = self.count
+            delta_toc = store.toc if overwrite else store.toc.loc[store.toc.index.difference(self.toc.index)]
+
+            LOG.info("Check compute-node %s store at %s: out of %s, number new: %s: \n%s",
+                     compute_node , store._root, len(store.toc), len(delta_toc), delta_toc.describe())
+
+            return delta_toc
+
+        return pd.concat([check(compute_node, store) for compute_node, store in stores.items()], axis=0,
+                         keys=[compute_node for compute_node, _ in stores.items()], names=["compute_node"])
 
 
 class SeriesStore(MatrixStore):
@@ -443,8 +465,13 @@ class SeriesStore(MatrixStore):
                      store.count, batch, Path(store._root).name, Path(self._root).name,
                      current_size)
 
-            saved = (store.toc if overwrite else
-                     store.toc.loc[store.toc.index.difference(self.toc.index)]).apply(write_subtarget))
+            delta_toc = (store.toc if overwrite else
+                         store.toc.loc[store.toc.index.difference(self.toc.index)])
+            if delta_toc.empty:
+                LOG.info("Nothing to move from %s", store._root)
+                return None
+
+            saved = delta_toc.apply(write_subtarget)
             update = self.prepare_toc(of_paths=saved)
 
             update_size = update.shape[0]
@@ -455,6 +482,27 @@ class SeriesStore(MatrixStore):
             return update
 
         return {batch: move(batch, store) for batch, store in stores.items()}
+
+    def check(self, stores, overwrite=True):
+        """Check the TOC of the `stores` to see what is missing from this one.
+        If `overwrite == True`, then all the reults in `stores` will be listed.
+        NOTE:
+        This method does not care about what is stored, and can be moved to the baseclass.
+        """
+        LOG.info("Check to collect upto %s batches of stores, and overwrite? %s", len(stores), overwrite)
+
+        def check(compute_node, store):
+            """..."""
+            current_size = self.count
+            delta_toc = store.toc if overwrite else store.toc.loc[store.toc.index.difference(self.toc.index)]
+
+            LOG.info("Check compute-node %s store at %s: out of %s, number new: %s: \n%s",
+                     compute_node , store._root, len(store.toc), len(delta_toc), delta_toc.describe())
+
+            return delta_toc
+
+        return pd.concat([check(compute_node, store) for compute_node, store in stores.items()], axis=0,
+                         keys=[compute_node for compute_node, _ in stores.items()], names=["compute_node"])
 
 
 class SeriesOfMatricesStore(MatrixStore):
@@ -496,7 +544,7 @@ class SeriesOfMatricesStore(MatrixStore):
             """A table of contents (TOC) dataframe.
             """
             long = (batch.toc if overwrite else
-                    batch.toc.loc[batch.tock.index.difference(self.toc.index)])
+                    batch.toc.loc[batch.toc.index.difference(self.toc.index)])
 
             LOG.info("series of matrices %s --> a dataframe input: %s", b, long.shape)
             colvars = long.index.get_level_values(-1).unique()
@@ -558,6 +606,175 @@ class DataFrameOfMatricesStore(MatrixStore):
         return pd.read_hdf(self._root, key).applymap(self.but_lazily)
 
 
+class SingleSeriesStore(MatrixStore):
+    """Data is already in the TOC values. No individual `matrices` for individual TOC entries.
+    """
+    def __init__(self, root, group, *, in_mode='a', using_handler=None,
+                 dset_pattern=None, key_toc=None, key_mat=None):
+        """..."""
+        LOG.info("Initialize a %s matrix store loading / writing data at %s / %s",
+                 self.__class__.__name__, root, group)
+
+        if not self._check_hdf_group(root, group, in_mode):
+            LOG.error("FAILED CHECK HDF %s.\n"
+                      "Data for group %s may not have been computed.", root, group)
+            raise ValueError(f"Cannot open HDF {root}/{group} in mode {in_mode}. Does it exist?")
+
+        self._root = root
+        self._group = group
+        self._using_handler = using_handler
+        self._dset_pattern = dset_pattern
+        self._key_toc = key_toc or ""
+        self._key_mat = key_mat or ""
+
+    @property
+    def group_identifier_toc(self):
+        """..."""
+        return self._group + "/toc"
+
+    @property
+    def group_identifier_mat(self):
+        """..."""
+        return self._group + "/mat"
+
+    @property
+    def keys(self):
+        """..."""
+        try:
+            stored = pd.read_hdf(self._root, key='/'.join([self.group_identifier_mat, "values"]))
+        except KeyError:
+            return pd.Series(dtype=np.int, name="key")
+        return pd.Series(range(len(stored)), name="key")
+
+    def next_key(self):
+        """..."""
+        return self.count
+
+    def write(self, dataset):
+        """..."""
+        LOG.info("Write DataFrame[%s] at path %s, as dataset entry %s:\n %s",
+                  dataset.shape, self._root, self.group_identifier_mat, dataset)
+
+        under_key = lambda k: '/'.join([self.group_identifier_mat, k])
+        entry = self.next_key()
+
+        index = dataset.index.to_frame().reset_index(drop=True)
+        index.to_hdf(self._root, under_key("index"), format="table", append=True)
+
+        values = dataset.reset_index(drop=True)
+        values.to_hdf(self._root, under_key("values"), format="table", append=True,
+                       min_itemsize={"values": 200})
+
+        return (entry, entry + len(values))
+
+    def collect_one_by_one(self, stores, overwrite=True):
+        """..."""
+        from collections import defaultdict
+        LOG.info("Collect %s batched stores, and overwrite?: %s", len(stores), overwrite)
+
+        try:
+            self_toc = self.toc
+        except KeyError:
+            self_toc = pd.Series()
+
+        def move(batch, store):
+            """..."""
+            delta_toc = (store.toc if overwrite or self_toc.empty
+                         else store.toc.loc[store.toc.index.difference(self_toc.index)])
+            LOG.info("Move %s / %s entries in %s batched store from %s to %s",
+                     len(delta_toc), len(store.toc), batch, store._root, self._root)
+
+            if delta_toc.empty:
+                return None
+
+            under_key = lambda key: '/'.join([self.group_identifier_mat, key])
+
+            try:
+                _toc = self.toc
+            except KeyError:
+                current_size = 0
+            else:
+                current_size = len(_toc)
+
+            def write_content(c):
+                value = c.get_value()
+                LOG.debug("Write content:\n%s", value)
+                return self.write(value)
+
+            saved = delta_toc.apply(write_content)
+            update = self.prepare_toc(of_paths=saved)
+            update_size = len(update)
+            self.append_toc(update)
+            LOG.debug("collection updated: \n%s", update)
+
+            updated_size = len(self.toc)
+            LOG.info("Collect SeriesStores, append TOC update count from %s by %s to %s",
+                     current_size, update_size, updated_size)
+            return update
+
+        return {batch: move(batch, store) for batch, store in stores.items()}
+
+    def collect(self, stores, overwrite=True, one_by_one=True):
+        """..."""
+        if one_by_one:
+            return self.collect_one_by_one(stores, overwrite)
+
+        from collections import defaultdict
+        from tqdm import tqdm
+
+        LOG.info("Collect %s batched stores, and overwrite?: %s", len(stores), overwrite)
+
+        try:
+            self_toc = self.toc
+        except KeyError:
+            self_toc = pd.Series()
+
+        def load_store(s):
+            sld = s.toc.apply(lambda l: l.get_value())
+            return pd.concat(sld.values, keys=sld.index)
+
+        def size_toc(store):
+            return store.toc.apply(lambda l: len(l.get_value()))
+
+        stored_items = stores.items()
+        under_key = lambda key: '/'.join([self.group_identifier_mat, key])
+        dataset = pd.concat([load_store(s) for _, s in tqdm(stored_items)]).sort_index()
+
+        index = dataset.index.to_frame().reset_index(drop=True)
+        index.to_hdf(self._root, under_key("index"), format="table", append=True)
+
+        values = dataset.reset_index(drop=True)
+        values.to_hdf(self._root, under_key("values"), format="table", append=True,
+                      min_itemsize={"values": 200})
+
+        toc_sizes = pd.concat([size_toc(s) for _, s in stored_items]).sort_index()
+        toc_ends = toc_sizes.cumsum().values
+        toc_begins = np.hstack([[0], toc_ends[:-1]])
+        toc_slices = (pd.DataFrame({"begin": toc_begins, "end": toc_ends}, index=toc_sizes.index)
+                      .apply(lambda r: (r.begin, r.end), axis=1))
+
+        update = self.prepare_toc(of_paths=toc_slices)
+        update_size = len(update)
+        self.append_toc(update)
+        LOG.debug("collection updated: %s", len(update))
+
+        return update
+
+    def read(self, dataset):
+        """..."""
+        i_from, i_upto = dataset
+        under_key = lambda key: '/'.join([self.group_identifier_mat, key])
+
+        values = pd.read_hdf(self._root, key=under_key("values")).iloc[i_from:i_upto]
+        index = pd.read_hdf(self._root, key=under_key("index")).iloc[i_from:i_upto]
+        return values.set_index(pd.MultiIndex.from_frame(index))
+
+
+class SingleSeries:
+    """ Just a tag to use to load SingleSeriesStore."""
+    pass
+
+
 def StoreType(for_matrix_type):
     """..."""
     import scipy, numpy, pandas #base imports to evaluate for_matrix_type
@@ -590,6 +807,9 @@ def StoreType(for_matrix_type):
 
     if issubclass(matrix_type, SeriesOfMatrices):
         return SeriesOfMatricesStore
+
+    if issubclass(matrix_type, SingleSeries):
+        return SingleSeriesStore
 
     raise TypeError(f"Unhandled matrix value type {for_matrix_type}")
 

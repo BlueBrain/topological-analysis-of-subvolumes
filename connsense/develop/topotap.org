@@ -1237,7 +1237,7 @@ While its ~dataset~ provides a ~dict~ (/i.e./ ~[]~) interface to ~connsense-TAP-
 
         if isinstance(component, pd.Series):
             series = pd.Series(component.values, index=pd.MultiIndex.from_frame(index))
-            series = series[~series.index.duplicated(keep="first")]
+            series = series[~series.index.duplicated(keep="last")]
             return pd.concat(series.values, keys=series.index)
 
         assert isinstance(component, pd.DataFrame), f"Invalid type {type(component)}"

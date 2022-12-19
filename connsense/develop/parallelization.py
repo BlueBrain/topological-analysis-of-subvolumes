@@ -114,7 +114,7 @@ def parameterize(computation_type, of_quantity, in_config):
 
 
 def batch_multinode(computation, of_inputs, in_config, at_dirpath, using_parallelization, single_submission=500,
-                    with_weights=True, unit_weight=None):
+                    with_weights=True, unit_weight=None, njobs_to_estimate_load=None):
     """...Just read the method definition above,
         and code below
     """
@@ -125,7 +125,8 @@ def batch_multinode(computation, of_inputs, in_config, at_dirpath, using_paralle
 
     LOG.info("Assign compute-nodes to %s inputs", len(of_inputs))
     toc_index = of_inputs.index
-    weights = of_inputs.progress_apply(lambda l: estimate_load(to_compute=None)(l())).dropna()
+    weights = (of_inputs.progress_apply(lambda l: estimate_load(to_compute=None)(l())).dropna()
+               if not njobs_to_estimate_load else multiprocess_load_estimate(of_inputs, njobs_to_estimate_load))
     weights = (weights[~np.isclose(weights, 0.)].groupby(toc_index.names).max()
                .sort_values(ascending=True)).rename("weight")
 
@@ -173,7 +174,6 @@ def batch_multinode(computation, of_inputs, in_config, at_dirpath, using_paralle
 def batch_parallel_groups(of_inputs, upto_number, to_compute=None, return_load=False):
     """..."""
     from tqdm import tqdm; tqdm.pandas()
-
 
     if isinstance(of_inputs, pd.Series):
         weights = (of_inputs.progress_apply(lambda l: estimate_load(to_compute)(l())).rename("load")
@@ -230,6 +230,38 @@ def estimate_load(to_compute):
         return 1.
 
     return of_input_data
+
+
+def multiprocess_load_estimate(inputs, njobs):
+    """..."""
+    from tqdm import tqdm; tqdm.pandas()
+    assert njobs > 1, "Does not need multi-process."
+
+    def weigh(batch_inputs, *, in_bowl, index):
+        """..."""
+        weight = batch_inputs.progress_apply(estimate_load(None))
+        in_bowl[index] = weight
+        return weight
+
+    manager = Manager()
+    bowl = manager.dict()
+    processes = []
+
+    batched_inputs = pd.DataFrame({"input": inputs,
+                                   "batch": np.linspace(0, njobs - 1.e-6, len(inputs), dtype=int)})
+    for b, batch in batched_inputs.groupby("batch"):
+        LOG.info("Estimate load of %s inputs in batch %s / %s", len(batch), b, njobs)
+        p = Process(target=weigh, args=(batch.input,), kwargs={"index": b, "in_bowl": bowl})
+        p.start()
+        processes.append(p)
+    LOG.info("LAUNCHED %s processes", len(processes))
+
+    for p in processes:
+        LOG.info("Join process %s", p)
+        p.join()
+    LOG.info("Parallel load estimation results %s", len(bowl))
+
+    return pd.concat([weights for weights in bowl.values()])
 
 
 def distribute_compute_nodes(parallel_batches, upto_number):
@@ -958,7 +990,8 @@ def symlink_pipeline_base(configs, at_dirpath):
 
 
 
-def setup_multinode(process, of_computation, in_config, using_runtime, in_mode=None):
+def setup_multinode(process, of_computation, in_config, using_runtime, *,
+                    in_mode=None, njobs_to_estimate_load=None):
     """Setup a multinode process.
     """
     from tqdm import tqdm; tqdm.pandas()
@@ -973,7 +1006,8 @@ def setup_multinode(process, of_computation, in_config, using_runtime, in_mode=N
 
         if process == setup_compute_node:
             batched = batch_multinode(of_computation, inputs, in_config, at_dirpath, unit_weight=unit_weight,
-                                      using_parallelization=(n_compute_nodes, n_parallel_jobs))
+                                      using_parallelization=(n_compute_nodes, n_parallel_jobs),
+                                      njobs_to_estimate_load=njobs_to_estimate_load)
             using_configs["slurm_params"] = (configure_slurm(of_computation, in_config, using_runtime)
                                              .get("sbatch", None))
             compute_nodes = {c: setup_compute_node(c, of_computation, inputs, using_configs, at_dirpath,
@@ -1004,8 +1038,10 @@ def setup_multinode(process, of_computation, in_config, using_runtime, in_mode=N
 
     full = generate_inputs(of_computation, in_config,
                            circuit_args=input_circuit_args(of_computation, in_config, load_circuit=True))
+
     if process == setup_compute_node:
-        full_weights = full.progress_apply(lambda l: estimate_load(to_compute=None)(l())).dropna()
+        full_weights = (full.progress_apply(lambda l: estimate_load(to_compute=None)(l())).dropna()
+                        if not njobs_to_estimate_load else multiprocess_load_estimate(full, njobs_to_estimate_load))
 
         have_zero_weight = np.isclose(full_weights.values, 0.)
         LOG.info("Inputs with zero weight %s: \n%s", have_zero_weight.sum(), full_weights[have_zero_weight])
@@ -1039,10 +1075,11 @@ def collect_results(computation_type, setup, from_dirpath, in_connsense_store, s
     """..."""
     if computation_type == "extract-node-populations":
         assert not slicing, "Does not apply"
-        return collect_node_population(setup, from_dirpath, in_connsense_store)
+        return collect_node_population(setup, from_dirpath, in_connsense_storerwrite)
 
     if computation_type == "extract-edge-populations":
         assert not slicing, "Does not apply"
+
         return collect_edge_population(setup, from_dirpath, in_connsense_store)
 
     if computation_type in ("analyze-connectivity", "analyze-composition",
@@ -1069,7 +1106,8 @@ def collect_node_population(setup, from_dirpath, in_connsense_store):
             with open(Path(of_compute_node["dirpath"]) / "output.json", 'r') as f:
                 output = json.load(f)
         except FileNotFoundError as ferr:
-            raise RuntimeError(f"No output configured for compute node {of_compute_node}") from ferr
+            LOG.info("No output configured for compute node %s\n%s", {pformat(of_compute_node)}, ferr)
+            return None
         return output
 
     outputs = {c: describe_output(of_compute_node) for c, of_compute_node in setup.items()}
@@ -1111,7 +1149,9 @@ def collect_edge_population(setup, from_dirpath, in_connsense_store):
             with open(Path(of_compute_node["dirpath"]) / "output.json", 'r') as f:
                 output = json.load(f)
         except FileNotFoundError as ferr:
-            raise RuntimeError(f"No output configured for compute node {of_compute_node}") from ferr
+            LOG.info("No output configured for compute node %s\n%s", {pformat(of_compute_node)}, ferr)
+            return None
+            #raise RuntimeError(f"No output configured for compute node {of_compute_node}") from ferr
         return output
 
     outputs = {c: describe_output(of_compute_node) for c, of_compute_node in setup.items()}
@@ -1123,7 +1163,6 @@ def collect_edge_population(setup, from_dirpath, in_connsense_store):
         adj = read_toc_plus_payload(output, for_step="extract-edge-populations")
         return write_toc_plus_payload(adj, (connsense_h5, hdf_edge_population), append=True, format="table",
                                       min_itemsize={"values": 100})
-        #return write_toc_plus_payload(adj, (in_connsense_store, hdf_edge_population), append=True, format="table")
 
     LOG.info("Collect adjacencies")
     for of_compute_node, output in outputs.items():
@@ -1156,7 +1195,9 @@ def collect_analyze_step(setup, from_dirpath, in_connsense_store, slicing):
             with open(Path(of_compute_node["dirpath"]) / "output.json", 'r') as f:
                 output = json.load(f)
         except FileNotFoundError as ferr:
-            raise RuntimeError(f"No output configured for compute node {of_compute_node}") from ferr
+            LOG.info("No output configured fo compute node %s: \n%s", pformat(of_compute_node), ferr)
+            return None
+            #raise RuntimeError(f"No output configured for compute node {of_compute_node}") from ferr
         return output
 
     outputs = {c: describe_output(of_compute_node) for c, of_compute_node in setup.items()}
@@ -1173,8 +1214,7 @@ def collect_analyze_step(setup, from_dirpath, in_connsense_store, slicing):
         return in_store(at_path=h5, hdf_group=g)
 
     return (in_store(connsense_h5, hdf_group)
-            .collect({c: move(compute_node=c, output=o) for c, o in outputs.items()}))
-
+            .collect({c: move(compute_node=c, output=o) for c, o in outputs.items() if o}))
 
 
 SERIAL_BATCHES = "serial-batches"
@@ -1319,8 +1359,8 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
                 LOG.info("Parallel computation for batch %s: %s", batch, len(bowl))
                 values = pd.Series([v for v in bowl.values()], index=subtargets.index)
                 hdf = in_hdf.format(batch)
-                result = (to_store_batch(hdf, results=values) if to_store_batch else
-                          to_store_one(hdf, update=values.apply(lambda v: to_store_one(hdf, result=v))))
+                results = (to_store_batch(hdf, results=values) if to_store_batch else
+                           to_store_one(hdf, update=values.apply(lambda v: to_store_one(hdf, result=v))))
 
     read_pipeline.write(results, to_json=on_compute_node/"batched_output.json")
 
@@ -1407,6 +1447,7 @@ def subtarget_circuit_args(computation, in_config, load_circuit=False, load_conn
     return {"circuit": circuit, "connectome": input_connectome(x, circuit) if load_connectome else x}
 
 
+
 def load_input_batches(on_compute_node, inputs=None, n_parallel_tasks=None):
     """..."""
     store_h5, dataset = COMPUTE_NODE_SUBTARGETS
@@ -1419,7 +1460,6 @@ def load_input_batches(on_compute_node, inputs=None, n_parallel_tasks=None):
     if not n_parallel_tasks:
         return inputs_read
     return inputs_read.assign(batch=pd.Series(np.arange(0, len(inputs_read))%n_parallel_tasks).to_numpy(int))
-
 
 
 
@@ -1747,7 +1787,6 @@ def collect_batched_node_population(p, results, on_compute_node, hdf_group):
 
 def collect_batched_edge_population(p, results, on_compute_node, hdf_group):
     """..."""
-
     in_connsense_h5 = on_compute_node / "connsense.h5"
 
     hdf_edge_population = (in_connsense_h5, hdf_group+'/'+p)

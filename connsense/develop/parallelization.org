@@ -1,5 +1,5 @@
-#+PROPERTY: header-args:jupyter :session  ~/Library/Jupyter/runtime/active-ssh-1.json :pandoc t
-#+PROPERTY: header-args:jupyter-python :session ~/Library/Jupyter/runtime/active-ssh-1.json :pandoc t
+#+PROPERTY: header-args:jupyter :session  ~/Library/Jupyter/runtime/active-ssh.json :pandoc t
+#+PROPERTY: header-args:jupyter-python :session ~/Library/Jupyter/runtime/active-ssh.json :pandoc t
 #+STARTUP: overview
 
 #+title: Parallelization
@@ -312,7 +312,7 @@ Here is a newer version that should adjust the slicing's reduced load.
 #+begin_src python :noweb yes
 
 def batch_multinode(computation, of_inputs, in_config, at_dirpath, using_parallelization, single_submission=500,
-                    with_weights=True, unit_weight=None):
+                    with_weights=True, unit_weight=None, njobs_to_estimate_load=None):
     """...Just read the method definition above,
         and code below
     """
@@ -323,7 +323,8 @@ def batch_multinode(computation, of_inputs, in_config, at_dirpath, using_paralle
 
     LOG.info("Assign compute-nodes to %s inputs", len(of_inputs))
     toc_index = of_inputs.index
-    weights = of_inputs.progress_apply(lambda l: estimate_load(to_compute=None)(l())).dropna()
+    weights = (of_inputs.progress_apply(lambda l: estimate_load(to_compute=None)(l())).dropna()
+               if not njobs_to_estimate_load else multiprocess_load_estimate(of_inputs, njobs_to_estimate_load))
     weights = (weights[~np.isclose(weights, 0.)].groupby(toc_index.names).max()
                .sort_values(ascending=True)).rename("weight")
 
@@ -370,7 +371,6 @@ def batch_multinode(computation, of_inputs, in_config, at_dirpath, using_paralle
 #+end_src
 
 We have defined a multiple ~compute-node~ parallelization batching scheme that operates at three levels:
-
 ** 1. batch parallel groups of inputs together
 
 Inputs with the same value will be queued in the same batch of inputs to with several such batches of inputs running in parallel on the same compute node. When assigning batches, we will try to estimate the computation load of an input and distribute batches to sum to the same amount of computation in each batch.
@@ -380,7 +380,6 @@ Inputs with the same value will be queued in the same batch of inputs to with se
 def batch_parallel_groups(of_inputs, upto_number, to_compute=None, return_load=False):
     """..."""
     from tqdm import tqdm; tqdm.pandas()
-
 
     if isinstance(of_inputs, pd.Series):
         weights = (of_inputs.progress_apply(lambda l: estimate_load(to_compute)(l())).rename("load")
@@ -411,8 +410,8 @@ def batch_parallel_groups(of_inputs, upto_number, to_compute=None, return_load=F
 We infer the computational load to compute the result of an input from the first argument among the inputs. In ~connsense-TAP~, the inputs are ~lazyvals / lambdas~, /i.e./ ~unit-computations~ that can be called upon to return the input value defined in them. We assume that the cost of a computation will depend on the /size/ of it's inputs.  A ~connsense-TAP~ ~computation~ may take more than one input argument passed around as a ~dict~. We assume that the size of the input can be infered from the first argument in this ~dict~.  The estimate method we implement should work for other types of inputs as well.
 
 *** Estimate loads
-
-#+name: develop-parallelization-estimate-batched-inputs-load
+Not all inputs to a computation need the same resources. For efficient parallelization we will need to estimate load of each input.
+#+name: develop-parallelization-estimate-batched-inputs-load-method
 #+begin_src python
 def estimate_load(to_compute):
     def of_input_data(d):
@@ -446,11 +445,48 @@ def estimate_load(to_compute):
     return of_input_data
 
 #+end_src
+We can use the method on a series or a frame, serially, or parallely
+
+#+name: develop-parallelization-estimate-batched-inputs-load
+#+begin_src python :noweb yes
+<<develop-parallelization-estimate-batched-inputs-load-method>>
+
+def multiprocess_load_estimate(inputs, njobs):
+    """..."""
+    from tqdm import tqdm; tqdm.pandas()
+    assert njobs > 1, "Does not need multi-process."
+
+    def weigh(batch_inputs, *, in_bowl, index):
+        """..."""
+        weight = batch_inputs.progress_apply(estimate_load(None))
+        in_bowl[index] = weight
+        return weight
+
+    manager = Manager()
+    bowl = manager.dict()
+    processes = []
+
+    batched_inputs = pd.DataFrame({"input": inputs,
+                                   "batch": np.linspace(0, njobs - 1.e-6, len(inputs), dtype=int)})
+    for b, batch in batched_inputs.groupby("batch"):
+        LOG.info("Estimate load of %s inputs in batch %s / %s", len(batch), b, njobs)
+        p = Process(target=weigh, args=(batch.input,), kwargs={"index": b, "in_bowl": bowl})
+        p.start()
+        processes.append(p)
+    LOG.info("LAUNCHED %s processes", len(processes))
+
+    for p in processes:
+        LOG.info("Join process %s", p)
+        p.join()
+    LOG.info("Parallel load estimation results %s", len(bowl))
+
+    return pd.concat([weights for weights in bowl.values()])
+
+#+end_src
 
 ** 2. distribute among compute nodes, the ~parallel-batches~ assigned in step 1
 
 We will distribute the parallel batches among a specified number of compute-nodes.
-
 #+name: develop-parallelization-batched-inputs-distribute-compute-nodes
 #+begin_src python
 def distribute_compute_nodes(parallel_batches, upto_number):
@@ -475,7 +511,6 @@ def read_compute_nodes_assignment(at_dirpath):
 
 
 #+end_src
-
 ** 3. group compute nodes into submissions
 
 There may be a limit on the number of submissions to the compute-cluster's queue, requiring us to define another level of parallelization,
@@ -1666,12 +1701,8 @@ def slice_inputs(of_computation, in_config, datasets=None, using_tap=None):
                      axis=0, keys=[knife_label for knife_label, _ in slicing], names=["slice"]),
 
 #+end_src
-
-
 * Multinode parallel computation
-
 A multinode parallel computation can be modeled,
-
 #+begin_src haskell
 unit_computation :: subtarget -> measurement
 
@@ -1688,11 +1719,11 @@ run_multinode unitcomps n_compute_nodes n_parallel_tasks
 To compute a quantity using multinode parallelization ~connsense-TAP~ will setup a directory structure with one subdirectory for each compute node containing data required for the computation. Each compute node will get it's own list of inputs to run. To launch the runs, a ~connsense-TAP~ will write a ~launchscript.sh~ that we can source in a ~unix-shell~. Once all the compute nodes have been run, the results can be collected using ~connsense-TAP~. To accomplish the task of distributing computations over the compute nodes and collecting the results we define.
 
 The version that sequences slices and full separately.
-
 #+name: develop-parallelization-multinode-setup
 #+begin_src python
 
-def setup_multinode(process, of_computation, in_config, using_runtime, in_mode=None):
+def setup_multinode(process, of_computation, in_config, using_runtime, *,
+                    in_mode=None, njobs_to_estimate_load=None):
     """Setup a multinode process.
     """
     from tqdm import tqdm; tqdm.pandas()
@@ -1707,7 +1738,8 @@ def setup_multinode(process, of_computation, in_config, using_runtime, in_mode=N
 
         if process == setup_compute_node:
             batched = batch_multinode(of_computation, inputs, in_config, at_dirpath, unit_weight=unit_weight,
-                                      using_parallelization=(n_compute_nodes, n_parallel_jobs))
+                                      using_parallelization=(n_compute_nodes, n_parallel_jobs),
+                                      njobs_to_estimate_load=njobs_to_estimate_load)
             using_configs["slurm_params"] = (configure_slurm(of_computation, in_config, using_runtime)
                                              .get("sbatch", None))
             compute_nodes = {c: setup_compute_node(c, of_computation, inputs, using_configs, at_dirpath,
@@ -1738,8 +1770,10 @@ def setup_multinode(process, of_computation, in_config, using_runtime, in_mode=N
 
     full = generate_inputs(of_computation, in_config,
                            circuit_args=input_circuit_args(of_computation, in_config, load_circuit=True))
+
     if process == setup_compute_node:
-        full_weights = full.progress_apply(lambda l: estimate_load(to_compute=None)(l())).dropna()
+        full_weights = (full.progress_apply(lambda l: estimate_load(to_compute=None)(l())).dropna()
+                        if not njobs_to_estimate_load else multiprocess_load_estimate(full, njobs_to_estimate_load))
 
         have_zero_weight = np.isclose(full_weights.values, 0.)
         LOG.info("Inputs with zero weight %s: \n%s", have_zero_weight.sum(), full_weights[have_zero_weight])
@@ -1771,10 +1805,75 @@ def setup_multinode(process, of_computation, in_config, using_runtime, in_mode=N
 #+end_src
 
 To check the compute nodes,
-#+begin_src python
+#+name: develop-parallelization-multinode-setup-check
+#+begin_src jupyter-python :comments org :padline no :tangle no
 
+def report_run(of_computation, in_config, on_compute_node=None, tap=None, master_inputs=None, setup=None):
+    """..."""
+
+    if tap is None:
+        tap = connsense_tap.HDFStore(in_config)
+
+    if master_inputs is None:
+        master_inputs = generate_inputs(of_computation, in_config)
+
+    if setup is None:
+        _, run_at = get_workspace(of_computation, in_config)
+        batched = read_compute_nodes_assignment(at_dirpath=run_at)
+        setup = {c: read_setup_compute_node(c, for_quantity=run) for c, _ in batched.groupby("compute_node")}
+
+    if isinstance(on_compute_node, (int, np.int)):
+        dirpath = Path(setup[on_compute_node]["dirpath"])
+        inputs = (master_inputs.loc[pd.read_hdf(setup[on_compute_node]["input"], key="subtargets").index]
+                  .apply(lambda l: l.shape[0]))
+        tap_cn = devtap.HDFStore(tap._config, setup[on_compute_node]["output"])
+        tap_dataset = devtap.TapDataset(tap_cn, dataset=describe(of_computation), belazy=True)
+
+        try:
+            toc = tap_dataset.dataset
+        except FileNotFoundError:
+            toc_size = inputs.apply(lambda _: 0)
+        else:
+            toc_size = toc.groupby(toc.index.names).size().reindex(inputs.index).fillna(0)
+
+        status = ("DONE" if (dirpath/"DONE").exists()
+                  else ("INPROGRESS" if (dirpath/"INPROGRESS").exists()
+                        else None))
+
+        return pd.concat([inputs, toc_size], axis=1, keys=["inputs", "outputs"]).assign(status=status)
+
+    cns = (pd.Index(range(len(setup)), name="compute_node").to_series() if on_compute_node is None
+           else pd.Index(on_compute_node, name="compute_node").to_series())
+
+    cns_check = cns.progress_apply(lambda on_compute_node: report_run(setup, master_inputs, on_compute_node,
+                                                                      tap, master_inputs, setup))
+    return pd.concat(cns_check.values, keys=cns_check.index)
+
+
+def report_collection(of_computation, in_config):
+    """..."""
+    _, run_at = get_workspace(of_computation, in_config)
+    batched = read_compute_nodes_assignment(at_dirpath=run_at)
+    setup = {c: read_setup_compute_node(c, for_quantity=run) for c, _ in batched.groupby("compute_node")}
+
+    inputs = generate_inputs(of_computation, in_config)
+
+    tap = connsense_tap.HDFStore(in_config)
+
+    def report_compute_node(n):
+        """..."""
+        return report_run(of_computation, in_config, on_compute_node=n, tap=tap, master_inputs=inputs, setup=setup)
+
+
+
+#+end_src
+
+Test develop check,
+#+begin_src jupyter-python :comments org :padline no :tangle no
 def check_compute_node(setup, master_inputs, n=None):
     """..."""
+    from tqdm import tqdm; tqdm.pandas()
+
     if isinstance(n, (int, np.int)):
         dirpath = Path(setup[n]["dirpath"])
         inputs = (master_inputs.loc[pd.read_hdf(setup[n]["input"], key="subtargets").index]
@@ -1798,13 +1897,12 @@ def check_compute_node(setup, master_inputs, n=None):
     cns = (pd.Index(range(len(setup)), name="compute_node").to_series() if n is None
            else pd.Index(n, name="compute_node").to_series())
 
-    cns_check = cns.apply(lambda n: check_compute_node(setup, master_inputs, n))
+    cns_check = cns.progress_apply(lambda n: check_compute_node(setup, master_inputs, n))
     return pd.concat(cns_check.values, keys=cns_check.index)
 
 #+end_src
 
 The version that sequences slicing and full together.
-
 #+name: develop-parallelization-multinode-setup-0
 #+begin_src python
 def setup_multinode(process, of_computation, in_config, using_runtime, in_mode=None):
@@ -1879,7 +1977,6 @@ def get_workspace(for_computation, in_config, in_mode=None):
 ** Configs
 
 To setup a multinode computation, we will write configs dervied from the main ~pipeline~ config in the computation's workspace, and read them while collecting,
-
 #+name: develop-parallelization-multinode-configs
 #+begin_src python
 def configure_multinode(process, of_computation, in_config, at_dirpath):
@@ -1906,7 +2003,6 @@ def read_configs(of_computation, in_config, at_dirpath):
 #+end_src
 
 where we write the base pipeline configs,
-
 #+name: develop-parallelization-multinode-base-configs-write
 #+begin_src python
 def write_pipeline_base_configs(in_config, at_dirpath):
@@ -1932,7 +2028,6 @@ def write_pipeline_base_configs(in_config, at_dirpath):
 #+end_src
 
 allowing for multiple naming schemes (~pipeline~ or ~config~ for the main config and ~runtime~ or ~parallel~ for parallelization config) and multiple formats (~yaml~ or ~json~). We will need to read these configs to launch individual compute-nodes, or to collect their results.
-
 #+name: develop-parallelization-multinode-base-configs-read
 #+begin_src python
 def read_pipeline_base_configs(in_config, at_dirpath):
@@ -1966,7 +2061,6 @@ def read_pipeline_base_configs(in_config, at_dirpath):
 #+end_src
 
 While the pipeline config is handled by ~TopologicalAnalysis~ object, the runtime config will be read here infer the configured parallelization parameters.
-
 #+name: develop-parallelization-multinode-read-runtime
 #+begin_src python
 def read_runtime_config(for_parallelization, *, of_pipeline=None, return_path=False):
@@ -2064,11 +2158,7 @@ def read_runtime_config(for_parallelization, *, of_pipeline=None, return_path=Fa
 
 #+end_src
 
-#+RESULTS: develop-parallelization-multinode-read-runtime
-: None
-
 We can read the runtime config, and use the information to prepare parallelization of a computation.
-
 #+name: develop-parallelization-multinode-prepare-parallelization
 #+begin_src python
 def prepare_parallelization(of_computation, in_config, using_runtime):
@@ -2122,7 +2212,6 @@ def read_njobs(to_parallelize, computation_of):
 #+end_src
 
 In addition to the base configs, we will also write a description of the computation in it's workspace,
-
 #+name: develop-parallelization-multinode-description
 #+begin_src python
 def write_description(of_computation, in_config, at_dirpath):
@@ -2134,11 +2223,8 @@ def write_description(of_computation, in_config, at_dirpath):
 #+end_src
 
 These configs written in the workspace directory of the computation will be used in later stages of the setup.
-
 ** Setup of a compute node
-
 We will write all the information that a compute node will need to run in the compute node's workdir.
-
 #+name: develop-parallelization-multinode-setup-compute-node
 #+begin_src python
 def setup_compute_node(c, of_computation, with_inputs, using_configs, at_dirpath, in_mode=None,
@@ -2211,7 +2297,6 @@ def write_compute(batches, to_hdf, at_dirpath):
 #+end_src
 
 To write and read the multiple compute node setup,
-
 #+name: develop-parallelization-multinode-setup-read-write
 #+begin_src python
 def write_multinode_setup(compute_nodes, inputs, at_dirpath):
@@ -2246,7 +2331,6 @@ def read_setup(at_dirpath, compute_node):
 #+end_src
 
 We will also ~symlink~ the configs,
-
 #+name: develop-parallelization-multinode-setup-symlink-configs
 #+begin_src python
 def symlink_pipeline(configs, at_dirpath):
@@ -2278,17 +2362,17 @@ def symlink_pipeline_base(configs, at_dirpath):
 ** Collect results
 
 Once all the compute nodes have run and results saved to their local ~connsense.h5~, we will need to collect the results. Collection may depend on the computation's type,
-
 #+name: develop-parallelization-multinode-collect-results
 #+begin_src python
 def collect_results(computation_type, setup, from_dirpath, in_connsense_store, slicing):
     """..."""
     if computation_type == "extract-node-populations":
         assert not slicing, "Does not apply"
-        return collect_node_population(setup, from_dirpath, in_connsense_store)
+        return collect_node_population(setup, from_dirpath, in_connsense_storerwrite)
 
     if computation_type == "extract-edge-populations":
         assert not slicing, "Does not apply"
+
         return collect_edge_population(setup, from_dirpath, in_connsense_store)
 
     if computation_type in ("analyze-connectivity", "analyze-composition",
@@ -2319,7 +2403,8 @@ def collect_node_population(setup, from_dirpath, in_connsense_store):
             with open(Path(of_compute_node["dirpath"]) / "output.json", 'r') as f:
                 output = json.load(f)
         except FileNotFoundError as ferr:
-            raise RuntimeError(f"No output configured for compute node {pformat(of_compute_node)}") from ferr
+            LOG.info("No output configured for compute node %s\n%s", {pformat(of_compute_node)}, ferr)
+            return None
         return output
 
     outputs = {c: describe_output(of_compute_node) for c, of_compute_node in setup.items()}
@@ -2365,7 +2450,9 @@ def collect_edge_population(setup, from_dirpath, in_connsense_store):
             with open(Path(of_compute_node["dirpath"]) / "output.json", 'r') as f:
                 output = json.load(f)
         except FileNotFoundError as ferr:
-            raise RuntimeError(f"No output configured for compute node {of_compute_node}") from ferr
+            LOG.info("No output configured for compute node %s\n%s", {pformat(of_compute_node)}, ferr)
+            return None
+            #raise RuntimeError(f"No output configured for compute node {of_compute_node}") from ferr
         return output
 
     outputs = {c: describe_output(of_compute_node) for c, of_compute_node in setup.items()}
@@ -2377,7 +2464,6 @@ def collect_edge_population(setup, from_dirpath, in_connsense_store):
         adj = read_toc_plus_payload(output, for_step="extract-edge-populations")
         return write_toc_plus_payload(adj, (connsense_h5, hdf_edge_population), append=True, format="table",
                                       min_itemsize={"values": 100})
-        #return write_toc_plus_payload(adj, (in_connsense_store, hdf_edge_population), append=True, format="table")
 
     LOG.info("Collect adjacencies")
     for of_compute_node, output in outputs.items():
@@ -2415,8 +2501,8 @@ def collect_analyze_step(setup, from_dirpath, in_connsense_store, slicing):
                 output = json.load(f)
         except FileNotFoundError as ferr:
             LOG.info("No output configured fo compute node %s: \n%s", pformat(of_compute_node), ferr)
-            #raise RuntimeError(f"No output configured for compute node {of_compute_node}") from ferr
             return None
+            #raise RuntimeError(f"No output configured for compute node {of_compute_node}") from ferr
         return output
 
     outputs = {c: describe_output(of_compute_node) for c, of_compute_node in setup.items()}
@@ -2436,67 +2522,6 @@ def collect_analyze_step(setup, from_dirpath, in_connsense_store, slicing):
             .collect({c: move(compute_node=c, output=o) for c, o in outputs.items() if o}))
 
 #+end_src
-
-Depending on the scientific and computational complexity of an analysis, we may have to run a pipeline computation iteratively. After an initial run, and collect, we do not want to collect the results that are already in the main ~connsense-TAP-HDFStore~ after each /re-run/ of the computation. Either we ~clean-up~, or ~update~.
-#+name: develop-parallelization-multinode-update-analyze-step
-#+begin_src python
-def update_analyze_step(setup, from_dirpath, in_connsense_store, slicing):
-    """..."""
-    try:
-        with open(from_dirpath/"description.json", 'r') as f:
-            analysis = json.load(f)
-    except FileNotFoundError as ferr:
-        raise RuntimeError(f"NOTFOUND a description of the analysis extracted: {from_dirpath}") from ferr
-
-    connsense_h5, group = in_connsense_store
-    hdf_group = group + '/' + analysis["name"]
-    if slicing:
-        hdf_group = hdf_group + "/" + slicing
-    output_type = analysis["output"]
-
-    def describe_output(of_compute_node):
-        """..."""
-        try:
-            with open(Path(of_compute_node["dirpath"]) / "output.json", 'r') as f:
-                output = json.load(f)
-        except FileNotFoundError as ferr:
-            LOG.info("No output configured fo compute node %s: \n%s", pformat(of_compute_node), ferr)
-            #raise RuntimeError(f"No output configured for compute node {of_compute_node}") from ferr
-            return None
-        return output
-
-    outputs = {c: describe_output(of_compute_node) for c, of_compute_node in setup.items()}
-    LOG.info("Analysis %s reported outputs: \n%s", analysis["name"], pformat(outputs))
-
-    def in_store(at_path, hdf_group):
-        """..."""
-        return matrices.get_store(at_path, hdf_group or hdf_analysis, output_type)
-
-    master_store = in_store(connsense_h5, hdf_group)
-
-    def find_update(compute_node, output):
-        """..."""
-        cn_connsense_h5, g = output
-        cn_store = in_store(cn_connsense_h5, hdf_group=g)
-        return cn_store.loc[cn_store.index.difference(master_store.index)]
-
-    return master_store.collect({c: find_})
-    return {c: move(compute_node=c, output=o) for c, o in outputs.items() if o}
-
-    def move(compute_node, output):
-        """..."""
-        LOG.info("Get analysis store for compute-node %s output %s", compute_node, output)
-        h5, g = output
-        return in_store(at_path=h5, hdf_group=g)
-
-
-    return (in_store(connsense_h5, hdf_group)
-            .collect({c: move(compute_node=c, output=o) for c, o in outputs.items() if o}))
-
-#+end_src
-
-
-
 
 * Multiprocess on a single compute-node
 
@@ -2646,8 +2671,8 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
                 LOG.info("Parallel computation for batch %s: %s", batch, len(bowl))
                 values = pd.Series([v for v in bowl.values()], index=subtargets.index)
                 hdf = in_hdf.format(batch)
-                result = (to_store_batch(hdf, results=values) if to_store_batch else
-                          to_store_one(hdf, update=values.apply(lambda v: to_store_one(hdf, result=v))))
+                results = (to_store_batch(hdf, results=values) if to_store_batch else
+                           to_store_one(hdf, update=values.apply(lambda v: to_store_one(hdf, result=v))))
 
     read_pipeline.write(results, to_json=on_compute_node/"batched_output.json")
 
@@ -2664,12 +2689,7 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
     return collected
 
 #+end_src
-
-#+RESULTS: develop-parallelization-single-node-multiprocess
-: None
-
 ** Circuit and connectome
-
 We may need a circuit to run on. The current ~connsense-TAP~ can be configured with multiple circuits,
 which we could support later. However for now we enforce that only one circuit is configured, and that
 all the extractors provided work on single circuits as well.
@@ -2755,9 +2775,9 @@ def subtarget_circuit_args(computation, in_config, load_circuit=False, load_conn
 ** Pipeline dataset inputs
 
 Inputs to run on a compute node, that are ~connsense-TAP~ datasets, are written in a computation's work-directory during the setup.
-
 #+name: develop-parallelization-single-node-multiprocess-load-inputs
 #+begin_src python
+
 def load_input_batches(on_compute_node, inputs=None, n_parallel_tasks=None):
     """..."""
     store_h5, dataset = COMPUTE_NODE_SUBTARGETS
@@ -2771,15 +2791,12 @@ def load_input_batches(on_compute_node, inputs=None, n_parallel_tasks=None):
         return inputs_read
     return inputs_read.assign(batch=pd.Series(np.arange(0, len(inputs_read))%n_parallel_tasks).to_numpy(int))
 
-
 #+end_src
 
 that assumes that the inputs were written on the compute nodes during setup.
-
 ** Keyword arguments
 
 To load the key-word arguments
-
 #+name: develop-parallelization-single-node-multiprocess-kwargs
 #+begin_src python
 
@@ -2851,7 +2868,6 @@ def load_kwargs(parameters, to_tap, on_compute_node, consider_input=False):
     raise NotImplementedError(f"What to do with workdir type {type(workdir)}")
 
 #+end_src
-
 ** Execution of a unit-computation
 
 The executable for a computation is provided in the ~pipeline-config~,
@@ -2984,7 +3000,6 @@ def configure_execution(computation, in_config, on_compute_node, slicing=None):
 ** Collect parallel batches
 
 To collect the results of parallel batches into a ~connsense-TAP-store~ at a ~compute-node~,
-
 #+name: develop-parallelization-single-node-multiprocess-collect
 #+begin_src python
 def collect_batches(of_computation, results, on_compute_node, hdf_group, slicing, of_output_type):
@@ -3015,7 +3030,6 @@ def collect_batches(of_computation, results, on_compute_node, hdf_group, slicing
 #+end_src
 
 For the extracting node populations we have a special case,
-
 #+name: develop-parallelization-single-node-multiprocess-collect-batched-node-populations
 #+begin_src python
 def collect_batched_node_population(p, results, on_compute_node, hdf_group):
@@ -3045,12 +3059,10 @@ def collect_batched_node_population(p, results, on_compute_node, hdf_group):
 #+end_src
 
 For the extracting edge populations we have a special case,
-
 #+name: develop-parallelization-single-node-multiprocess-collect-batched-edge-populations
 #+begin_src python
 def collect_batched_edge_population(p, results, on_compute_node, hdf_group):
     """..."""
-
     in_connsense_h5 = on_compute_node / "connsense.h5"
 
     hdf_edge_population = (in_connsense_h5, hdf_group+'/'+p)
