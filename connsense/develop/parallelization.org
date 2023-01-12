@@ -454,7 +454,7 @@ We can use the method on a series or a frame, serially, or parallely
 def multiprocess_load_estimate(inputs, njobs):
     """..."""
     from tqdm import tqdm; tqdm.pandas()
-    assert njobs > 1, "Does not need multi-process."
+    assert njobs > 1, f"njobs={njobs} does not need multi-process."
 
     def weigh(batch_inputs, *, in_bowl, index):
         """..."""
@@ -3058,7 +3058,7 @@ def collect_batched_node_population(p, results, on_compute_node, hdf_group):
 
 #+end_src
 
-For the extracting edge populations we have a special case,
+For extracting edge populations we have a special case,
 #+name: develop-parallelization-single-node-multiprocess-collect-batched-edge-populations
 #+begin_src python
 def collect_batched_edge_population(p, results, on_compute_node, hdf_group):
