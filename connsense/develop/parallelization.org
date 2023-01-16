@@ -1537,7 +1537,7 @@ def generate_inputs(of_computation, in_config, slicing=None, circuit_args=None):
 
     def index_circuit_args(inputs):
         """..."""
-        if not circuit_args:
+        if circuit_args is None:
             return inputs
         missing = {f"{var}_id": tap.index_variable(var, value) for var, value in circuit_args.items()
                    if f"{var}_id" not in inputs.index.names}
@@ -1769,7 +1769,7 @@ def setup_multinode(process, of_computation, in_config, using_runtime, *,
     params = parameterize(*describe(of_computation), in_config)
 
     full = generate_inputs(of_computation, in_config,
-                           circuit_args=input_circuit_args(of_computation, in_config, load_circuit=True))
+                           circuit_args=input_circuit_args(of_computation, in_config, load_circuit=False))
 
     if process == setup_compute_node:
         full_weights = (full.progress_apply(lambda l: estimate_load(to_compute=None)(l())).dropna()
@@ -2552,13 +2552,15 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
 
     in_hdf = "connsense-{}.h5"
 
+    circuit_args = input_circuit_args(of_computation, in_config,
+                                      load_circuit=False, load_connectome=False, drop_nulls=False)
     circuit_kwargs = input_circuit_args(of_computation, in_config,
                                         load_circuit=True, load_connectome=False, drop_nulls=False)
     circuit_args_values = tuple(v for v in (circuit_kwargs.get("circuit"), circuit_kwargs.get("connectome")) if v)
 
     kwargs = load_kwargs(parameters, HDFStore(in_config), on_compute_node)
 
-    inputs = generate_inputs(of_computation, in_config, slicing, circuit_kwargs)
+    inputs = generate_inputs(of_computation, in_config, slicing, circuit_args)
 
     collector = plugins.import_module(parameters["collector"]) if "collector" in parameters else None
 

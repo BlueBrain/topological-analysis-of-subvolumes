@@ -382,7 +382,7 @@ class DataFrameStore(MatrixStore):
         """
         LOG.info("Collect upto %s batches of stores, and overwrite? %s", len(stores), overwrite)
 
-        def move(batch, store):
+        def move(i, batch, store):
             """..."""
             def write_subtarget(s):
                 """..."""
@@ -409,11 +409,11 @@ class DataFrameStore(MatrixStore):
             update_size = update.shape[0]
             self.append_toc(update)
             updated_size = self.toc.shape[0]
-            LOG.info("Collect DataFrameStores, append TOC update count from %s by %s to %s",
-                     current_size, update_size, updated_size)
+            LOG.info("Collect DataFrameStore %s / %s, append TOC update count from %s by %s to %s",
+                     i, len(stores), current_size, update_size, updated_size)
             return update
 
-        return {batch: move(batch, store) for batch, store in stores.items()}
+        return {batch: move(i, batch, store) for i, (batch, store) in enumerate(stores.items())}
 
     def check(self, stores, overwrite=True):
         """Check the TOC of the `stores` to see what is missing from this one.

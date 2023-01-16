@@ -72,7 +72,7 @@ class TapDataset:
         try:
             series = self._tap.create_index(variable)
         except KeyError:
-            LOG.warn("No values for %s in TAP at %s", variable, tap._root)
+            LOG.warn("No values for %s in TAP at %s", variable, self._tap._root)
             return None
 
         return pd.Series(series.index.values, name=f"{series.name}_id",
@@ -220,7 +220,7 @@ class TapDataset:
         if variable_id.endswith("_id"):
             variable = variable_id.strip("_id")
             return pd.Series(self._tap.create_index(variable).loc[varindex].values, name=variable,
-                         index=(varindex if index_only_variable else result.index))
+                             index=(varindex if index_only_variable else result.index))
 
         return pd.Series(varindex.values, name=variable_id, index=result.index)
 
@@ -288,7 +288,7 @@ class TapDataset:
             return self.dataset.index.names
         return {component: dset.index.names for component, dset in self.dataset.items()}
 
-    def frame_component(self, c=None):
+    def frame_component(self, c=None, name_indices=True):
         """..."""
         LOG.info("Frame TapDataset %s/%s component %s", self._phenomenon, self._quantity, c)
 
@@ -301,15 +301,23 @@ class TapDataset:
             component = self.dataset
             variable_ids = self.variable_ids
 
-        index = pd.concat([self.name_index(component, varid) for varid in variable_ids], axis=1)
+        if name_indices:
+            index = pd.concat([self.name_index(component, varid) for varid in variable_ids], axis=1)
+
+            if isinstance(component, pd.Series):
+                series = pd.Series(component.values, index=pd.MultiIndex.from_frame(index))
+                series = series[~series.index.duplicated(keep="last")]
+                return pd.concat(series.values, keys=series.index)
+
+            assert isinstance(component, pd.DataFrame), f"Invalid type {type(component)}"
+            return component.set_index(pd.MultiIndex.from_frame(index))
 
         if isinstance(component, pd.Series):
-            series = pd.Series(component.values, index=pd.MultiIndex.from_frame(index))
-            series = series[~series.index.duplicated(keep="first")]
-            return pd.concat(series.values, keys=series.index)
+            component = component[~component.index.duplicated(keep="last")]
+            return pd.concat(component.values, keys=component.index)
 
         assert isinstance(component, pd.DataFrame), f"Invalid type {type(component)}"
-        return component.set_index(pd.MultiIndex.from_frame(index))
+        return component
 
     @lazy
     def frame(self):
