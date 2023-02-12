@@ -476,82 +476,13 @@ pipeline:
 Parameters are set for each step in config section ~parameters~
 
 *** Define subtargets
-Needs no change, we will save the results to the ~HDFstore~ group /subtargets/, adding an attribute ~node_population~
-to the group.
+Needs no change, we will save the results to the ~HDFstore~ group /subtargets/, adding an attribute ~node_population~ to the group.
 
 #+name: pipeline-config-paths-pipeline-step-define-subtargets
 #+begin_src yaml :tangle no :noweb yes :comments no :padline no
 define-subtargets: "subtargets"
 #+end_src
-
-The parameters to ~define-subtargets~ will be ~definitions~.
-We can analyze several groups of subtargets, each defined by an entry in the configuration.
-A definition of subtargets will have it's own parameters that makes sense to the code that implements the definition.
-However, each defintiion must apply to a specified node population. The same value for attribute ~node-population~
-must be used to extract it's node-properties. Ideally this value should be the same as entered in the circuit's
-SONATA files.
-
-#+name: pipeline-config-parameters-define-subtargets
-#+begin_src yaml :tangle no :noweb yes :comments org :padline no
-define-subtargets:
-  description: >-
-    Configure how subtargets are defined.
-  definitions:
-    hexgrid-cells:
-      description: >-
-         A hexagonal grid in the circuit's flatmap space (a.k.a flatspace),
-         using methods provided in connsense/flatmap_utility.
-         Cell positions will be distributed among the hexagonal subtargets, in a grid generated with
-         the configured parameters.
-      node_population: "default"
-      shape: hexgrid
-      parameters:
-      origin: [0.0, 0.0, 0.0]
-      radius: 230.0
-      base_target: "Mosaic      "
-    hexgrid-voxels:
-      description: >-
-        A hexagonal grid in the circuit's flatmap space (a.k.a flatspace),
-        using an NRRD file that maps each voxel to the subtarget it belongs in.
-        In addition to the NRRD file, a file providing subtarget info is also required.
-      node_population: "default"
-      nrrd: "/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/column_identities.nrrd"
-      info: "/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/voxel-based-hex-grid-info.h5"
-    pre-defined-columns:
-      description: >-
-        The pre-defined subtargets' node-ids  must be available in the circuit's data.
-        The entries should be of the form `<group>/<member>` such that the entry can be used the subtarget's
-        NRRD mask from `circuit.atlas`. Subtargets will be defined using a `connsense` method that uses `bluepy`
-        to extract each subtarget's GIDs from the circuit.
-      node_population: "default"
-      subtargets:
-        - "central_columns/S1DZO_Column"
-        - "central_columns/S1DZ_Column"
-        - "central_columns/S1FL_Column"
-        - "central_columns/S1HL_Column"
-        - "central_columns/S1J_Column"
-        - "central_columns/S1Sh_Column"
-        - "central_columns/S1Tr_Column"
-        - "central_columns/S1ULp_Column"
-    pre-defined-regions:
-      description: >-
-        The pre-defined subtargets' node-ids  must be available in the circuit's data.
-        The entries should be of the form `<group>/<member>` such that the entry can be used the subtarget's
-        NRRD mask from `circuit.atlas`. Subtargets will be defined using a `connsense` method that uses `bluepy`
-        to extract each subtarget's GIDs from the circuit.
-      node_population: "default"
-      subtargets:
-        - "regions/S1DZO_Column"
-        - "regions/S1DZ_Column"
-        - "regions/S1FL_Column"
-        - "regions/S1HL_Column"
-        - "regions/S1J_Column"
-        - "regions/S1Sh_Column"
-        - "regions/S1Tr_Column"
-        - "regions/S1ULp_Column"
-
-#+end_src
-
+The parameters to ~define-subtargets~ will be ~definitions~. We can analyze several groups of subtargets, each defined by an entry in the configuration. A definition of subtargets will have it's own parameters that makes sense to the code that implements the definition. Here the ~subtargets~ are spatial, /i.e./ they must be defined geometrically in the atlas, either explicitly with parameters for paths to NRRds, or indirectly via a ~start.target~ among ~circuit~ data that names a geometrically colocalized set of cells.
 
 *** Extact voxels
 We will need to extract data from the circuit's atlas to copmute volumes of each subtarget and it's layers.
@@ -683,9 +614,7 @@ evaluate-subtargets:
 #+end_src
 
 *** Extract node-types
-A circuit's node-population may be modeleled using different /model-types/.
-For example we may have /biophysical/ nodes with morphological structures with associated electrical behavior,
-along with /point-neuron/ models, or even /virtual/ ones to model projections from other regions of the brain.
+A circuit's node-population may be modeleled using different /model-types/. For example we may have /biophysical/ nodes with morphological structures and associated electrical behavior, along with /point-neuron/ models, or even /virtual/ ones to model projections from other regions of the brain.
 
 We will extract ~node-types~ to the dataset ~nodes/modeltypes~ for each cvonfigured ~node-type~ as a dataset,
 
@@ -732,65 +661,33 @@ extract-node-types:
 #+end_src
 
 
-What can we extract for a given /node-type/, particularly for the biophysical /node-type/ that we have in these SSCx
-circuit?
-The morphologcy itself is a shape represendted by a dataframe, and sits somwhere on the disc.
-We don't want to extract the entire dataframe.
+What can we extract for a given /node-type/, particularly for the biophysical /node-type/ that we have in these SSCx circuit? The morphologcy itself is a shape represendted by a dataframe, and sits somwhere on the disc. We don't want to extract the entire dataframe.
 
-For edges we extracted the adjacency matrix, and some edge-properties.
-We can get the model-components for a biuphysical model as some kind of properties ---
-/morphological metrics/.
+For edges we extracted the adjacency matrix, and some edge-properties. We can get the model-components for a biuphysical model as some kind of properties --- /morphological metrics/.
 
-While a /node-population/ or an /edge-population/ has /properties/,  for a /node-type/ we have a /copmonensts/.
-Each component expands into several properities of a node instantiated with a model of that particular /node-type/.
-We can think of analyses that control for aconal or dendritic cloud densities.
-So we can list some metrics to extract for each /model-component/ of a /node-type/.
-The /morphometrics/ will need implementation beyond what ~bluepy~ has to offer.
-The form of the ~netrics~ can be a list, that will require long strings, or dict that further dissects the
-actually extracrted properties by a morphology's /neurite-type/ axonal, somatic/, or /dendritic/.
-The entry must makes sense to the extractor methods.
+While a /node-population/ or an /edge-population/ has /properties/,  for a /node-type/ we have seceral /components/ that are defined independently of each other. We can think of analyses that control for axonal or dendritic cloud densities. So we can list some metrics to extract for each /model-component/ of a /node-type/. The /morphometrics/ will need implementation beyond what ~bluepy~ has to offer. The form of the ~netrics~ can be a list, that will require long strings, or dict that further dissects theactually extracrted properties by a morphology's /neurite-type/ axonal, somatic/, or /dendritic/. The entry must makes sense to the extractor methods.
 
 The node properties are mostly tags that key into a database of models, morphological or electrophysical.
 
-We can trick the ~subtarget~ oriented parallelization scheme in ~connsense~ by pretending that a ~node~'s
-morphology is a ~subtargetr~ and batch them into parallel runs.
+We can trick the ~subtarget~ oriented parallelization scheme in ~connsense~ by pretending that a ~node~'s morphology is a ~subtargetr~ and batch them into parallel runs.
 
-In a future refactor we may consider expanding the notion of ~subtarget~ from just spatially defined ones
-to other type of phenomena such as morphological shapes.
-Nodes in spatial defined subtarget share physical space, and nodes in a /morphologcally/ or shape defined
-subtarget will share morphological shape.
-We have some pyramidal cell shapes, and several interneurons shapes.
-We can consider the shapes without the layer information.
-Each /morphological-type/ shape will comprise several morphologies.
-We can compare two spatial subtargets by the number of edges there are in them.
-We can compare two morphological shapes by their density clouds or branching patterns.
+In a future refactor we may consider expanding the notion of ~subtarget~ from just spatially defined ones to other type of phenomena such as morphological shapes. Nodes in spatial defined subtarget share physical space, and nodes in a /morphologcally/ or shape defined subtarget will share morphological shape. We have some pyramidal cell shapes, and several interneurons shapes. We can consider the shapes without the layer information. Each /morphological-type/ shape will comprise several morphologies. We can compare two spatial subtargets by the number of edges there are in them. We can compare two morphological shapes by their density clouds or branching patterns.
 
 *** Extract nodes
-Results will go to the configured group's subgroup by population.
-In the example below this will be ~nodes/populations~  that will save data on each configured ~node-population~
-as a ~pandas.Series~ containing a ~pandas.DataFrame~ per defined ~subtarget~.
+Results will go to the configured group's subgroup by population. In the example below this will be ~nodes/populations~  that will save data on each configured ~node-population~ as a ~pandas.Series~ containing a ~pandas.DataFrame~ per defined ~subtarget~.
 
-We have decided that all the configured subtargets in a single instance of ~connsense-TAP~ should be of the same
-~node-population~. So the pipeline must extract node-properties of at least that node-population.
+We have decided that all the configured subtargets in a single instance of ~connsense-TAP~ should be of the same ~node-population~. So the pipeline must extract node-properties of at least that node-population.
 
-Additionally, when we are there, we will save the morphological properties of each morphology in a separate data-group
-under nodes, ~nodes/types/morphologies~ in the example configuration below. The dataset will be a `pandas.DataFrame` with
-the configured metrics for each morphology type used in the circuit.
+Additionally, when we are there, we will save the morphological properties of each morphology in a separate data-group under nodes, ~nodes/types/morphologies~ in the example configuration below. The dataset will be a `pandas.DataFrame` with the configured metrics for each morphology type used in the circuit.
 
 Nodes for each population will be extracted to a dataset under the group ~nodes/populations~.
-
 #+name: pipeline-config-paths-pipeline-step-extract-node-populations
 #+begin_src yaml :tangle no :noweb yes :comments no :padline no
 extract-node-populations: "nodes/populations"
 #+end_src
-
 To configure the extraction of nodes, we must specify node populations in the circuit.
 
-All nodes will be saved in the HDF5 group /nodes/,
-and parameterized by listing individual populations as mappings of population name to a mapping to configure
-the node extraction. Each population's configuration must include a reference to the source code to extract it's nodes.
-For the SSCx dissemination circuit we specify the population to be named /default/, and use the extractor provided
-packaged in ~connsense~ that uses ~bluepy~. The properties to extract must also be provided.
+All nodes will be saved in the HDF5 group /nodes/, and parameterized by listing individual populations as mappings of population name to a mapping to configure the node extraction. Each population's configuration must include a reference to the source code to extract it's nodes. For the SSCx dissemination circuit we specify the population to be named /default/, and use the extractor provided packaged in ~connsense~ that uses ~bluepy~. The properties to extract must also be provided.
 
 #+name: pipeline-config-parameters-extract-node-populations
 #+begin_src yaml :tangle no :noweb yes :comments no :padline no
@@ -819,11 +716,7 @@ extract-node-populations:
         - etype
         - morphology
 #+end_src
-
-Let us now implement a ~Python~ method to handle the configuration above.
-We can have multiple circuit's for the ~connsense.pipeline~ to compute. The methods below will work on a single
-circuit.
-
+Let us now implement a ~Python~ method to handle the configuration above. We can have multiple circuit's for the ~connsense.pipeline~ to compute. The methods below will work on a single circuit.
 #+name: method-extract-nodes
 #+begin_src python :tangle no :noweb yes :comments org :padline no
 

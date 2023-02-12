@@ -224,11 +224,12 @@ class TapDataset:
 
         return pd.Series(varindex.values, name=variable_id, index=result.index)
 
-    def name_index_variables(self, result):
+    def name_reindex_variables(self, result):
         """..."""
         assert ("subtarget_id"  not in result.index.names
                 and "circuit_id" not in result.index.names
                 and "connectome_id" not in result.index.names)
+
         of_indices = pd.DataFrame({variable:(self._tap.create_index(variable)
                                              .loc[result.index.get_level_values(f"{variable}_id").values]
                                              .values)
@@ -243,6 +244,19 @@ class TapDataset:
             return result.set_index(named_index)
 
         raise TypeError("Unexpect type %s of result", type(result))
+
+    def name_index_variables(self, result):
+        """..."""
+        assert ("subtarget_id"  not in result.index.names
+                and "circuit_id" not in result.index.names
+                and "connectome_id" not in result.index.names)
+
+        varnames = pd.concat([self.name_index(result, var) for var in result.index.names],
+                             axis=1)
+        variables = pd.MultiIndex.from_frame(varnames)
+
+        assert isinstance(result, pd.Series), f"Illegal type {type(result)}"
+        return pd.Series(result.values, name=result.name, index=variables)
 
     def __call__(self, subtarget, circuit=None, connectome=None, *, control=None, slicing=None):
         """Call to get data using the names for (subtarget, circuit, connectome).
@@ -274,12 +288,11 @@ class TapDataset:
                                  "\n Please provide a `slicing=<value>`."%(self._dataset,))
             return self.dataset["full"].loc[idx]
 
-        if slicing:
-            if slicing not in slicings:
-                LOG.warning("Slicing %s was not among those configured: \n%s", slcicing, slicings)
-                raise ValueError("Slicing %s was not among those configured: \n%s"%(slcicing, slicings))
+        if slicing not in slicings:
+            LOG.warning("Slicing %s was not among those configured: \n%s", slcicing, slicings)
+            raise ValueError("Slicing %s was not among those configured: \n%s"%(slcicing, slicings))
 
-            return self.dataset[slicing].loc[idx]
+        return self.dataset[slicing].loc[idx]
 
     @lazy
     def variable_ids(self):
@@ -301,13 +314,20 @@ class TapDataset:
             component = self.dataset
             variable_ids = self.variable_ids
 
+        def cleanup_index_subtarget_result(r):
+            try:
+                return r.droplevel(self.variable_ids)
+            except (IndexError, KeyError):
+                return r
+
         if name_indices:
             index = pd.concat([self.name_index(component, varid) for varid in variable_ids], axis=1)
 
             if isinstance(component, pd.Series):
                 series = pd.Series(component.values, index=pd.MultiIndex.from_frame(index))
                 series = series[~series.index.duplicated(keep="last")]
-                return pd.concat(series.values, keys=series.index)
+                return pd.concat([cleanup_index_subtarget_result(value) for value in series.values],
+                                 keys=series.index)
 
             assert isinstance(component, pd.DataFrame), f"Invalid type {type(component)}"
             return component.set_index(pd.MultiIndex.from_frame(index))
@@ -385,7 +405,7 @@ class HDFStore:
         self._config = read_config.read(config) if not isinstance(config, Mapping) else config
         self._root = locate_store(self._config, in_connsense_h5)
         self._groups = group_steps(self._config)
-
+        self._circuits = {}
 
     @lazy
     def parameters(tap):
@@ -460,6 +480,15 @@ class HDFStore:
         return describe_quantity(q=of_quantity)
     
     
+
+    def get_circuit(self, labeled):
+        """..."""
+        if labeled not in self._circuits:
+            sbtcfg = SubtargetsConfig(self._config)
+            circuit = sbtcfg.input_circuit[labeled]
+            circuit.variant = labeled
+            self._circuits[labeled] = circuit
+        return self._circuits[labeled]
 
     def get_path(tap, computation_type):
         """..."""

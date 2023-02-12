@@ -527,7 +527,6 @@ def group_launchscripts(compute_nodes, max_entries):
 
 ** Test-develop
 
-
 * Inputs to parallelize
 
 In ~connsense-TAP~ we develop the concept of a ~unit-computation~. A single ~unit-computation~ will run as a single process from ~connsense-TAP~'s viewpoint. The compuation's method might have it's own mind, and even run it's own implementation of a muliticore process. This can be setup using ~number_tasks_per_compute_node=1~ in the ~runtime-config~. This allows for an external parallelization scheme that ~connsense-TAP~'s parallelization model does not allow. To implement such a feature, we will have to manipulate the ~connsense-TAP-index~ that we will demonstrate in one of the computations implemented for ~connsense-TAP~. Here, let us first define a ~unit-computation~.
@@ -543,12 +542,14 @@ def read_index(of_computation, in_config):
     try:
         return parameters["index"]
     except KeyError as missing_index:
-        LOG.info("No index configured for computation %s: \n%s", of_computation, missing_index)
+        LOG.info("No index configured for computation %s: \n%s",
+                 of_computation, missing_index)
         try:
             LOG.info("read index from the configured input.")
             return parameters["input"]
         except KeyError as missing_input:
-            LOG.info("Neither an index, nor inputs were configured for computation %s", of_computation)
+            LOG.info("Neither an index, nor inputs were configured for computation %s",
+                     of_computation)
             raise NotConfiguredError("%s `input` was not configured %s") from missing_input
     raise RuntimeError("Python executtion must not reach here.")
 
@@ -558,7 +559,8 @@ def index_inputs(of_computation, in_tap):
     index_vars = read_index(of_computation, in_tap._config)
 
     if len(index_vars) > 1:
-        return pd.MultiIndex.from_product([to_tap.subset_index(var, values) for var, values in index_vars.items()])
+        return pd.MultiIndex.from_product([to_tap.subset_index(var, values)
+                                           for var, values in index_vars.items()])
 
     var, values = next(iter(index_vars.items()))
     return pd.Index(to_tap.subset_index(var, values))
@@ -2541,8 +2543,8 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
     run_in_progress = on_compute_node.joinpath(INPROGRESS)
     run_in_progress.touch(exist_ok=False)
 
-    execute, to_store_batch, to_store_one = configure_execution(of_computation, in_config, on_compute_node,
-                                                                slicing=slicing)
+    execute, to_store_batch, to_store_one = configure_execution(of_computation,
+                                                                in_config, on_compute_node, slicing=slicing)
 
     assert to_store_batch or to_store_one
     assert not (to_store_batch and to_store_one)
@@ -2562,7 +2564,8 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
 
     inputs = generate_inputs(of_computation, in_config, slicing, circuit_args)
 
-    collector = plugins.import_module(parameters["collector"]) if "collector" in parameters else None
+    collector = (plugins.import_module(parameters["collector"]) if "collector" in parameters
+                 else None)
 
     def collect_batch(results):
         """..."""
@@ -2619,7 +2622,8 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
             in_bowl[index] = result
         return result
 
-    n_compute_nodes,  n_total_jobs = prepare_parallelization(of_computation, in_config, using_runtime)
+    n_compute_nodes,  n_total_jobs = prepare_parallelization(of_computation,
+                                                             in_config, using_runtime)
 
     batches = load_input_batches(on_compute_node)
     n_batches = batches.batch.max() - batches.batch.min() + 1
@@ -2627,7 +2631,8 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
     if n_compute_nodes == n_total_jobs:
         results = {}
         for batch, subtargets in batches.groupby("batch"):
-            LOG.info("Run Single Node %s process %s / %s batches", on_compute_node, batch, n_batches)
+            LOG.info("Run Single Node %s process %s / %s batches",
+                     on_compute_node, batch, n_batches)
             results[batch] = serial_batch(inputs.loc[subtargets.index], index=batch)
         LOG.info("DONE Single Node connsense run.")
     else:
@@ -2637,9 +2642,11 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
             processes = []
 
             for batch, subtargets in batches.groupby("batch"):
-                LOG.info("Spawn Compute Node %s process %s / %s batches", on_compute_node, batch, n_batches)
+                LOG.info("Spawn Compute Node %s process %s / %s batches",
+                         on_compute_node, batch, n_batches)
                 p = Process(target=serial_batch,
-                            args=(inputs.loc[subtargets.index],), kwargs={"index": batch, "in_bowl": bowl})
+                            args=(inputs.loc[subtargets.index],),
+                            kwargs={"index": batch, "in_bowl": bowl})
                 p.start()
                 processes.append(p)
 
@@ -2656,14 +2663,16 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
         else:
             assert batching == PARALLEL_BATCHES, "No other is known."
             for batch, subtargets in batches.groupby("batch"):
-                LOG.info("Run %s subtargets in parallel batch %s / %s batches.", len(subtargets), batch, len(batches))
+                LOG.info("Run %s subtargets in parallel batch %s / %s batches.",
+                         len(subtargets), batch, len(batches))
 
                 manager = Manager()
                 bowl = manager.dict()
                 processes = []
 
                 for i, s in enumerate(subtargets):
-                    p = Process(target=execute_one, args=(s,), kwargs={"index": i, "bowl": bowl})
+                    p = Process(target=execute_one,
+                                args=(s,), kwargs={"index": i, "bowl": bowl})
                     p.start()
                     process.append(p)
                 LOG.info("LAUNCHED %s process", i)
@@ -2673,8 +2682,9 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
                 LOG.info("Parallel computation for batch %s: %s", batch, len(bowl))
                 values = pd.Series([v for v in bowl.values()], index=subtargets.index)
                 hdf = in_hdf.format(batch)
+                of_each_value = lambda: values.apply(lambda v: to_store_one(hdf, result=v))
                 results = (to_store_batch(hdf, results=values) if to_store_batch else
-                           to_store_one(hdf, update=values.apply(lambda v: to_store_one(hdf, result=v))))
+                           to_store_one(hdf, update=of_each_value()))
 
     read_pipeline.write(results, to_json=on_compute_node/"batched_output.json")
 
@@ -2755,7 +2765,8 @@ def input_circuit_args(computation, in_config, load_circuit=True, load_connectom
     return {key: value for key, value in {"circuit": circuit, "connectome": connectome}.items() if value}
 
 
-def subtarget_circuit_args(computation, in_config, load_circuit=False, load_connectome=False):
+def subtarget_circuit_args(computation, in_config,
+                           load_circuit=False, load_connectome=False):
     """..."""
     computation_type, of_quantity = describe(computation)
     parameters = parameterize(computation_type, of_quantity, in_config)
@@ -2802,15 +2813,17 @@ To load the key-word arguments
 #+name: develop-parallelization-single-node-multiprocess-kwargs
 #+begin_src python
 
-def load_kwargs(parameters, to_tap, on_compute_node, consider_input=False):
+def load_kwargs(parameters, to_tap, on_compute_node=None, consider_input=False):
     """..."""
     def load_dataset(value):
         """..."""
-        return (to_tap.read_dataset(value["dataset"]) if isinstance(value, Mapping) and "dataset" in value
+        return (to_tap.read_dataset(value["dataset"])
+                if isinstance(value, Mapping) and "dataset" in value
                 else value)
 
     kwargs = parameters.get("kwargs", {})
-    kwargs.update({var: load_dataset(value) for var, value in kwargs.items() if var not in COMPKEYS})
+    kwargs.update({var: load_dataset(value) for var, value in kwargs.items()
+                   if var not in COMPKEYS})
 
     if consider_input:
         kwargs.update({var: value for var, value in parameters.get("input", {}).items()
@@ -5340,7 +5353,6 @@ We have assumed that the stores invoked above are like the ~MatrixStore~ defined
 We do not have working version of a sparse matrices that we use to store adjacency.
 Either we can implement such a store, or change the collection methods.
 
-
 * Putting it together
 
 We can now list the code that can configure a multinode computation. which we do to keep the output Python code clean.
@@ -5644,7 +5656,6 @@ class IllegalParallelComputationError(ValueError):
 <<develop-parallelization-inputs-unit-computations>>
 #+end_src
 #+RESULTS:
-
 
 
 * Runtime config
