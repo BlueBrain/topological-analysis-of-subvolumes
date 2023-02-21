@@ -113,8 +113,9 @@ def parameterize(computation_type, of_quantity, in_config):
 
 
 
-def batch_multinode(computation, of_inputs, in_config, at_dirpath, using_parallelization, single_submission=500,
-                    with_weights=True, unit_weight=None, njobs_to_estimate_load=None):
+def batch_multinode(computation, of_inputs, in_config, at_dirpath, using_parallelization,
+                    single_submission=500,  with_weights=True, unit_weight=None,
+                    njobs_to_estimate_load=None):
     """...Just read the method definition above,
         and code below
     """
@@ -125,10 +126,15 @@ def batch_multinode(computation, of_inputs, in_config, at_dirpath, using_paralle
 
     LOG.info("Assign compute-nodes to %s inputs", len(of_inputs))
     toc_index = of_inputs.index
-    weights = (of_inputs.progress_apply(lambda l: estimate_load(to_compute=None)(l())).dropna()
-               if not njobs_to_estimate_load else multiprocess_load_estimate(of_inputs, njobs_to_estimate_load))
-    weights = (weights[~np.isclose(weights, 0.)].groupby(toc_index.names).max()
-               .sort_values(ascending=True)).rename("weight")
+
+    weights = (
+        #of_inputs.progress_apply(lambda l: estimate_load(to_compute=None)(l())).dropna()
+        of_inputs.progress_apply(estimate_load(to_compute=None)).dropna()
+        if not njobs_to_estimate_load
+        else multiprocess_load_estimate(of_inputs, njobs_to_estimate_load))
+    weights = (
+        weights[~np.isclose(weights, 0.)].groupby(toc_index.names).max()
+        .sort_values(ascending=True)).rename("weight")
 
     unit_weight = max(unit_weight or 0.,  weights.max())
 
@@ -142,10 +148,12 @@ def batch_multinode(computation, of_inputs, in_config, at_dirpath, using_paralle
     def batch(compute_node):
         """..."""
         cn_weights = weigh_one(compute_node)
-        n_parallel = min(int(n_parallel_jobs_per_node_biggest_subtarget * unit_weight / cn_weights.max()),
-                         len(cn_weights))
-        return pd.Series(np.linspace(0, n_parallel - 1.e-6, len(cn_weights), dtype=int), name="batch",
-                         index=cn_weights.index)
+        n_parallel = min(
+            int(n_parallel_jobs_per_node_biggest_subtarget * unit_weight / cn_weights.max()),
+            len(cn_weights)
+        )
+        return pd.Series(np.linspace(0, n_parallel - 1.e-6, len(cn_weights), dtype=int),
+                         name="batch",  index=cn_weights.index)
 
     batches = ((pd.concat([batch(compute_nodes)], keys=[compute_nodes.unique()[0]], names=["compute_node"])
                 if compute_nodes.nunique() == 1
@@ -156,12 +164,15 @@ def batch_multinode(computation, of_inputs, in_config, at_dirpath, using_paralle
         return batches
 
     if not isinstance(weights.index, pd.MultiIndex):
-        weights.index = pd.MultiIndex.from_arrays([weights.index.values], names=[weights.index.name])
+        weights.index = (pd.MultiIndex
+                         .from_arrays([weights.index.values], names=[weights.index.name]))
 
-    cn_weights = ((pd.concat([weigh_one(compute_nodes)], keys=[compute_nodes.unique()[0]], names=["compute_node"])
-                   if compute_nodes.nunique() == 1
-                   else pd.DataFrame(compute_nodes).groupby("compute_node").apply(weigh_one))
-                  .reorder_levels(compute_nodes.index.names + ["compute_node"]))
+    cn_weights = (
+        pd.concat([weigh_one(compute_nodes)], keys=[compute_nodes.unique()[0]],
+                  names=["compute_node"])
+        if compute_nodes.nunique() == 1
+        else pd.DataFrame(compute_nodes).groupby("compute_node").apply(weigh_one)
+    ).reorder_levels(compute_nodes.index.names + ["compute_node"])
 
     assignment =  pd.concat([batches, cn_weights], axis=1) if with_weights else batches
 
@@ -176,34 +187,37 @@ def batch_parallel_groups(of_inputs, upto_number, to_compute=None, return_load=F
     from tqdm import tqdm; tqdm.pandas()
 
     if isinstance(of_inputs, pd.Series):
-        weights = (of_inputs.progress_apply(lambda l: estimate_load(to_compute)(l())).rename("load")
+        weights = (of_inputs
+                   .progress_apply(estimate_load(to_compute)).rename("load")
                    .sort_values(ascending=True))
-
     elif isinstance(of_inputs, pd.DataFrame):
-        weights = (of_inputs.progress_apply(lambda l: estimate_load(to_compute)(l()), axis=1).rename("load")
+        weights = (of_inputs
+                   .progress_apply(estimate_load(to_compute), axis=1).rename("load")
                    .sort_values(ascending=True))
-
     else:
         raise TypeError(f"Unhandled type of input: {of_inputs}")
 
     nan_weights = weights[weights.isna()]
     if len(nan_weights) > 0:
-        LOG.warning("No input data for %s / %s of_inputs:\n%s", len(nan_weights), len(weights),
-                    pformat(nan_weights))
+        LOG.warning("No input data for %s / %s of_inputs:\n%s",
+                    len(nan_weights), len(weights), pformat(nan_weights))
         weights = weights.dropna()
 
     computational_load = (np.cumsum(weights) / weights.sum()).rename("load")
     n = np.minimum(upto_number, len(weights))
-    batches = (n * (computational_load - computational_load.min())).apply(int).rename("batch")
+    batches = ((n * (computational_load - computational_load.min()))
+               .apply(int).rename("batch"))
 
-    LOG.info("Load balanced batches for %s of_inputs: \n %s", len(of_inputs), batches.value_counts())
-    return batches if not return_load else pd.concat([batches, weights/weights.sum()], axis=1)
-
+    LOG.info("Load balanced batches for %s of_inputs: \n %s",
+             len(of_inputs), batches.value_counts())
+    return (batches if not return_load
+            else pd.concat([batches, weights/weights.sum()], axis=1))
 
 def estimate_load(to_compute):
     def of_input_data(d):
         """What would it take to compute input data d?
         """
+        LOG.info("Estimate load to compute a %s", type(d))
         if d is None: return None
 
         try:
@@ -300,12 +314,14 @@ def read_index(of_computation, in_config):
     try:
         return parameters["index"]
     except KeyError as missing_index:
-        LOG.info("No index configured for computation %s: \n%s", of_computation, missing_index)
+        LOG.info("No index configured for computation %s: \n%s",
+                 of_computation, missing_index)
         try:
             LOG.info("read index from the configured input.")
             return parameters["input"]
         except KeyError as missing_input:
-            LOG.info("Neither an index, nor inputs were configured for computation %s", of_computation)
+            LOG.info("Neither an index, nor inputs were configured for computation %s",
+                     of_computation)
             raise NotConfiguredError("%s `input` was not configured %s") from missing_input
     raise RuntimeError("Python executtion must not reach here.")
 
@@ -315,7 +331,8 @@ def index_inputs(of_computation, in_tap):
     index_vars = read_index(of_computation, in_tap._config)
 
     if len(index_vars) > 1:
-        return pd.MultiIndex.from_product([to_tap.subset_index(var, values) for var, values in index_vars.items()])
+        return pd.MultiIndex.from_product([to_tap.subset_index(var, values)
+                                           for var, values in index_vars.items()])
 
     var, values = next(iter(index_vars.items()))
     return pd.Index(to_tap.subset_index(var, values))
@@ -425,8 +442,10 @@ def lazy_keyword(input_datasets):
 
 def pour(tap, datasets):
     """..."""
-    LOG.info("Pour tap \n%s\n to get values for variables:\n%s", tap._root, pformat(datasets))
-    dsets = sorted([(variable, load_dataset(tap, variable, values)) for variable, values in datasets.items()],
+    LOG.info("Pour tap \n%s\n to get values for variables:\n%s",
+             tap._root, pformat(datasets))
+    dsets = sorted([(variable, load_dataset(tap, variable, values))
+                    for variable, values in datasets.items()],
                    key=lambda x: len(x[1].index.names), reverse=True)
 
     common_index = dsets[0][1].index
@@ -604,7 +623,8 @@ def read_runtime_config(for_parallelization, *, of_pipeline=None, return_path=Fa
 
         return {q: configure_quantity(q) for q in quantities_to_configure if q != "description"}
 
-    runtime_pipeline = {c: configure_slurm_for(computation_type=c) for c in of_pipeline["parameters"]}
+    runtime_pipeline = {c: configure_slurm_for(computation_type=c) for c in of_pipeline["parameters"]
+                        if c != "description"}
     config = {"version": config["version"], "date": config["date"], "pipeline": runtime_pipeline}
     return (path, config) if return_path else config
 
@@ -686,49 +706,61 @@ def reindex(tap, inputs, variables):
 
 class DataCall:
     """Call data..."""
-    def __init__(self, dataitem, transform=None, cache=False):
+    def __init__(self, dataitem, transform=None, preserves_shape=True, cache=False):
         self._dataitem = dataitem
         self._transform = transform
+        self._preserves_shape = preserves_shape
         self._cache = None if not cache else {}
 
     @lazy
     def dataset(self):
         """..."""
+        LOG.warning("This will hold the result of this DataCall. DO NOT USE with a series.apply")
         return self()
 
     @lazy
     def shape(self):
         """..."""
-        original = self._dataitem() if callable(self._dataitem) else self._dataitem
-        if self._cache is not None:
-            self._cache["original"] = original
+        LOG.debug("Get shape for DataCall %s, \n\t with dataitem %s", self, self._dataitem)
+        if self._transform and self._preserves_shape:
+            return self._dataitem.shape
 
-        if isinstance(original, Mapping):
-            return next(v for v in original.values()).shape
+        value = self(to_get="shape")
+
+        if isinstance(value, Mapping):
+            return next(v for v in value.values()).shape
         try:
-            return original.shape
+            return value.shape
         except AttributeError:
             pass
 
         try:
-            return len(original)
+            return len(value)
         except TypeError:
             pass
 
-        return 1.
+        return 1
 
-    def __call__(self):
+    def __call__(self, to_get=None):
         """Call Me."""
+        LOG.debug("Data called %s. | Has Transform? %s | Will it Cache? %s|", self,
+                  self._transform is not None, self._cache is not None)
+
         if self._cache is not None and "original" in self._cache:
             original = self._cache["original"]
         else:
             try:
-                original = self._dataitem()
-            except TypeError:
+                get_value = self._dataitem.get_value
+            except AttributeError:
                 try:
-                    original = self._dataitem.get_value()
-                except AttributeError:
-                    original = self._dataitem
+                    original = self._dataitem(to_get)
+                except TypeError:
+                    try:
+                        original = self._dataitem()
+                    except TypeError:
+                        original = self._dataitem
+            else:
+                original = get_value()
 
             if self._cache is not None:
                 self._cache["original"] = original
@@ -737,13 +769,16 @@ class DataCall:
             return original
 
         if callable(self._transform):
+            if to_get=="shape":
+                return self._transform(original) if not self._preserves_shape else original
             return self._transform(original)
 
         transform, kwargs = self._transform
-        return transform(**original, **kwargs)
+        return transform(original, **kwargs)
 
 
-def generate_inputs(of_computation, in_config, slicing=None, circuit_args=None):
+def generate_inputs(of_computation, in_config, slicing=None, circuit_args=None,
+                     **circuit_kwargs):
     """..."""
     from connsense.develop.topotap import HDFStore
     LOG.info("Generate inputs for %s.", of_computation)
@@ -759,7 +794,8 @@ def generate_inputs(of_computation, in_config, slicing=None, circuit_args=None):
     if controlled is not None:
         original = pd.concat([original], axis=0, keys=["original"], names=["control"])
         full = pd.concat([original, controlled])
-        full = full.reorder_levels([l for l in full.index.names if l != "control"] + ["control"])
+        full = full.reorder_levels([l for l in full.index.names if l != "control"]
+                                   + ["control"])
     else:
         full = original
 
@@ -767,7 +803,8 @@ def generate_inputs(of_computation, in_config, slicing=None, circuit_args=None):
         """..."""
         if circuit_args is None:
             return inputs
-        missing = {f"{var}_id": tap.index_variable(var, value) for var, value in circuit_args.items()
+        missing = {f"{var}_id": tap.index_variable(var, value)
+                   for var, value in circuit_args.items()
                    if f"{var}_id" not in inputs.index.names}
         for variable_id, value in missing.items():
             inputs = (pd.concat([inputs], axis=0, keys=[value], names=[variable_id])
@@ -779,17 +816,21 @@ def generate_inputs(of_computation, in_config, slicing=None, circuit_args=None):
 
     assert slicing in params["slicing"]
     cfg = {slicing: params["slicing"][slicing]}
-    return index_circuit_args(generate_slices(tap, inputs=full,
-                                              using_knives=load_slicing(cfg, tap, lazily=False)[slicing]))
+    to_cut = load_slicing(cfg, tap, lazily=False, **circuit_kwargs)
+    slices = generate_slices(tap, inputs=full, using_knives=to_cut[slicing])
+
+    return index_circuit_args(slices)
+
 
 def generate_slices(of_tap, inputs, using_knives):
     """Generate slices of inputs accoring to configured knives."""
     from tqdm import tqdm; tqdm.pandas()
-    slices = pd.concat([inputs.apply(datacall(cut)) for cut in using_knives], axis=0, keys=using_knives.index)
-    return slices.reorder_levels(inputs.index.names +
-                                 slices.index.names[0:(len(slices.index.names) - len(inputs.index.names))])
-
-
+    datacut = lambda cut: datacall(cut, preserves_shape=False)
+    slices = pd.concat([inputs.apply(datacut(c)) for c in using_knives], axis=0,
+                       keys=using_knives.index)
+    n_slice_index = len(slices.index.names) - len(inputs.index.names)
+    return slices.reorder_levels(inputs.index.names
+                                 + slices.index.names[0:n_slice_index])
 
 def pour_datasets(from_tap, for_inputs, and_additionally=None):
     """..."""
@@ -802,11 +843,11 @@ def pour_datasets(from_tap, for_inputs, and_additionally=None):
     return datasets.apply(lazy_keyword).apply(DataCall)
 
 
-def datacall(transformation):
+def datacall(transformation, preserves_shape=True):
     """Apply a transformation, lazily."""
     def transform(dataitem):
         """..."""
-        return DataCall(dataitem, transformation)
+        return DataCall(dataitem, transformation, preserves_shape=preserves_shape, cache=False)
     return transform
 
 
@@ -816,14 +857,16 @@ def control_inputs(of_computation, in_config, using_tap):
     try:
         randomizations = params["controls"]
     except KeyError:
-        LOG.warning("It seems no controls have been configured for the input of %s: \n%s", of_computation, params)
+        LOG.warning("No controls have been configured for the input of %s: \n%s",
+                    of_computation, params)
         return None
 
     controls = load_control(randomizations, lazily=False)
     assert controls, "Cannot be empty. Check your config."
 
     for_input = filter_datasets(params["input"])
-    return pd.concat([pour_datasets(using_tap, for_input, and_additionally=to_tap).apply(datacall(shuffle))
+    return pd.concat([pour_datasets(using_tap, for_input,
+                                    and_additionally=to_tap).apply(datacall(shuffle))
                       for _, shuffle, to_tap in controls], axis=0,
                      keys=[control_label for control_label, _, _ in controls], names=["control"])
 
@@ -846,7 +889,7 @@ def slice_inputs(of_computation, in_config, datasets=None, using_tap=None):
     if datasets is None:
         assert using_tap
         datasets = pour_datasets(using_tap, for_input)
-    return pd.concat([datasets.apply(datacall(cut)) for _, cut in slicing],
+    return pd.concat([datasets.apply(datacall(cut, preserves_shape=False)) for _, cut in slicing],
                      axis=0, keys=[knife_label for knife_label, _ in slicing], names=["slice"]),
 
 
@@ -872,8 +915,8 @@ def setup_compute_node(c, of_computation, with_inputs, using_configs, at_dirpath
     assert not in_mode or in_mode in ("prod", "develop")
 
     from connsense.apps import APPS
-    LOG.info("Configure chunk %s with %s inputs to compute %s, using configs \n%s",
-             c, len(with_inputs), of_computation, using_configs)
+    LOG.info("Configure chunk %s with %s inputs to compute %s slicing %s, using configs \n%s",
+             c, len(with_inputs), of_computation, slicing or "none", using_configs)
 
     computation_type, of_quantity = describe(of_computation)
     for_compute_node = at_dirpath / f"compute-node-{c}"
@@ -887,13 +930,14 @@ def setup_compute_node(c, of_computation, with_inputs, using_configs, at_dirpath
         slurm_params = using_configs["slurm_params"]
     except KeyError as kerr:
             raise RuntimeError("Missing slurm params") from kerr
-    of_executable = cmd_sbatch(APPS["main"], of_computation, config=slurm_params, at_dirpath=for_compute_node)
+    of_executable = cmd_sbatch(APPS["main"], of_computation, config=slurm_params,
+                               at_dirpath=for_compute_node)
 
     if "submission" not in with_inputs:
         launchscript = at_dirpath / "launchscript.sh"
     else:
         submission = with_inputs.submission.unique()
-        assert len(submission) == 1
+        assert len(submission) == 1, f"A single compute node's inputs must be submitted together"
         launchscript = at_dirpath / f"launchscript-{submission[0]}.sh"
 
 
@@ -913,7 +957,8 @@ def setup_compute_node(c, of_computation, with_inputs, using_configs, at_dirpath
     with open(launchscript, 'a') as to_launch:
         to_launch.write('\n'.join(l for l in command_lines if l) + "\n")
 
-    setup = {"dirpath": for_compute_node, "sbatch": of_executable, "input": inputs_to_read, "output": output_h5}
+    setup = {"dirpath": for_compute_node, "sbatch": of_executable,
+             "input": inputs_to_read, "output": output_h5}
 
     return read_pipeline.write(setup, to_json=for_compute_node/"setup.json")
 
@@ -997,7 +1042,8 @@ def setup_multinode(process, of_computation, in_config, using_runtime, *,
     from tqdm import tqdm; tqdm.pandas()
     from connsense.develop.topotap import HDFStore
 
-    n_compute_nodes, n_parallel_jobs = prepare_parallelization(of_computation, in_config, using_runtime)
+    n_compute_nodes, n_parallel_jobs = prepare_parallelization(of_computation,
+                                                               in_config, using_runtime)
 
     def prepare_compute_nodes(inputs, at_dirpath, slicing, unit_weight=None):
         """..."""
@@ -1005,7 +1051,8 @@ def setup_multinode(process, of_computation, in_config, using_runtime, *,
         using_configs = configure_multinode(process, of_computation, in_config, at_dirpath)
 
         if process == setup_compute_node:
-            batched = batch_multinode(of_computation, inputs, in_config, at_dirpath, unit_weight=unit_weight,
+            batched = batch_multinode(of_computation, inputs, in_config, at_dirpath,
+                                      unit_weight=unit_weight,
                                       using_parallelization=(n_compute_nodes, n_parallel_jobs),
                                       njobs_to_estimate_load=njobs_to_estimate_load)
             using_configs["slurm_params"] = (configure_slurm(of_computation, in_config, using_runtime)
@@ -1014,7 +1061,8 @@ def setup_multinode(process, of_computation, in_config, using_runtime, *,
                                                    in_mode=in_mode, slicing=slicing)
                              for c, inputs in batched.groupby("compute_node")}
             return {"configs": using_configs,
-                    "number_compute_nodes": n_compute_nodes, "number_total_jobs": n_parallel_jobs,
+                    "number_compute_nodes": n_compute_nodes,
+                    "number_total_jobs": n_parallel_jobs,
                     "setup": write_multinode_setup(compute_nodes, inputs, at_dirpath)}
 
         if process == collect_results:
@@ -1024,27 +1072,34 @@ def setup_multinode(process, of_computation, in_config, using_runtime, *,
 
             setup = {c: read_setup_compute_node(c, for_quantity=at_dirpath)
                      for c, _ in batched.groupby("compute_node")}
-            return collect_results(computation_type, setup, at_dirpath, in_connsense_store=h5_group,
-                                   slicing=slicing)
+            return collect_results(computation_type, setup, at_dirpath,
+                                   in_connsense_store=h5_group, slicing=slicing)
 
         return ValueError(f"Unknown multinode {process}")
 
     _, to_stage = get_workspace(of_computation, in_config)
 
-    using_configs = configure_multinode(process, of_computation, in_config, at_dirpath=to_stage)
+    using_configs = configure_multinode(process, of_computation, in_config,
+                                        at_dirpath=to_stage)
 
     computation_type, of_quantity = describe(of_computation)
     params = parameterize(*describe(of_computation), in_config)
+    circuit_args = input_circuit_args(of_computation, in_config, load_circuit=False)
+    circuit_kwargs = input_circuit_args(of_computation, in_config, load_circuit=True)
 
-    full = generate_inputs(of_computation, in_config,
-                           circuit_args=input_circuit_args(of_computation, in_config, load_circuit=False))
+    full = generate_inputs(of_computation, in_config, circuit_args=circuit_args, **circuit_kwargs)
+
 
     if process == setup_compute_node:
-        full_weights = (full.progress_apply(lambda l: estimate_load(to_compute=None)(l())).dropna()
-                        if not njobs_to_estimate_load else multiprocess_load_estimate(full, njobs_to_estimate_load))
+        full_weights = (
+            #full.progress_apply(lambda l: estimate_load(to_compute=None)(l())).dropna()
+            full.progress_apply(estimate_load(to_compute=None)).dropna()
+            if not njobs_to_estimate_load
+            else multiprocess_load_estimate(full, njobs_to_estimate_load))
 
         have_zero_weight = np.isclose(full_weights.values, 0.)
-        LOG.info("Inputs with zero weight %s: \n%s", have_zero_weight.sum(), full_weights[have_zero_weight])
+        LOG.info("Inputs with zero weight %s: \n%s",
+                 have_zero_weight.sum(), full_weights[have_zero_weight])
 
         full = full[~have_zero_weight]
         full_weights = full_weights[~have_zero_weight]
@@ -1052,22 +1107,21 @@ def setup_multinode(process, of_computation, in_config, using_runtime, *,
     else:
         max_weight = None
 
-    compute_nodes = {"full": prepare_compute_nodes(full, at_dirpath=(to_stage/"full" if "slicing" in params
-                                                                     else to_stage),
-                                                   slicing=("full" if "slicing" in params else None),
-                                                   unit_weight=max_weight)}
-
+    compute_nodes = {
+        "full": (prepare_compute_nodes(full, to_stage, None, max_weight)
+                 if "slicing" not in params else
+                 prepare_compute_nodes(full, to_stage/"full", "full", max_weight))
+    }
     if "slicing" not in params:
         return compute_nodes
 
-    slicings = load_slicing({k:v for k,v in params["slicing"].items() if k not in ("description", "do-full")},
-                            lazily=False)
+    exclude = ("description", "do-full")
+    cfg_slicings = {k: v for k, v in params["slicing"].items() if k not in exclude}
     of_tap = HDFStore(in_config)
+    slicings = load_slicing(cfg_slicings, of_tap, lazily=False, **circuit_kwargs)
     for slicing, to_slice in slicings.items():
         sliced_inputs = generate_slices(of_tap, inputs=full, using_knives=to_slice)
-        compute_nodes[slicing] = prepare_compute_nodes(sliced_inputs, at_dirpath=to_stage/slicing, slicing=slicing,
-                                                       unit_weight=None)
-
+        compute_nodes[slicing] = prepare_compute_nodes(sliced_inputs, to_stage/slicing, slicing, None)
     return compute_nodes
 
 
@@ -1075,7 +1129,7 @@ def collect_results(computation_type, setup, from_dirpath, in_connsense_store, s
     """..."""
     if computation_type == "extract-node-populations":
         assert not slicing, "Does not apply"
-        return collect_node_population(setup, from_dirpath, in_connsense_storerwrite)
+        return collect_node_population(setup, from_dirpath, in_connsense_store)
 
     if computation_type == "extract-edge-populations":
         assert not slicing, "Does not apply"
@@ -1229,8 +1283,8 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
     run_in_progress = on_compute_node.joinpath(INPROGRESS)
     run_in_progress.touch(exist_ok=False)
 
-    execute, to_store_batch, to_store_one = configure_execution(of_computation, in_config, on_compute_node,
-                                                                slicing=slicing)
+    execute, to_store_batch, to_store_one = configure_execution(of_computation,
+                                                                in_config, on_compute_node, slicing=slicing)
 
     assert to_store_batch or to_store_one
     assert not (to_store_batch and to_store_one)
@@ -1244,13 +1298,16 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
                                       load_circuit=False, load_connectome=False, drop_nulls=False)
     circuit_kwargs = input_circuit_args(of_computation, in_config,
                                         load_circuit=True, load_connectome=False, drop_nulls=False)
-    circuit_args_values = tuple(v for v in (circuit_kwargs.get("circuit"), circuit_kwargs.get("connectome")) if v)
+    circuit_args_values = tuple(v for v in (circuit_kwargs.get("circuit"),
+                                            circuit_kwargs.get("connectome")) if v)
 
     kwargs = load_kwargs(parameters, HDFStore(in_config), on_compute_node)
 
-    inputs = generate_inputs(of_computation, in_config, slicing, circuit_args)
+    inputs = generate_inputs(of_computation, in_config, slicing, circuit_args,
+                             **circuit_kwargs)
 
-    collector = plugins.import_module(parameters["collector"]) if "collector" in parameters else None
+    collector = (plugins.import_module(parameters["collector"]) if "collector" in parameters
+                 else None)
 
     def collect_batch(results):
         """..."""
@@ -1262,6 +1319,9 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
 
     def execute_one(lazy_subtarget, bowl=None, index=None):
         """..."""
+        s = lazy_subtarget()
+        LOG.info("Execute circuit args %s lazy subtarget %s, kwargs %s",
+                 circuit_args_values, s.keys(), kwargs.keys())
         result = execute(*circuit_args_values, **lazy_subtarget(), **kwargs)
         if bowl:
             assert index
@@ -1278,8 +1338,8 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
 
     def serial_batch(of_input, *, index, in_bowl=None):
         """..."""
-        LOG.info("Run %s batch %s of %s inputs args, and circuit %s, \n with kwargs %s slicing %s", of_computation,
-                 index, len(of_input), circuit_args_values, pformat(kwargs), slicing)
+        LOG.info("Run %s batch %s of %s inputs args, and circuit %s, \n with kwargs %s slicing %s",
+                 of_computation,  index, len(of_input), circuit_args_values, pformat(kwargs), slicing)
 
         def to_subtarget(s):
             """..."""
@@ -1307,7 +1367,8 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
             in_bowl[index] = result
         return result
 
-    n_compute_nodes,  n_total_jobs = prepare_parallelization(of_computation, in_config, using_runtime)
+    n_compute_nodes,  n_total_jobs = prepare_parallelization(of_computation,
+                                                             in_config, using_runtime)
 
     batches = load_input_batches(on_compute_node)
     n_batches = batches.batch.max() - batches.batch.min() + 1
@@ -1315,7 +1376,8 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
     if n_compute_nodes == n_total_jobs:
         results = {}
         for batch, subtargets in batches.groupby("batch"):
-            LOG.info("Run Single Node %s process %s / %s batches", on_compute_node, batch, n_batches)
+            LOG.info("Run Single Node %s process %s / %s batches",
+                     on_compute_node, batch, n_batches)
             results[batch] = serial_batch(inputs.loc[subtargets.index], index=batch)
         LOG.info("DONE Single Node connsense run.")
     else:
@@ -1325,9 +1387,11 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
             processes = []
 
             for batch, subtargets in batches.groupby("batch"):
-                LOG.info("Spawn Compute Node %s process %s / %s batches", on_compute_node, batch, n_batches)
+                LOG.info("Spawn Compute Node %s process %s / %s batches",
+                         on_compute_node, batch, n_batches)
                 p = Process(target=serial_batch,
-                            args=(inputs.loc[subtargets.index],), kwargs={"index": batch, "in_bowl": bowl})
+                            args=(inputs.loc[subtargets.index],),
+                            kwargs={"index": batch, "in_bowl": bowl})
                 p.start()
                 processes.append(p)
 
@@ -1344,14 +1408,16 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
         else:
             assert batching == PARALLEL_BATCHES, "No other is known."
             for batch, subtargets in batches.groupby("batch"):
-                LOG.info("Run %s subtargets in parallel batch %s / %s batches.", len(subtargets), batch, len(batches))
+                LOG.info("Run %s subtargets in parallel batch %s / %s batches.",
+                         len(subtargets), batch, len(batches))
 
                 manager = Manager()
                 bowl = manager.dict()
                 processes = []
 
                 for i, s in enumerate(subtargets):
-                    p = Process(target=execute_one, args=(s,), kwargs={"index": i, "bowl": bowl})
+                    p = Process(target=execute_one,
+                                args=(s,), kwargs={"index": i, "bowl": bowl})
                     p.start()
                     process.append(p)
                 LOG.info("LAUNCHED %s process", i)
@@ -1361,8 +1427,9 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
                 LOG.info("Parallel computation for batch %s: %s", batch, len(bowl))
                 values = pd.Series([v for v in bowl.values()], index=subtargets.index)
                 hdf = in_hdf.format(batch)
+                of_each_value = lambda: values.apply(lambda v: to_store_one(hdf, result=v))
                 results = (to_store_batch(hdf, results=values) if to_store_batch else
-                           to_store_one(hdf, update=values.apply(lambda v: to_store_one(hdf, result=v))))
+                           to_store_one(hdf, update=of_each_value()))
 
     read_pipeline.write(results, to_json=on_compute_node/"batched_output.json")
 
@@ -1402,7 +1469,8 @@ def input_connectome(labeled, in_circuit):
     return in_circuit.projection[labeled]
 
 
-def input_circuit_args(computation, in_config, load_circuit=True, load_connectome=False, *,
+def input_circuit_args(computation, in_config,
+                       load_circuit=True, load_connectome=False, *,
                        drop_nulls=True):
     """..."""
     computation_type, of_quantity = describe(computation)
@@ -1427,11 +1495,13 @@ def input_circuit_args(computation, in_config, load_circuit=True, load_connectom
         x = input_connectomes[0]
     else:
         x = None
-    connectome = input_connectome(x, in_circuit) if load_connectome else x
-    return {key: value for key, value in {"circuit": circuit, "connectome": connectome}.items() if value}
+    connectome = input_connectome(x, in_circuit=c) if load_connectome else x
+    circonn = {"circuit": circuit, "connectome": connectome}
+    return {key: value for key, value in circonn.items() if value}
 
 
-def subtarget_circuit_args(computation, in_config, load_circuit=False, load_connectome=False):
+def subtarget_circuit_args(computation, in_config,
+                           load_circuit=False, load_connectome=False):
     """..."""
     computation_type, of_quantity = describe(computation)
     parameters = parameterize(computation_type, of_quantity, in_config)
@@ -1465,15 +1535,17 @@ def load_input_batches(on_compute_node, inputs=None, n_parallel_tasks=None):
 
 
 
-def load_kwargs(parameters, to_tap, on_compute_node, consider_input=False):
+def load_kwargs(parameters, to_tap, on_compute_node=None, consider_input=False):
     """..."""
     def load_dataset(value):
         """..."""
-        return (to_tap.read_dataset(value["dataset"]) if isinstance(value, Mapping) and "dataset" in value
+        return (to_tap.read_dataset(value["dataset"])
+                if isinstance(value, Mapping) and "dataset" in value
                 else value)
 
     kwargs = parameters.get("kwargs", {})
-    kwargs.update({var: load_dataset(value) for var, value in kwargs.items() if var not in COMPKEYS})
+    kwargs.update({var: load_dataset(value) for var, value in kwargs.items()
+                   if var not in COMPKEYS})
 
     if consider_input:
         kwargs.update({var: value for var, value in parameters.get("input", {}).items()
@@ -1869,7 +1941,7 @@ def load_control(transformations, lazily=True):
         return [seed_shuffler(s) for s in seeds]
 
     controls = {k: v for k, v in transformations.items() if k != "description"}
-    return [shuffled for ctrl, cfg in controls.items() for shuffled in load_config(ctrl, cfg)]
+    return [shfld for ctrl, cfg in controls.items() for shfld in load_config(ctrl, cfg)]
 
 
 
@@ -1918,9 +1990,12 @@ def flatten_slicing(_slice):
     return flat
 
 
-def load_slicing(transformations, using_tap=None, lazily=True):
+def load_slicing(transformations, using_tap=None, lazily=True, **circuit_args):
     """..."""
     from copy import deepcopy
+
+    LOG.info("Load slicing %s transformations for circuit args: \n%s",
+             len(transformations), circuit_args)
 
     def load_dataset(slicing):
         """..."""
@@ -1946,9 +2021,10 @@ def load_slicing(transformations, using_tap=None, lazily=True):
             def slice_input(datasets):
                 if lazily:
                     assert callable(datasets)
-                    return lambda: algorithm(**datasets(), **aslice, **kwargs)
+                    return lambda: algorithm(**datasets(), **aslice, **circuit_args,
+                                             **kwargs)
                 assert not callable(datasets)
-                return algorithm(**datasets, **aslice, **kwargs)
+                return algorithm(**datasets, **aslice, **circuit_args, **kwargs)
             return slice_input
         return pd.Series([specify(aslice) for aslice in slices],
                          index=pd.MultiIndex.from_frame(pd.DataFrame([flatten_slicing(s) for s in slices])))

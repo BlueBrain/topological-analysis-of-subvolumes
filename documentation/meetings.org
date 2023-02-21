@@ -73,45 +73,25 @@ print("We will plot golden aspect ratios: ", GOLDEN)
 #+end_src
 
 ** Connsense modules
-
 We have run ~connsense-CRAP~ for the SSCx dissemination variant /Bio-M/, extracting data that we will use to compute the factology. Here is a list of workspaces we will need to generate factsheets.
-
 #+name: notebook-modules
 #+begin_src jupyter-python
-# %% [markdown]
-"""
-We will need some ~connsense~ modules for our experiments
-"""
-# %% [code]
 from connsense.pipeline import pipeline
 from connsense.pipeline.parallelization import parallelization as prl
 from connsense.pipeline.store import store as tap_store #prod version
 from connsense.develop import topotap as topotap_store #develop version
 #+end_src
-
 ** Connsense workspace
-
 We will load circuit data and compute analyses on it. To read and write we need paths. We can choose from a real circuit.
-
 #+name: notebook-workspaces
 #+begin_src jupyter-python
-# %% [markdown]
-"""
-We can set paths to load data, and to save the results of our experiments. Paths listed below are to artefacts associated with a SSCx-Dissemination circuit.
-"""
-# %% [code]
 ROOTSPACE = Path("/")
 PROJSPACE = ROOTSPACE / "gpfs/bbp.cscs.ch/project/proj83"
 CONNSPACE = PROJSPACE / "home/sood" / "topological-analysis-subvolumes/test/v2" / "test"
 EXTRACTSPC = CONNSPACE.parent / "extract-2"
 #+end_src
-
-#+RESULTS: notebook-workspaces
-
 ** Tap store
-
 While test-developing it will be good to have direct access to the ~connsense-TAP-store~ we will use.
-
 #+name: notebook-connsense-tap
 #+begin_src jupyter-python
 # %% [markdown]
@@ -122,9 +102,7 @@ topaz = pipeline.TopologicalAnalysis(CONNSPACE/"pipeline.yaml", CONNSPACE/"runti
 tap = tap_store.HDFStore(topaz._config)
 print("Available analyses: ")
 #+end_src
-
 As of <2022-10-18 Tue> we are developing a fresh interface for ~connsense-TAP~ that will be used for accessing ~connsense-TAP~ data. The current implementation will continue to be used internally by ~connsense-TAP-parallelization~, and eventually absorbed into ~TopologicalAnalysisPipeline~.
-
 #+name: notebook-connsense-topotap
 #+begin_src jupyter-python
 # %% [markdown]
@@ -138,16 +116,12 @@ topotap = topotap_store.HDFStore(CONNSPACE/"pipeline.yaml")
 print("Available analyses: ")
 pprint(topotap.analyses)
 #+end_src
-
 #+RESULTS: notebook-connsense-topotap
 : Available analyses:
 : {'connectivity': {'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7ffdf8afecd0>,
 :                   'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7ffdf89613a0>}}
-
 ** Extract small subtargets
-
 We have gids for each subtarget that we can obtain,
-
 #+name: noteook-connsense-extract
 #+begin_src jupyter-python
 subtarget_gids = topotap.pour_dataset("define-subtargets", "flatmap-columns/data") #gids") use
@@ -165,7 +139,6 @@ print("Number < 5000", len(extract_subtargets))
 : Number < 5000 48
 
 that we can use to define the extracted subtargets. There are three datasets associated with subtargets.
-
 #+begin_src jupyter-python
 subtarget_names = topotap.pour_dataset("define-subtargets", "flatmap-columns/name")
 extract_names = subtarget_names.loc[subtargets_to_extract]
@@ -290,7 +263,6 @@ extract_names.to_hdf(EXTRACTSPC/"connsense.h5", key="subtargets/flatmap-columns/
 extract_gids.to_hdf(EXTRACTSPC/"connsense.h5", key="subtargets/flatmap-columns/data")
 
 #+end_src
-
 
 ** A notebook template to explore and develop
 

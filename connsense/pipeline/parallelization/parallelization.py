@@ -972,7 +972,8 @@ def read_runtime_config(for_parallelization, of_pipeline=None, return_path=False
 
         return {q: configure_quantity(q) for q in quantities_to_configure if q != "description"}
 
-    runtime_pipeline = {c: configure_slurm_for(computation_type=c) for c in of_pipeline["parameters"]}
+    runtime_pipeline = {c: configure_slurm_for(computation_type=c) for c in of_pipeline["parameters"]
+                        if c != "description"}
     config = {"version": config["version"], "date": config["date"], "pipeline": runtime_pipeline}
     return (path, config) if return_path else config
 

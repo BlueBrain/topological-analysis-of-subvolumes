@@ -1,5 +1,6 @@
-#+PROPERTY: header-args:jupyter-python :session ~/Library/Jupyter/runtime/active-1-ssh.json
-#+PROPERTY: header-args:jupyter :session ~/Library/Jupyter/runtime/active-1-ssh.json
+#+PROPERTY: header-args:jupyter-python :session ~/jupyter-run/active-topo-ssh.json
+#+PROPERTY: header-args:jupyter :session ~/jupyter-run/active-topo-ssh.json
+
 #+STARTUP: overview
 
 #+begin_src jupyter
@@ -174,11 +175,8 @@ circuit = otap.get_circuit("Bio_M")
 :  2022-12-06 09:40:49,991: Load circuit Bio_M
 
 ** Nodes and their Adjacencies
-
 For topological analyses we will need the adjacency-matrix and node-properties for the cells in a ~flatmap-column~. Let us see what these quantities look like.
-
 *** Node properties
-
 #+begin_src jupyter-python :tangle develop_topotap.py
 nodes = tap.nodes
 nodes.dataset
@@ -300,8 +298,6 @@ adjacencies["local"].dataset.iloc[0].get_value()
 : 	with 431358 stored elements in Compressed Sparse Row format>
 
 ** Extract small subtargets: An exercise in interacting with TAP HDFStore.
-
-
 We have already extracted circuit data for the pipeline. To reduce test-development time we will extract a small subset of all the 240 subtargets and save to an ~extract~ directory. Structurally this will be exactly the same as the complete pipeline, just with a smaller size. The exercise will use the ~connsense-TAP-HDFStore~ and thus serve as an introduction the use of ~connsense-TAP~ to develop the analyses results further.
 
 #+name: noteook-connsense-extract
@@ -330,17 +326,12 @@ Name: gids, Length: 240, dtype: int64
 
 Let us take everything below a size of 5000
 #+begin_src jupyter-python
-subtargets_to_extract = (subtarget_sizes.index[np.logical_and(2000 <= subtarget_sizes.values,
-                                                             subtarget_sizes.values < 5000)]
-                                               .get_level_values("subtarget_id"))
+size = subtarget_sizes.values
+subtargets_to_extract = (subtargets_sizes.index[2000 <= size, size < 5000]
+                         .get_level_values("subtarget_id"))
 print("Number 2000 <= subtarget-size < 5000", len(subtargets_to_extract))
 #+end_src
-
-#+RESULTS:
-: Number 2000 <= subtarget-size < 5000 16
-
 that we can use to define the extracted subtargets. There are three datasets associated with subtargets.
-
 #+begin_src jupyter-python
 subtarget_names = topotap.pour_dataset("define-subtargets", "flatmap-columns/name")
 extract_names = subtarget_names.loc[subtargets_to_extract]
@@ -455,119 +446,16 @@ We can also get ~inputs~ of a ~TapDataset~,
 simplex_counts.input("R18;C0", "Bio_M")
 #+end_src
 
-#+RESULTS:
-:RESULTS:
-#+begin_example
- 2022-11-29 14:57:32,389: Generate inputs for ('analyze-connectivity', 'simplex-counts').
- 2022-11-29 14:57:32,390: Pour tap
-/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/extract-3/connsense.h5
- to get values for variables:
-{'adjacency': {'dataset': ['extract-edge-populations', 'local']},
- 'node_properties': {'dataset': ['extract-node-populations', 'default']}}
- 2022-11-29 14:57:32,391: Pour adjacency dataset:
-['extract-edge-populations', 'local']
- 2022-11-29 14:57:32,546: Evaluate unpack_value lazily
- 2022-11-29 14:57:32,547: Pour node_properties dataset:
-['extract-node-populations', 'default']
- 2022-11-29 14:57:32,549: Initialize a DataFrameStore matrix store loading / writing data at /gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/extract-3/connsense.h5 / nodes/populations/default
- 2022-11-29 14:57:32,600: Evaluate unpack_value lazily
- 2022-11-29 14:57:32,605: Load configured control erdos-renyi:
-{'algorithm': {'method': 'ER_shuffle',
-               'source': '/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/randomization.py'},
- 'description': 'Erdos-Renyi shuffle of edges.',
- 'seeds': [0]}
- 2022-11-29 14:57:32,606: Import module from path {'source': '/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/randomization.py', 'method': 'ER_shuffle'}, with method None
- 2022-11-29 14:57:32,607: Import module from path /gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/randomization.py, with method ER_shuffle
- 2022-11-29 14:57:32,614: Get input data from tap:
-{'adjacency': {'dataset': ['extract-edge-populations', 'local']}, 'node_properties': {'dataset': ['extract-node-populations', 'default']}}
- 2022-11-29 14:57:32,614: Pour tap
-/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/extract-3/connsense.h5
- to get values for variables:
-{'adjacency': {'dataset': ['extract-edge-populations', 'local']},
- 'node_properties': {'dataset': ['extract-node-populations', 'default']}}
- 2022-11-29 14:57:32,615: Pour adjacency dataset:
-['extract-edge-populations', 'local']
- 2022-11-29 14:57:32,637: Evaluate unpack_value lazily
- 2022-11-29 14:57:32,637: Pour node_properties dataset:
-['extract-node-populations', 'default']
- 2022-11-29 14:57:32,639: Initialize a DataFrameStore matrix store loading / writing data at /gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/extract-3/connsense.h5 / nodes/populations/default
- 2022-11-29 14:57:32,647: Evaluate unpack_value lazily
-/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/topological-analysis-of-subvolumes/connsense/develop/topotap.py:199: PerformanceWarning: indexing past lexsort depth may impact performance.
-#+end_example
-: control
-: original         <connsense.develop.parallelization.DataCall ob...
-: erdos-renyi-0    <connsense.develop.parallelization.DataCall ob...
-: dtype: object
-:END:
-
 or a specific control,
 #+begin_src jupyter-python
 q_controls = simplex_counts.input("R18;C0", controls="erdos-renyi")
 q_controls.iloc[0]["adjacency"]
 #+end_src
 
-#+RESULTS:
-:RESULTS:
-#+begin_example
- 2022-11-29 15:05:01,870: Generate inputs for ('analyze-connectivity', 'simplex-counts').
- 2022-11-29 15:05:01,872: Pour tap
-/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/extract-3/connsense.h5
- to get values for variables:
-{'adjacency': {'dataset': ['extract-edge-populations', 'local']},
- 'node_properties': {'dataset': ['extract-node-populations', 'default']}}
- 2022-11-29 15:05:01,872: Pour adjacency dataset:
-['extract-edge-populations', 'local']
- 2022-11-29 15:05:02,038: Evaluate unpack_value lazily
- 2022-11-29 15:05:02,039: Pour node_properties dataset:
-['extract-node-populations', 'default']
- 2022-11-29 15:05:02,040: Initialize a DataFrameStore matrix store loading / writing data at /gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/extract-3/connsense.h5 / nodes/populations/default
- 2022-11-29 15:05:02,124: Evaluate unpack_value lazily
- 2022-11-29 15:05:02,128: Load configured control erdos-renyi:
-{'algorithm': {'method': 'ER_shuffle',
-               'source': '/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/randomization.py'},
- 'description': 'Erdos-Renyi shuffle of edges.',
- 'seeds': [0]}
- 2022-11-29 15:05:02,129: Import module from path {'source': '/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/randomization.py', 'method': 'ER_shuffle'}, with method None
- 2022-11-29 15:05:02,130: Import module from path /gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/randomization.py, with method ER_shuffle
- 2022-11-29 15:05:02,137: Get input data from tap:
-{'adjacency': {'dataset': ['extract-edge-populations', 'local']}, 'node_properties': {'dataset': ['extract-node-populations', 'default']}}
- 2022-11-29 15:05:02,138: Pour tap
-/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/extract-3/connsense.h5
- to get values for variables:
-{'adjacency': {'dataset': ['extract-edge-populations', 'local']},
- 'node_properties': {'dataset': ['extract-node-populations', 'default']}}
- 2022-11-29 15:05:02,138: Pour adjacency dataset:
-['extract-edge-populations', 'local']
- 2022-11-29 15:05:02,159: Evaluate unpack_value lazily
- 2022-11-29 15:05:02,160: Pour node_properties dataset:
-['extract-node-populations', 'default']
- 2022-11-29 15:05:02,161: Initialize a DataFrameStore matrix store loading / writing data at /gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/extract-3/connsense.h5 / nodes/populations/default
- 2022-11-29 15:05:02,169: Evaluate unpack_value lazily
-/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/topological-analysis-of-subvolumes/connsense/develop/topotap.py:198: PerformanceWarning: indexing past lexsort depth may impact performance.
-  toc_idx = self.index(subtarget, circuit, connectome)
- 2022-11-29 15:05:02,177: Load configured control erdos-renyi:
-{'algorithm': {'method': 'ER_shuffle',
-               'source': '/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/randomization.py'},
- 'description': 'Erdos-Renyi shuffle of edges.',
- 'seeds': [0]}
- 2022-11-29 15:05:02,177: Import module from path {'source': '/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/randomization.py', 'method': 'ER_shuffle'}, with method None
- 2022-11-29 15:05:02,178: Import module from path /gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/randomization.py, with method ER_shuffle
- 2022-11-29 15:05:02,544: Shuffle 2425022 edges following Erdos-Renyi
-#+end_example
-: <4570x4570 sparse matrix of type '<class 'numpy.int64'>'
-: 	with 431358 stored elements in Compressed Sparse Row format>
-:END:
-
-
-
 * Running the pipeline
-
 We have already configured the extract. Let us take a look into the configuration.
-
 ** Setup Launch Collect
-
 Execution of a ~connsense-TAP-pipeline~ is done three stages:
-
 #+begin_src shell
 tap --configure=pipeline.yaml --parallelize=runtime.yaml --mode=develop setup analyze-connectivity simplex-counts
 #+end_src
@@ -651,7 +539,6 @@ Once we are satisfied with results of our analysis, we will to collect them into
 #+begin_src shell
 tap --configure=pipeline.yaml --parallelize=runtime.yaml --mode=develop collect analyze-connectivity simplex-counts
 #+end_src
-
 
 ** TODO: Outline of the setup->launch->collect cycle
 *** TODO Briefly about the two configs.
@@ -756,7 +643,6 @@ Let us look at the steps that contain science,
 
 *** Define Subtargets
 **** Introduction
-
 The /first/ step is to define the ~subtargets~. Each ~subtarget~ will have a name, and a set of ~gids~ associated with it. There is a variety of specifications that ~connsense-TAP~ understands. For our use we will specify path to an ~NRRD~ that maps ~voxel --> subtarget_id~, with information that maps ~subtarget_id --> subtarget info~. Along with paths to data ~connsense-TAP~ will need a method that /defines/ the subtargets. We point to a method within ~connsense~.
 
 **** definitions

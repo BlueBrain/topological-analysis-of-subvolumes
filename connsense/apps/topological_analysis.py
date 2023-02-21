@@ -197,7 +197,7 @@ def main(argued=None):
     LOG.info("Workspace initialized at %s", current_run)
 
     if is_to_init(argued.action):
-        return topaz.initialize()
+        return topaz.initialize(mode=argued.mode)
 
     if is_to_setup(argued.action):
         assert not argued.slicing, "All inputs, full + slicing, will be setup together. Use setup for run step"
@@ -232,7 +232,8 @@ def main(argued=None):
                 if (argued.modeltype or argued.annotation or argued.population or argued.analysis):
                     raise parser.error("Only --definition=<...>` is valid for `step=define-subtargets`")
             definition = argued.substep or argued.definition
-            return define_subtargets.run(argued.configure, substep=definition, parallelize=argued.parallelize)
+            return define_subtargets.run(argued.configure, substep=definition, parallelize=argued.parallelize,
+                                         in_mode=argued.mode)
 
         if argued.step == "extract-node-types":
 
@@ -341,12 +342,12 @@ def get_parser():
     parser.add_argument("-n", "--analysis", required=False,
                         help=("Pass the analysis to run, for the analyses steps. Omit for other steps."))
 
-    parser.add_argument("-c", "--configure", required=True,
+    parser.add_argument("-c", "--configure", required=False, default=Path.cwd()/"pipeline.yaml",
                         help=("Path to the (JSON) configuration that describes what to run.\n"
                               "The config should specify the input and output paths,"
                               "  and parameters  for each of the pipeline steps."))
 
-    parser.add_argument("-p", "--parallelize", required=False,
+    parser.add_argument("-p", "--parallelize", required=False, default=Path.cwd()/"runtime.yaml",
                         help=("Path to the (JSON) configuration that describes how to compute.\n"
                               "The entries in this configuration will provide parameters such as\n"
                               "paralellization parameters, whether to parallilize on a single node or multiple.\n"
@@ -357,7 +358,7 @@ def get_parser():
     parser.add_argument("-s", "--slicing", required=False, default=None,
                         help=("Name the input slicing to run. The slicing should appear in the config."))
 
-    parser.add_argument("-m", "--mode", required=False, default=None,
+    parser.add_argument("-m", "--mode", required=False, default="develop",
                         help=("Specify how the action should be performed. should be done\n"
                               "For example:\n"
                               "tap --configure=config.json --parallelize=parallel.json --mode=prod run\n"

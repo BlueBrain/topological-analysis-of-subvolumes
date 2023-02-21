@@ -56,7 +56,8 @@ def extract_morphologies_by_mtype(circuit):
     paths = morphology_names.apply(locate_morphology).rename("filepath")
 
     mtypes = extract_mtypes(circuit)
-    by_mtype = (inform_mecomboes(circuit)[["fullmtype", "morph_name"]].rename(columns={"fullmtype": "mtype"})
+    by_mtype = (inform_mecomboes(circuit)[["fullmtype", "morph_name"]]
+                .rename(columns={"fullmtype": "mtype"})
                 .drop_duplicates().reset_index(drop=True))
 
     morph_ids = pd.Series(morphology_names.index.values, index=morphology_names.values)

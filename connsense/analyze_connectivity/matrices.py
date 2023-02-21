@@ -213,12 +213,12 @@ class MatrixStore:
 
 class SparseMatrixHelper:
     """Provide help for scipy sparse matrices."""
-    import io
-    from scipy import sparse
-
     @staticmethod
     def write(matrix, to_hdf_store_at_path, under_group, as_dataset):
         """..."""
+        import io
+        from scipy import sparse
+
         bio = io.BytesIO()
         sparse.save_npz(bio, matrix)
         bio.seek(0)
@@ -232,6 +232,9 @@ class SparseMatrixHelper:
     @staticmethod
     def read(dataset, under_group, in_hdf_store_at_path):
         """..."""
+        import io
+        from scipy import sparse
+
         with h5py.File(in_hdf_store_at_path, 'r') as hdf:
             hdf_group = hdf[under_group]
             data = hdf_group[dataset]
@@ -332,9 +335,9 @@ class SeriesHelper:
 
 class SeriesOfMatricesHelper:
     """Handle a series that contains matrices in its values."""
-    def __init__(self, matrix_helper=DenseMatrixHelper()):
+    def __init__(self, matrix_helper=None):
         """..."""
-        self._matrix_helper = matrix_helper
+        self._matrix_helper = matrix_helper or DenseMatrixHelper()
 
     def write(self, series_of_matrices, to_hdf_store_at_path, under_group, as_dataset):
         """..."""
@@ -511,8 +514,9 @@ class SeriesOfMatricesStore(MatrixStore):
     For example, simplex lists.
     """
     keysize = 2
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, using_handler=SeriesOfMatricesHelper(), **kwargs)
+    def __init__(self, *args, matrix_type=None, **kwargs):
+        super().__init__(*args, using_handler=SeriesOfMatricesHelper(matrix_type),
+                         **kwargs)
 
     def prepare_toc(self, of_paths):
         """..."""
@@ -587,6 +591,19 @@ class SeriesOfMatricesStore(MatrixStore):
 class SeriesOfMatrices:
     """Type to indicate that an analysis algorithm will return
     pandas.Series of matrices.
+    """
+    pass
+
+
+class SeriesOfSparseMatricesStore(SeriesOfMatricesStore):
+    """..."""
+    def __init__(self, *args, **kwargs):
+        """..."""
+        super().__init__(*args, matrix_type=SparseMatrixHelper(), **kwargs)
+
+
+class SeriesOfSparseMatrices:
+    """Type to indicate that an analysis algorithm will return pandas.Series of sparse matrices.
     """
     pass
 
@@ -807,6 +824,9 @@ def StoreType(for_matrix_type):
 
     if issubclass(matrix_type, SeriesOfMatrices):
         return SeriesOfMatricesStore
+
+    if issubclass(matrix_type, SeriesOfSparseMatrices):
+        return SeriesOfSparseMatricesStore
 
     if issubclass(matrix_type, SingleSeries):
         return SingleSeriesStore

@@ -5,12 +5,9 @@
 #+title: Topotap
 
 * Setup :noexport:
-
 In our discussion we will develop scientific concepts to measure the circuit, and implement Python functions to compute them. Here we setup a notebook template to test and explore, and the structure of a ~Python~ package for our methods.
 
-
 Let us setup an interactive ~Python~ session where we can run the code developed here.
-
 #+begin_src jupyter
 print("Welcome to EMACS Jupyter")
 #+end_src
@@ -19,7 +16,6 @@ print("Welcome to EMACS Jupyter")
 : Welcome to EMACS Jupyter
 
 ** Introduction
-
 #+name: notebook-init
 #+begin_src jupyter-python
 from importlib import reload
@@ -44,14 +40,8 @@ from bluepy import Synapse, Cell, Circuit
 
 print("We will plot golden aspect ratios: ", GOLDEN)
 #+end_src
-
-#+RESULTS: notebook-init
-: We will plot golden aspect ratios:  1.618033988749895
-
-We have run ~connsense-CRAP~ for the SSCx dissemination variant /Bio-M/, extracting data that we will use to compute the factology. Here is a list of workspaces we will need to generate factsheets.
-
 ** Workspaces
-
+We have run ~connsense-CRAP~ for the SSCx dissemination variant /Bio-M/, extracting data that we will use to compute the factology. Here is a list of workspaces we will need to generate factsheets.
 #+name: notebook-workspaces-0
 #+begin_src jupyter-python
 from connsense.pipeline import pipeline
@@ -803,7 +793,8 @@ To interface with the ~slicing~ datasets of an analysis we will use a ~kwarg~,
 def pour_dataset(tap, computation_type, of_quantity, slicing=None):
     """..."""
     connsense_h5, hdf_group = tap.get_path(computation_type)
-    dataset = '/'.join([hdf_group, of_quantity] if not slicing else [hdf_group, of_quantity, slicing])
+    dataset = ('/'.join([hdf_group, of_quantity] if not slicing
+                        else [hdf_group, of_quantity, slicing])
 
     with h5py.File(tap._root, 'r') as hdf:
         if "data" in hdf[dataset]:
@@ -1249,7 +1240,8 @@ While its ~dataset~ provides a ~dict~ (/i.e./ ~[]~) interface to ~connsense-TAP-
 
     def frame_component(self, c=None, name_indices=True):
         """..."""
-        LOG.info("Frame TapDataset %s/%s component %s", self._phenomenon, self._quantity, c)
+        LOG.info("Frame TapDataset (%s/%s) component %s",
+                 self._phenomenon, self._quantity, c)
 
         if isinstance(c, str):
             assert isinstance(self.dataset, Mapping)
@@ -1260,20 +1252,21 @@ While its ~dataset~ provides a ~dict~ (/i.e./ ~[]~) interface to ~connsense-TAP-
             component = self.dataset
             variable_ids = self.variable_ids
 
-        def cleanup_index_subtarget_result(r):
+        def cleanup_index(r):
             try:
                 return r.droplevel(self.variable_ids)
             except (IndexError, KeyError):
                 return r
 
         if name_indices:
-            index = pd.concat([self.name_index(component, varid) for varid in variable_ids], axis=1)
+            index = pd.concat([self.name_index(component, varid)
+                               for varid in variable_ids], axis=1)
 
             if isinstance(component, pd.Series):
-                series = pd.Series(component.values, index=pd.MultiIndex.from_frame(index))
-                series = series[~series.index.duplicated(keep="last")]
-                return pd.concat([cleanup_index_subtarget_result(value) for value in series.values],
-                                 keys=series.index)
+                s = pd.Series(component.values, index=pd.MultiIndex.from_frame(index))
+                s = s[~s.index.duplicated(keep="last")]
+                return (pd.concat([cleanup_index(v) for v in s.values], keys=s.index)
+                        if not self._belazy else s)
 
             assert isinstance(component, pd.DataFrame), f"Invalid type {type(component)}"
             return component.set_index(pd.MultiIndex.from_frame(index))
@@ -1305,7 +1298,6 @@ While its ~dataset~ provides a ~dict~ (/i.e./ ~[]~) interface to ~connsense-TAP-
             pass
         frame = pd.concat(data.values, keys=data.index)
         return frame.groupby(data.index.names).agg(summarize) if summarize else frame
-
 #+end_src
 
 Some analyses may have controls. We do not save the controlled inputs during the execution of the pipeline. While the original input can be loaded from the HDFStore, we will need to generate the controlled input in order to provide a controlled input. Let us implement a ~TapDataset~ method that returns the input of the ~pipeline-step~ associated with the ~TapDataset~,
@@ -1322,7 +1314,8 @@ Some analyses may have controls. We do not save the controlled inputs during the
         inputs = devprl.generate_inputs(self._dataset, self._tap._config).loc[toc_idx]
 
         if not isinstance(inputs.index, pd.MultiIndex):
-            inputs.index = pd.MultiIndex.from_tuples([(v,) for v in inputs.index.values], names=[inputs.index.name])
+            inputs.index = pd.MultiIndex.from_tuples([(v,) for v in inputs.index.values],
+                                                     names=[inputs.index.name])
 
         if not controls:
             return inputs.apply(lambda l: l()) if self._belazy else inputs
@@ -1335,13 +1328,12 @@ Some analyses may have controls. We do not save the controlled inputs during the
 
         controls_configured = devprl.load_control(configured)
 
-        controls_argued = [c for c, _, _ in controls_configured if c.startswith(f"{controls}-")]
+        argued = [c for c, _, _ in controls_configured if c.startswith(f"{controls}-")]
 
-        control_inputs = pd.concat([inputs.xs(c, level="control") for c in controls_argued], axis=0,
-                                   keys=[c.replace(controls, '')[1:] for c in controls_argued], names=[controls])
-
-        return control_inputs.apply(lambda l: l()) if not self._belazy else control_inputs
-
+        controlled = pd.concat([inputs.xs(c, level="control") for c in argued], axis=0,
+                               keys=[c.replace(controls, '')[1:] for c in argued],
+                               names=[controls])
+        return controlled.apply(lambda l: l()) if not self._belazy else controlled
 #+end_src
 
 Additional, planned and requested features.
@@ -1351,7 +1343,6 @@ Additional, planned and requested features.
         Return pandas Series for the controls, each with an adjacency matrix.
         """
         raise NotImplementedError("INPROGRESS")
-
 #+end_src
 
 #+RESULTS: eap-dataset

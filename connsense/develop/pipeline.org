@@ -4,14 +4,11 @@
 
 The brain circuit's connections are mediated via multiple-synapses, and may consitute of multiple node populations.
 Here we develop features in ~connsense~ to handle such features of a brain network.
-
 * Introduction
-
-Moving on from the simpler brain reconstructions, we are now building circuits with neurons composed of two types: the /biophyscal/ neurons in the network and the virtual ones that represented the thalamic inputs. We now have circuits with multiple node-types that can be mixed to define a /node-population/. Each /node-type/ has a homoegenous namespace that contains the information that is necessary to build a model for each neuron in the circuit of that /node-type/. A single /node-population/ may consist of several /node-types/.
+Moving on from the simpler brain reconstructions, we are now building circuits with neurons composed of two types: the /biophyscal/ neurons in the network and the virtual ones that represent the thalamic inputs. We now have circuits with multiple node-types that can be mixed to define a /node-population/. Each /node-type/ has a homoegenous namespace that contains the information that is necessary to build a model for each neuron in the circuit of that /node-type/. A single /node-population/ may consist of several /node-types/.
 In the SSCX circuit, we define the /default/ node-populattion to be that of the SSCx biophysical neurons.
 
 To track multiple  populations of nodes and edges, we will need to make changes to ~connsense~'s ~HDFstore~. We define the ~circuit-subtargets~ at the level of the brain region that an analyzed ~circuit~ models. We can think of several ~definitions~ of ~circuit-subtargets~ to study. Let us decide that a given ~connsense~'s ~tap~ will run only for a single definition of ~circuit-subtargets~. We can enter this information in the ~config parameter~'s section ~define-subtargets~, and add it as an attribute to the ~HDFstore-group~ for step ~define-subtargets~.
-
 
 * Pipeline steps
 
@@ -57,16 +54,13 @@ Or build an EMACS interpreter,
 #+end_src
 
 ** Subtarget
-
 Each of ~extract~, ~analyze~, or ~summarize~, is defined by ~(phenomemnon quantity computation)~, in which ~(phenomenon quantity)~ classifies the computation as that of a quantity of a phenomenon, while ~computation~  is a ~method~  that runs the computation. We can consider ~define~ in the same form,
-
 #+begin_src racket
 (define (subtarget phenomenon by-grouping computation)
   "Define a computation to study a phenomenon by grouping it into subtargets.")
 #+end_src
 
 which we can use to define subtargets, for example in the phenomenon of /brain-circuit/ in terms of the quantity of ~Cell.ID~s.
-
 #+begin_src racket
 (define flatmap-columns
   "Columns in a brain-region defined using a flatmap."
@@ -94,7 +88,6 @@ which we can use to define subtargets, for example in the phenomenon of /brain-c
 #+end_src
 
 ** Extract
-
 #+begin_src racket
 (define (extract population data computation)
   "A computation that extracts values of a quantity of a phenomenon.")
@@ -104,14 +97,16 @@ Let us provide some values to that definition,
 #+begin_src racket
 (define node-properties/default
   (extract (node-population "default")
-           (cell-properties (list "x" "y" "z" "depth"
-                                  "synapse-class" "mtype" "morphology" "etype", "emodel")
-           (computation #:source "path-to-source.code" #:method "to-extract-node-properties"))))
+           (cell-properties ("x" "y" "z" "depth"
+                                 "synapse-class" "mtype" "morphology" "etype", "emodel")
+           (computation #:source "path-to-source.code"
+                        #:method "to-extract-node-properties"))))
 
 (define adjacency/local
   (extract (edge-population "local")
            (adjacency (id_node edge_source) (id_node edge_target))
-           (computation #:source "path-to-source.code" #:method "to-extract-adjacency")))
+           (computation #:source "path-to-source.code"
+                        #:method "to-extract-adjacency")))
 
 (define connectivity/local
   (connectivity adjacency/local node-properties/default))
@@ -119,15 +114,17 @@ Let us provide some values to that definition,
 (define adjacency/long-range
   (extract (edge-population "long-range")
            (adjacency (id_node edge_source) (id_node edge_target))
-           (computation #:source "path-to-source.code" #:method "to-extract-adjacency")))
+           (computation #:source "path-to-source.code"
+                        #:method "to-extract-adjacency")))
 
 (define connectivity/long-range
-  (connectivity adjacency/local node-properties/default))
+  (connectivity adjacency/long-range node-properties/default))
 
 (define adjacency/thalamic-vpm
   (extract (edge-population "thalamic-vpm")
            (adjacency (extrinsic edge_source) (id_node edge_target))
-           (computation #:source "path-to-source.code" #:method "to-extract-adjacency")))
+           (computation #:source "path-to-source.code"
+                        #:method "to-extract-adjacency")))
 #+end_src
 
 Here we find ~adjacency~ all by it's own too lonely. However the expressions we are developing allow us to configure for,
@@ -138,8 +135,8 @@ Here we find ~adjacency~ all by it's own too lonely. However the expressions we 
                                      "x" "y" "z"
                                      "g_synx" "usyn" "dsyn" "fsyn" "nrrp"
                                      "segment_id" "segment_offset"))
-           (computation #:source "path-to-source.code" #:method "to-extract-edge-properties")))
-
+           (computation #:source "path-to-source.code"
+                        #:method "to-extract-edge-properties")))
 #+end_src
 
 While edge properties will pull out ~synapse-properties~, we might also want just the connections (source_id-->target_id)
@@ -147,7 +144,8 @@ While edge properties will pull out ~synapse-properties~, we might also want jus
 (define connections/local
   (extract (edge-population "local")
            (connection (id_cell edge_source) (id_cell edge_target))
-           (computation #:source "path-to-source.code" #:method "to-extract-connections")))
+           (computation #:source "path-to-source.code"
+                        #:method "to-extract-connections")))
 #+end_src
 
 #+begin_src racket
@@ -155,8 +153,8 @@ While edge properties will pull out ~synapse-properties~, we might also want jus
   "Extract connections from edge-population."
   (extract population
            (connections (id_cell edge_source) (id_cell edge_target))
-           (computation #:source "path-to-source.code" #:method "to-extract-connections")))
-
+           (computation #:source "path-to-source.code"
+                        #:method "to-extract-connections")))
 #+end_src
 
 All that is left to close-up extractions are expressions for ~node-population~ and ~edge-population~. We can consider these /symbols/ to make sense ~connsense-pipeline~ when it applies these ~computation~s,
@@ -170,7 +168,6 @@ All that is left to close-up extractions are expressions for ~node-population~ a
 #+end_src
 
 ** Analyze
-
 We can configure the whole analyses suite
 #+begin_src racket
 (define (analyses-suite subtargets)
@@ -184,7 +181,6 @@ We can configure the whole analyses suite
 #+end_src
 
 These suites of analyses assume that each listed function in ~quantity~ will run for a list of ~subtarget~s.
-
 Analyses will be defined for ~phenonemnon/quantity~,
 #+begin_src racket
 (define (analyze phenonemnon quantity parameters computation)
@@ -224,7 +220,6 @@ which will work with
 #+end_src
 
 We can define a sample of connections by pathway,
-
 #+begin_src racket
 (define simulate-voltage-traces
   (simulate (quantity 'psp-traces
@@ -291,24 +286,24 @@ We want to run computations on populations of nodes and edges,
 #+end_src
 
 Against which we can define,
-
 #+begin_src racket
 (define (node-properties p)
   (extract (node-population p)
-           (cell-properties (list "x" "y" "z" "depth"
-                                  "synapse-class" "mtype" "morphology" "etype", "emodel")
-           (computation #:source "path-to-source.code" #:method "to-extract-node-properties"))))
+           (cell-properties ("x" "y" "z" "depth"
+                                 "synapse-class" "mtype" "morphology" "etype", "emodel")
+           (computation #:source "path-to-source.code"
+                        #:method "to-extract-node-properties"))))
 
 (define (adjacency p)
   (extract (edge-population p)
            (matrix (id_node edge_source) (id_node edge_target))
-           (computation #:source "path-to-source.code" #:method "to-extract-adjacency")))
+           (computation #:source "path-to-source.code"
+                        #:method "to-extract-adjacency")))
 
 (define (connectivity cells connectome)
   (hash 'adjacency (adjacency connectome)
         'node-properties (node-properties cells))
 #+end_src
-
 
 * Of types and populations
 
@@ -393,7 +388,6 @@ edges:
 #+end_src
 
 Let us see how to implement these ideas by developing a ~connsense-TAP~ config.
-
 
 * Pipeline Config
 
@@ -1000,7 +994,6 @@ def read_config(for_pipeline):
     return read(for_pipeline)
 #+end_src
 
-
 * Concepts
 
 The code will blow up if we were to implement the various pipeline steps described above.
@@ -1061,7 +1054,6 @@ Each step in the pipeline is a computation, that we can describe with code
 #+begin_src scheme
 #+end_src
 
-
 * Results
 The result of our discussion are the YAML configurations.
 
@@ -1093,7 +1085,6 @@ parameters:
   <<pipeline-config-parameters-analyze-connectivity>>
 #+end_src
 #+end_src
-
 
 * Of types and populations
 
@@ -1178,7 +1169,6 @@ edges:
 #+end_src
 
 Let us see how to implement these ideas by developing a ~connsense-TAP~ config.
-
 
 * Pipeline Config
 
@@ -1892,7 +1882,6 @@ def read_config(for_pipeline):
     return read(for_pipeline)
 #+end_src
 
-
 * Concepts
 
 The code will blow up if we were to implement the various pipeline steps described above.
@@ -1953,7 +1942,6 @@ Each step in the pipeline is a computation, that we can describe with code
 #+begin_src scheme
 #+end_src
 
-
 * Results
 The result of our discussion are the YAML configurations.
 
@@ -1984,7 +1972,6 @@ parameters:
   <<pipeline-config-parameters-analyze-composition>>
   <<pipeline-config-parameters-analyze-connectivity>>
 #+end_src
-
 
 * Some terminology
 

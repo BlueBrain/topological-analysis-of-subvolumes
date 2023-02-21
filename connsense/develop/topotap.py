@@ -303,7 +303,8 @@ class TapDataset:
 
     def frame_component(self, c=None, name_indices=True):
         """..."""
-        LOG.info("Frame TapDataset %s/%s component %s", self._phenomenon, self._quantity, c)
+        LOG.info("Frame TapDataset (%s/%s) component %s",
+                 self._phenomenon, self._quantity, c)
 
         if isinstance(c, str):
             assert isinstance(self.dataset, Mapping)
@@ -314,20 +315,21 @@ class TapDataset:
             component = self.dataset
             variable_ids = self.variable_ids
 
-        def cleanup_index_subtarget_result(r):
+        def cleanup_index(r):
             try:
                 return r.droplevel(self.variable_ids)
             except (IndexError, KeyError):
                 return r
 
         if name_indices:
-            index = pd.concat([self.name_index(component, varid) for varid in variable_ids], axis=1)
+            index = pd.concat([self.name_index(component, varid)
+                               for varid in variable_ids], axis=1)
 
             if isinstance(component, pd.Series):
-                series = pd.Series(component.values, index=pd.MultiIndex.from_frame(index))
-                series = series[~series.index.duplicated(keep="last")]
-                return pd.concat([cleanup_index_subtarget_result(value) for value in series.values],
-                                 keys=series.index)
+                s = pd.Series(component.values, index=pd.MultiIndex.from_frame(index))
+                s = s[~s.index.duplicated(keep="last")]
+                return (pd.concat([cleanup_index(v) for v in s.values], keys=s.index)
+                        if not self._belazy else s)
 
             assert isinstance(component, pd.DataFrame), f"Invalid type {type(component)}"
             return component.set_index(pd.MultiIndex.from_frame(index))
@@ -360,7 +362,6 @@ class TapDataset:
         frame = pd.concat(data.values, keys=data.index)
         return frame.groupby(data.index.names).agg(summarize) if summarize else frame
 
-
     def input(self, subtarget, circuit=None, connectome=None, *, controls=None):
         """..."""
         from connsense.develop import parallelization as devprl
@@ -369,7 +370,8 @@ class TapDataset:
         inputs = devprl.generate_inputs(self._dataset, self._tap._config).loc[toc_idx]
 
         if not isinstance(inputs.index, pd.MultiIndex):
-            inputs.index = pd.MultiIndex.from_tuples([(v,) for v in inputs.index.values], names=[inputs.index.name])
+            inputs.index = pd.MultiIndex.from_tuples([(v,) for v in inputs.index.values],
+                                                     names=[inputs.index.name])
 
         if not controls:
             return inputs.apply(lambda l: l()) if self._belazy else inputs
@@ -382,13 +384,12 @@ class TapDataset:
 
         controls_configured = devprl.load_control(configured)
 
-        controls_argued = [c for c, _, _ in controls_configured if c.startswith(f"{controls}-")]
+        argued = [c for c, _, _ in controls_configured if c.startswith(f"{controls}-")]
 
-        control_inputs = pd.concat([inputs.xs(c, level="control") for c in controls_argued], axis=0,
-                                   keys=[c.replace(controls, '')[1:] for c in controls_argued], names=[controls])
-
-        return control_inputs.apply(lambda l: l()) if not self._belazy else control_inputs
-
+        controlled = pd.concat([inputs.xs(c, level="control") for c in argued], axis=0,
+                               keys=[c.replace(controls, '')[1:] for c in argued],
+                               names=[controls])
+        return controlled.apply(lambda l: l()) if not self._belazy else controlled
 
 class HDFStore:
     """An interface to the H5 data extracted by connsense-TAP.

@@ -514,7 +514,7 @@ class TriTille:
 
     def plot_hextiles(self, positions, bins=None, graphic=None,
                       annotate=True, with_grid=True,
-                      pointcolor=None, pointmarker="o", pointmarkersize=20,):
+                      pointcolor=None, pointmarker=".", pointmarkersize=0.05):
         """
         TODO: Annotate trigrid.
         """
