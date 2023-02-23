@@ -1,4 +1,6 @@
 """Targets defined using the circuit's flatmap.
+ad_n
+
 
 NOTE: As of today (20220207), this file is under a refactor towards a uniform configuration
 ~     each pipeline step.
@@ -353,7 +355,7 @@ def extract_subtargets(definition, in_config, tap):
     kwargs = defparams.get("kwargs", {})
 
     if not members:
-        from .flatmap import read_subtargets, load_nrrd
+        #from .flatmap import read_subtargets, load_nrrd
         subtargets_with_info = read_subtargets(kwargs["info"])
         subtargets = subtargets_with_info["subtarget"]
         subtarget_info = subtargets_with_info.drop(columns="subtarget")
@@ -403,26 +405,26 @@ def run(config, substep=None, in_mode=None, output=None, **kwargs):
 
     return (connsense_h5, under_group)
 
-    subtargets = pd.Series(members, name="subtarget", index=pd.Index(range(len(members)), name="subtarget_id"))
+    # subtargets = pd.Series(members, name="subtarget", index=pd.Index(range(len(members)), name="subtarget_id"))
 
-    sbtcfg = SubtargetsConfig(config)
-    circuit_label = definition["input"]["circuit"]
-    circuit = sbtcfg.input_circuit[circuit_label]
+    # sbtcfg = SubtargetsConfig(config)
+    # circuit_label = definition["input"]["circuit"]
+    # circuit = sbtcfg.input_circuit[circuit_label]
 
-    _, load = plugins.import_module(definition["loader"])
+    # _, load = plugins.import_module(definition["loader"])
 
-    subtargets_gids = pd.concat([subtargets.apply(lambda s: load(circuit, s)).rename("gids")], axis=0,
-                                keys=[circuit_label], names=["circuit"])
+    # subtargets_gids = pd.concat([subtargets.apply(lambda s: load(circuit, s)).rename("gids")], axis=0,
+    #                             keys=[circuit_label], names=["circuit"])
 
-    LOG.info("Defined %s %s-subtargets.", len(subtargets), substep)
-    to_output = output_specified_in(output_paths, and_argued_to_be=output)
-    connsense_h5, group = to_output
+    # LOG.info("Defined %s %s-subtargets.", len(subtargets), substep)
+    # to_output = output_specified_in(output_paths, and_argued_to_be=output)
+    # connsense_h5, group = to_output
 
-    write(subtargets, to_path=(connsense_h5, group))
-    write(subtargets, to_path=(out_h5, hdf_group+"/index"), format="fixed")
-    output = write(subtargets_gids, to_path=(out_h5, hdf_group+"/"+substep), format="fixed")
-    LOG.info("DONE: define-subtargets %s %s", substep, output)
-    return output
+    # write(subtargets, to_path=(connsense_h5, group))
+    # write(subtargets, to_path=(out_h5, hdf_group+"/index"), format="fixed")
+    # output = write(subtargets_gids, to_path=(out_h5, hdf_group+"/"+substep), format="fixed")
+    # LOG.info("DONE: define-subtargets %s %s", substep, output)
+    # return output
 
 
 def run_2(config, substep=None, in_mode=None, output=None, **kwargs):

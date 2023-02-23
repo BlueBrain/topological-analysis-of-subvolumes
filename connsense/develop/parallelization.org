@@ -1,5 +1,5 @@
-#+PROPERTY: header-args:jupyter :session  ~/jupyter-run/active-topo-1-ssh.json :pandoc t
-#+PROPERTY: header-args:jupyter-python :session ~/jupyter-run/active-topo-1-ssh.json :pandoc t
+#+PROPERTY: header-args:jupyter :session  ~/jupyter-run/active-ssh.json :pandoc t
+#+PROPERTY: header-args:jupyter-python :session ~/jupyter-run/active-ssh.json :pandoc t
 #+STARTUP: overview
 
 #+title: Parallelization
@@ -75,9 +75,7 @@ from connsense.pipeline.store import store as tap_store
 #+end_src
 
 ** Connsense workspace
-
 We will load circuit data and compute analyses on it. To read and write we need paths. We can choose from a real circuit.
-
 #+name: notebook-workspaces
 #+begin_src jupyter-python
 # %% [markdown]
@@ -87,17 +85,14 @@ We can set paths to load data, and to save the results of our experiments. Paths
 # %% [code]
 ROOTSPACE = Path("/")
 PROJSPACE = ROOTSPACE / "gpfs/bbp.cscs.ch/project/proj83"
-#CONNSPACE = PROJSPACE / "home/sood" / "topological-analysis-subvolumes/test/v2" / "test"
-CONNSPACE = (PROJSPACE / "home/sood" / "portal/develop/factology-v2/analyses/connsense"/
-             "redefine-subtargets/create-index/morphology-mtypes")
+CONNSPACE = PROJSPACE / "home/sood" / "topological-analysis-subvolumes/test/v2"
+#CONNSPACE = (PROJSPACE / "home/sood" / "portal/develop/factology-v2/analyses/connsense"/
+#             "redefine-subtargets/create-index/morphology-mtypes")
 #+end_src
-
-#+RESULTS: notebook-workspaces
 
 ** Tap store
 
 While test-developing it will be good to have direct access to the ~connsense-TAP-store~ we will use.
-
 #+name: notebook-connsense-tap
 #+begin_src jupyter-python
 # %% [markdown]
@@ -110,7 +105,6 @@ print("Available analyses: ")
 #+end_src
 
 As of <2022-10-18 Tue> we are developing a fresh interface for ~connsense-TAP~ that will be used for accessing ~connsense-TAP~ data. The current implementation will continue to be used internally by ~connsense-TAP-parallelization~, and eventually absorbed into ~TopologicalAnalysisPipeline~.
-
 #+name: notebook-connsense-topotap
 #+begin_src jupyter-python
 # %% [markdown]
@@ -140,35 +134,16 @@ pprint(topotap.analyses)
 #+end_src
 
 #+RESULTS:
-#+begin_example
-We will plot golden aspect ratios:  1.618033988749895
- 2022-11-23 12:16:44,198: Configure slurm for define-subtargets
- 2022-11-23 12:16:44,199: Configure slurm for extract-node-types
- 2022-11-23 12:16:44,200: Configure slurm for analyze-node-types
- 2022-11-23 12:16:44,200: Configure slurm for create-index
- 2022-11-23 12:16:44,201: No runtime configured for computation type create-index
- 2022-11-23 12:16:44,201: Configure slurm for extract-node-populations
- 2022-11-23 12:16:44,202: Configure slurm for extract-edge-populations
- 2022-11-23 12:16:44,202: Configure slurm for sample-edge-populations
- 2022-11-23 12:16:44,203: Configure slurm for analyze-composition
- 2022-11-23 12:16:44,204: Configure slurm for analyze-connectivity
- 2022-11-23 12:16:44,204: Configure slurm for configure-inputs
- 2022-11-23 12:16:44,205: No runtime configured for computation type configure-inputs
- 2022-11-23 12:16:44,205: Configure slurm for analyze-physiology
-Available analyses:
-Available analyses:
-{'composition': {'sample-bouton-density': <connsense.develop.topotap.TapDataset object at 0x7fff5c1a9100>,
-                 'synapse-morphology-locations': <connsense.develop.topotap.TapDataset object at 0x7fff5c1a91f0>,
-                 'synapse-properties': <connsense.develop.topotap.TapDataset object at 0x7fff5c1a90d0>},
- 'connectivity': {'common-neighbor-bias': <connsense.develop.topotap.TapDataset object at 0x7fff5c1f34f0>,
-                  'connection-probability': <connsense.develop.topotap.TapDataset object at 0x7fff5c1f3880>,
-                  'pair-counts-by-soma-distance': <connsense.develop.topotap.TapDataset object at 0x7fff5c1f3850>,
-                  'pathway-strength': <connsense.develop.topotap.TapDataset object at 0x7fff5c1f3970>,
-                  'pathway-strength-metype': <connsense.develop.topotap.TapDataset object at 0x7fff5c1f3a90>,
-                  'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7fff5c1f37f0>},
- 'node-types': {'morphometrics': <connsense.develop.topotap.TapDataset object at 0x7fff5c1a90a0>},
- 'physiology': {'psp': <connsense.develop.topotap.TapDataset object at 0x7fff5c1f3760>}}
-#+end_example
+:  2023-02-21 17:41:14,304: Configure slurm for define-subtargets
+:  2023-02-21 17:41:14,304: Configure slurm for create-index
+:  2023-02-21 17:41:14,305: No runtime configured for computation type create-index
+:  2023-02-21 17:41:14,305: Configure slurm for extract-node-populations
+:  2023-02-21 17:41:14,306: Configure slurm for extract-edge-populations
+:  2023-02-21 17:41:14,306: Configure slurm for analyze-connectivity
+: We will plot golden aspect ratios:  1.618033988749895
+: Available analyses:
+: Available analyses:
+: {'connectivity': {'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7fff1929d0d0>}}
 
 * Describe the computation
 Computations are entered as sections in the config. We will reference a computation by it's ~computation-type~ and the ~quantity~ it computes. We will enter computations of the same ~computation-type~ together as a section in the config, enterting the computation parameters for each individual quantity.  Normally a process of ~(computation-type, quantity)~ should produce a frame or series that will be saved as a HDF dataset. In some cases there may be multiple datasets, each saved in their own dataset under the group ~<computation-type>/<quantity>~.  The names of these datasets will be read from the config.
@@ -1333,16 +1308,20 @@ def generate_inputs(of_computation, in_config, slicing=None, circuit_args=None,
 
     assert slicing in params["slicing"]
     cfg = {slicing: params["slicing"][slicing]}
-    to_cut = load_slicing(cfg, tap, lazily=False, **circuit_kwargs)
-    slices = generate_slices(tap, inputs=full, using_knives=to_cut[slicing])
+    to_cut = load_slicing(cfg, tap, lazily=False, **circuit_kwargs)[slicing]
 
+    if to_cut.get("compute_mode", "EXECUTE") in ("execute", "EXECUTE"):
+        return full
+
+    slices = generate_slices(tap, inputs=full, using_knives=to_cut)
     return index_circuit_args(slices)
 
 
 def generate_slices(of_tap, inputs, using_knives):
     """Generate slices of inputs accoring to configured knives."""
     from tqdm import tqdm; tqdm.pandas()
-    datacut = lambda cut: datacall(cut, preserves_shape=False)
+    def datacut(c):
+        return datacall(c, preserves_shape=False)
     slices = pd.concat([inputs.apply(datacut(c)) for c in using_knives], axis=0,
                        keys=using_knives.index)
     n_slice_index = len(slices.index.names) - len(inputs.index.names)
@@ -1505,7 +1484,6 @@ To compute a quantity using multinode parallelization ~connsense-TAP~ will setup
 The version that sequences slices and full separately.
 #+name: develop-parallelization-multinode-setup
 #+begin_src python
-
 def setup_multinode(process, of_computation, in_config, using_runtime, *,
                     in_mode=None, njobs_to_estimate_load=None):
     """Setup a multinode process.
@@ -1591,11 +1569,17 @@ def setup_multinode(process, of_computation, in_config, using_runtime, *,
     of_tap = HDFStore(in_config)
     slicings = load_slicing(cfg_slicings, of_tap, lazily=False, **circuit_kwargs)
     for slicing, to_slice in slicings.items():
-        sliced_inputs = generate_slices(of_tap, inputs=full, using_knives=to_slice)
+        slicing_mode = to_slice.get("compute_mode", "EXECUTE")
+        sliced_inputs = (generate_slices(of_tap, inputs=full, using_knives=to_slice)
+                         if slicing_mode in ("datacall", "DATACALL")
+                         else full)
         compute_nodes[slicing] = prepare_compute_nodes(sliced_inputs, to_stage/slicing, slicing, None)
     return compute_nodes
-
 #+end_src
+
+#+RESULTS: develop-parallelization-multinode-setup
+: None
+
 To check the compute nodes,
 #+name: develop-parallelization-multinode-setup-check
 #+begin_src jupyter-python :comments org :padline no :tangle no
@@ -1790,7 +1774,6 @@ def read_configs(of_computation, in_config, at_dirpath):
     """..."""
     LOG.info("Read configs of %s at %s", of_computation, at_dirpath)
     return {"base": read_pipeline_base_configs(in_config, at_dirpath)}
-
 #+end_src
 
 where we write the base pipeline configs,
@@ -2011,6 +1994,20 @@ def write_description(of_computation, in_config, at_dirpath):
     computation_type, of_quantity = describe(of_computation)
     configured = parameterize(computation_type, of_quantity, in_config)
     configured["name"] = of_quantity
+
+    LOG.info("Write setup description of computation %s in config %s\n \n\t at path %s",
+             of_computation, pformat(configured), at_dirpath)
+
+    try:
+        slicings = configured["slicing"]
+    except KeyError:
+        pass
+    else:
+        for label, knife in ((key, value) for key, value in slicings.items()
+                             if key not in ("description", "do-full")):
+            if knife.get("compute_type", "EXECUTE") in ("execute", "EXECUTE"):
+                configured["output"] = matrices.type_series_store(configured["output"]).__qualname__
+
     return read_pipeline.write(configured, to_json=at_dirpath/"description.json")
 #+end_src
 
@@ -2283,9 +2280,9 @@ def collect_analyze_step(setup, from_dirpath, in_connsense_store, slicing):
     #hdf_analysis = f"analyses/connectivity/{a}"
     connsense_h5, group = in_connsense_store
     hdf_group = group + '/' + analysis["name"]
+    output_type = analysis["output"]
     if slicing:
         hdf_group = hdf_group + "/" + slicing
-    output_type = analysis["output"]
 
     def describe_output(of_compute_node):
         """..."""
@@ -2317,9 +2314,7 @@ def collect_analyze_step(setup, from_dirpath, in_connsense_store, slicing):
 #+end_src
 
 * Multiprocess on a single compute-node
-
 We have developed a parallelization setup to distribute a computation over multiple compute-nodes. Now we can develop how a multiprocess run on a single compute-node that the launchscripts generated in the setup will invoke.
-
 #+name: develop-parallelization-single-node-multiprocess
 #+begin_src python
 SERIAL_BATCHES = "serial-batches"
@@ -2334,14 +2329,13 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
     run_in_progress = on_compute_node.joinpath(INPROGRESS)
     run_in_progress.touch(exist_ok=False)
 
-    execute, to_store_batch, to_store_one = configure_execution(of_computation,
-                                                                in_config, on_compute_node, slicing=slicing)
-
-    assert to_store_batch or to_store_one
-    assert not (to_store_batch and to_store_one)
 
     computation_type, of_quantity = describe(of_computation)
-    parameters = parameterize(computation_type, of_quantity, in_config)
+    parameters, execute, to_store_batch, to_store_one = (
+        configure_execution(of_computation, in_config, on_compute_node, slicing=slicing)
+    )
+    assert to_store_batch or to_store_one
+    assert not (to_store_batch and to_store_one)
 
     in_hdf = "connsense-{}.h5"
 
@@ -2486,16 +2480,13 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
 
     _, output_paths = read_pipeline.check_paths(in_config, step=computation_type)
     _, hdf_group = output_paths["steps"][computation_type]
-    of_output_type = parameters["output"]
-
-    collected = collect_batches(of_computation, results, on_compute_node, hdf_group, slicing, of_output_type)
+    collected = collect_batches(of_computation, results, on_compute_node, hdf_group, slicing,
+                                of_output_type=parameters["output"])
     read_pipeline.write(collected, to_json=on_compute_node/"output.json")
 
     run_in_progress.unlink()
     on_compute_node.joinpath(DONE).touch(exist_ok=False)
-
     return collected
-
 #+end_src
 ** Circuit and connectome
 We may need a circuit to run on. The current ~connsense-TAP~ can be configured with multiple circuits,
@@ -2605,6 +2596,7 @@ def load_input_batches(on_compute_node, inputs=None, n_parallel_tasks=None):
 #+end_src
 
 that assumes that the inputs were written on the compute nodes during setup.
+
 ** Keyword arguments
 
 To load the key-word arguments
@@ -2681,25 +2673,46 @@ def load_kwargs(parameters, to_tap, on_compute_node=None, consider_input=False):
     raise NotImplementedError(f"What to do with workdir type {type(workdir)}")
 
 #+end_src
-** Execution of a unit-computation
 
-The executable for a computation is provided in the ~pipeline-config~,
+** Execution of a unit-computation
+The executable for a computation is provided in the ~pipeline-config~. The executable provided in the ~connsense-pipeline-config~ must apply to a single ~unit-computation~ of a ~subtarget~. However, we may want to consider the an analysis of slices of a ~subtarget~ as a /single computation/. This means that individual slices will not be ~unit-computations~. We will have to define a ~unit-computation~ that takes a  ~full-subtarget~, slices it, applies the /configured/ ~unit-computation~, and returns the result as a ~series~ or ~frame~ with labels for slices in its ~index~.
 
 #+name: develop-parallelization-single-node-multiprocess-executable
 #+begin_src python
-def get_executable(computation_type, parameters):
+def get_executable(computation, in_config, slicing=None):
     """..."""
-    executable_type = EXECUTABLE[computation_type.split('-')[0]]
+    from connsense.develop.topotap import HDFStore
 
+    computation_type, of_quantity = describe(computation)
+    parameters = parameterize(computation_type, of_quantity, in_config)
+
+    executable_type = EXECUTABLE[computation_type.split('-')[0]]
     try:
         executable = parameters[executable_type]
     except KeyError as err:
         raise RuntimeError(f"No {executable_type} defined for {computation_type}") from err
 
-    _, execute = plugins.import_module(executable["source"], executable["method"])
+    _, execute_one = plugins.import_module(executable["source"], executable["method"])
 
-    return execute
+    if not slicing or slicing == "full":
+        return (execute_one, parameters)
 
+    exclude = ("description", "do-full")
+    cfg_slicings = {k: v for k, v in parameters["slicing"].items() if k not in exclude}
+    if cfg_slicings[slicing].get("compute_mode", "EXECUTE") in ("execute", "EXECUTE"):
+        return (execute_one, parameters)
+
+    of_tap = HDFStore(in_config)
+    circuit_kwargs = input_circuit_args(computation, in_config, load_circuit=True)
+    knives = load_slicing(cfg_slicings, of_tap, lazily=False, **circuit_kwargs)[slicing]
+
+    def apply_sliced(**subtarget):
+        """..."""
+        return (pd.Series([cut(subtarget) for cut in knives], index=knives.index)
+                .apply(lambda xs: execute_one(**xs)))
+
+    parameters["output"] = matrices.type_series_store(parameters["output"])
+    return (apply_sliced, parameters)
 #+end_src
 
 that will compute the result for a ~unit-computation~. Each compute-nude will process several ~unit-computations~ in parallel. Each parallel batch's results will be stored in it's own ~connsense-TAP-store~ and collected into the ~compute-node~'s  ~connsense-TAP-store~. The results of a parallel batch can be written to the store per ~unit-computation~ or collected into a batch before storing. Whether a /single/ or a /batch/ store is used will depend on the computation's type.
@@ -2792,21 +2805,25 @@ def configure_execution(computation, in_config, on_compute_node, slicing=None):
     """..."""
     computation_type, of_quantity = describe(computation)
     parameters = parameterize(computation_type, of_quantity, in_config)
+
     _, output_paths = read_pipeline.check_paths(in_config, step=computation_type)
     _, in_hdf_group = output_paths["steps"][computation_type]
 
-    execute = get_executable(computation_type, parameters)
+    execute, parameters = get_executable(computation, in_config, slicing)
 
     if computation_type == "extract-node-populations":
         assert not slicing, "Does not apply"
-        return (execute, None,  store_node_properties(of_quantity, on_compute_node, in_hdf_group))
-        #return (execute, store_node_properties(of_quantity, on_compute_node, in_hdf_group), None)
+        return (execute, None,  store_node_properties(of_quantity, on_compute_node,
+                                                      in_hdf_group))
 
     if computation_type == "extract-edge-populations":
         assert not slicing, "Does not apply"
-        return (execute, store_edge_extraction(of_quantity, on_compute_node, in_hdf_group), None)
+        return (execute, store_edge_extraction(of_quantity, on_compute_node,
+                                               in_hdf_group), None)
 
-    return (execute, None, store_matrix_data(of_quantity, parameters, on_compute_node, in_hdf_group, slicing))
+    return (parameters, execute,
+            None, store_matrix_data(of_quantity, parameters, on_compute_node,
+                                    in_hdf_group, slicing))
 
 #+end_src
 
@@ -2815,15 +2832,17 @@ def configure_execution(computation, in_config, on_compute_node, slicing=None):
 To collect the results of parallel batches into a ~connsense-TAP-store~ at a ~compute-node~,
 #+name: develop-parallelization-single-node-multiprocess-collect
 #+begin_src python
-def collect_batches(of_computation, results, on_compute_node, hdf_group, slicing, of_output_type):
+def collect_batches(of_computation, results, on_compute_node, hdf_group, slicing,
+                    of_output_type):
     """..."""
-    LOG.info("Collect bactched %s results of %s on compute node %s in group %s output type %s",
-             of_computation, len(results), on_compute_node, hdf_group, of_output_type)
+    LOG.info("Collect %s results of %s on compute node %s in group %s output type %s",
+             len(results), of_computation, on_compute_node, hdf_group, of_output_type)
     computation_type, of_quantity = describe(of_computation)
 
     if computation_type == "extract-edge-populations":
         assert not slicing, "Does not apply"
-        return collect_batched_edge_population(of_quantity, results, on_compute_node, hdf_group)
+        return collect_batched_edge_population(of_quantity, results,
+                                               on_compute_node, hdf_group)
 
     if computation_type == "extract-node-populations":
         assert not slicing, "Does not apply"
@@ -2832,12 +2851,13 @@ def collect_batches(of_computation, results, on_compute_node, hdf_group, slicing
     if slicing:
         hdf_group = hdf_group+"/"+slicing
     in_connsense_h5 = on_compute_node / "connsense.h5"
-    in_store = matrices.get_store(in_connsense_h5, hdf_group, for_matrix_type=of_output_type)
 
-    batched = results.items()
-    in_store.collect({batch: matrices.get_store(on_compute_node / batch_connsense_h5, hdf_group,
+    in_store = (matrices
+                .get_store(in_connsense_h5, hdf_group, for_matrix_type=of_output_type))
+    in_store.collect({batch: matrices.get_store(on_compute_node / batch_connsense_h5,
+                                                hdf_group,
                                                 for_matrix_type=of_output_type)
-                      for batch, (batch_connsense_h5, group) in batched})
+                      for batch, (batch_connsense_h5, group) in results.items()})
     return (in_connsense_h5, hdf_group)
 
 #+end_src
@@ -3192,6 +3212,8 @@ class IllegalParallelComputationError(ValueError):
 
 <<develop-parallelization-multinode-generate-inputs-slice-controls>>
 
+<<develop-parallelization-single-node-multiprocess-configure-execution-slices>>
+
 <<develop-parallelization-multinode-configure-runtime-slurm>>
 
 <<develop-parallelization-multinode-setup-compute-node>>
@@ -3223,8 +3245,6 @@ class IllegalParallelComputationError(ValueError):
 <<develop-parallelization-single-node-multiprocess-stores>>
 
 <<develop-parallelization-single-node-multiprocess-executable>>
-
-<<develop-parallelization-single-node-multiprocess-stores>>
 
 <<develop-parallelization-single-node-multiprocess-configure-execution>>
 

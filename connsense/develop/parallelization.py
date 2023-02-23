@@ -484,7 +484,6 @@ def read_configs(of_computation, in_config, at_dirpath):
     LOG.info("Read configs of %s at %s", of_computation, at_dirpath)
     return {"base": read_pipeline_base_configs(in_config, at_dirpath)}
 
-
 def write_pipeline_base_configs(in_config, at_dirpath):
     """..."""
     basedir = find_base(rundir=at_dirpath)
@@ -684,6 +683,20 @@ def write_description(of_computation, in_config, at_dirpath):
     computation_type, of_quantity = describe(of_computation)
     configured = parameterize(computation_type, of_quantity, in_config)
     configured["name"] = of_quantity
+
+    LOG.info("Write setup description of computation %s in config %s\n \n\t at path %s",
+             of_computation, pformat(configured), at_dirpath)
+
+    try:
+        slicings = configured["slicing"]
+    except KeyError:
+        pass
+    else:
+        for label, knife in ((key, value) for key, value in slicings.items()
+                             if key not in ("description", "do-full")):
+            if knife.get("compute_type", "EXECUTE") in ("execute", "EXECUTE"):
+                configured["output"] = matrices.type_series_store(configured["output"]).__qualname__
+
     return read_pipeline.write(configured, to_json=at_dirpath/"description.json")
 
 
@@ -816,16 +829,20 @@ def generate_inputs(of_computation, in_config, slicing=None, circuit_args=None,
 
     assert slicing in params["slicing"]
     cfg = {slicing: params["slicing"][slicing]}
-    to_cut = load_slicing(cfg, tap, lazily=False, **circuit_kwargs)
-    slices = generate_slices(tap, inputs=full, using_knives=to_cut[slicing])
+    to_cut = load_slicing(cfg, tap, lazily=False, **circuit_kwargs)[slicing]
 
+    if to_cut.get("compute_mode", "EXECUTE") in ("execute", "EXECUTE"):
+        return full
+
+    slices = generate_slices(tap, inputs=full, using_knives=to_cut)
     return index_circuit_args(slices)
 
 
 def generate_slices(of_tap, inputs, using_knives):
     """Generate slices of inputs accoring to configured knives."""
     from tqdm import tqdm; tqdm.pandas()
-    datacut = lambda cut: datacall(cut, preserves_shape=False)
+    def datacut(c):
+        return datacall(c, preserves_shape=False)
     slices = pd.concat([inputs.apply(datacut(c)) for c in using_knives], axis=0,
                        keys=using_knives.index)
     n_slice_index = len(slices.index.names) - len(inputs.index.names)
@@ -891,6 +908,8 @@ def slice_inputs(of_computation, in_config, datasets=None, using_tap=None):
         datasets = pour_datasets(using_tap, for_input)
     return pd.concat([datasets.apply(datacall(cut, preserves_shape=False)) for _, cut in slicing],
                      axis=0, keys=[knife_label for knife_label, _ in slicing], names=["slice"]),
+
+
 
 
 def configure_slurm(computation, in_config, using_runtime):
@@ -1034,7 +1053,6 @@ def symlink_pipeline_base(configs, at_dirpath):
             "runtime": {fmt: symlink_to(config_at_path=p) for fmt, p in configs["runtime"].items() if p}}
 
 
-
 def setup_multinode(process, of_computation, in_config, using_runtime, *,
                     in_mode=None, njobs_to_estimate_load=None):
     """Setup a multinode process.
@@ -1120,10 +1138,12 @@ def setup_multinode(process, of_computation, in_config, using_runtime, *,
     of_tap = HDFStore(in_config)
     slicings = load_slicing(cfg_slicings, of_tap, lazily=False, **circuit_kwargs)
     for slicing, to_slice in slicings.items():
-        sliced_inputs = generate_slices(of_tap, inputs=full, using_knives=to_slice)
+        slicing_mode = to_slice.get("compute_mode", "EXECUTE")
+        sliced_inputs = (generate_slices(of_tap, inputs=full, using_knives=to_slice)
+                         if slicing_mode in ("datacall", "DATACALL")
+                         else full)
         compute_nodes[slicing] = prepare_compute_nodes(sliced_inputs, to_stage/slicing, slicing, None)
     return compute_nodes
-
 
 def collect_results(computation_type, setup, from_dirpath, in_connsense_store, slicing):
     """..."""
@@ -1239,9 +1259,9 @@ def collect_analyze_step(setup, from_dirpath, in_connsense_store, slicing):
     #hdf_analysis = f"analyses/connectivity/{a}"
     connsense_h5, group = in_connsense_store
     hdf_group = group + '/' + analysis["name"]
+    output_type = analysis["output"]
     if slicing:
         hdf_group = hdf_group + "/" + slicing
-    output_type = analysis["output"]
 
     def describe_output(of_compute_node):
         """..."""
@@ -1283,14 +1303,13 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
     run_in_progress = on_compute_node.joinpath(INPROGRESS)
     run_in_progress.touch(exist_ok=False)
 
-    execute, to_store_batch, to_store_one = configure_execution(of_computation,
-                                                                in_config, on_compute_node, slicing=slicing)
-
-    assert to_store_batch or to_store_one
-    assert not (to_store_batch and to_store_one)
 
     computation_type, of_quantity = describe(of_computation)
-    parameters = parameterize(computation_type, of_quantity, in_config)
+    parameters, execute, to_store_batch, to_store_one = (
+        configure_execution(of_computation, in_config, on_compute_node, slicing=slicing)
+    )
+    assert to_store_batch or to_store_one
+    assert not (to_store_batch and to_store_one)
 
     in_hdf = "connsense-{}.h5"
 
@@ -1435,16 +1454,13 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
 
     _, output_paths = read_pipeline.check_paths(in_config, step=computation_type)
     _, hdf_group = output_paths["steps"][computation_type]
-    of_output_type = parameters["output"]
-
-    collected = collect_batches(of_computation, results, on_compute_node, hdf_group, slicing, of_output_type)
+    collected = collect_batches(of_computation, results, on_compute_node, hdf_group, slicing,
+                                of_output_type=parameters["output"])
     read_pipeline.write(collected, to_json=on_compute_node/"output.json")
 
     run_in_progress.unlink()
     on_compute_node.joinpath(DONE).touch(exist_ok=False)
-
     return collected
-
 
 def input_circuit(labeled, in_config):
     """..."""
@@ -1605,19 +1621,40 @@ def load_kwargs(parameters, to_tap, on_compute_node=None, consider_input=False):
     raise NotImplementedError(f"What to do with workdir type {type(workdir)}")
 
 
-def get_executable(computation_type, parameters):
+def get_executable(computation, in_config, slicing=None):
     """..."""
-    executable_type = EXECUTABLE[computation_type.split('-')[0]]
+    from connsense.develop.topotap import HDFStore
 
+    computation_type, of_quantity = describe(computation)
+    parameters = parameterize(computation_type, of_quantity, in_config)
+
+    executable_type = EXECUTABLE[computation_type.split('-')[0]]
     try:
         executable = parameters[executable_type]
     except KeyError as err:
         raise RuntimeError(f"No {executable_type} defined for {computation_type}") from err
 
-    _, execute = plugins.import_module(executable["source"], executable["method"])
+    _, execute_one = plugins.import_module(executable["source"], executable["method"])
 
-    return execute
+    if not slicing or slicing == "full":
+        return (execute_one, parameters)
 
+    exclude = ("description", "do-full")
+    cfg_slicings = {k: v for k, v in parameters["slicing"].items() if k not in exclude}
+    if cfg_slicings[slicing].get("compute_mode", "EXECUTE") in ("execute", "EXECUTE"):
+        return (execute_one, parameters)
+
+    of_tap = HDFStore(in_config)
+    circuit_kwargs = input_circuit_args(computation, in_config, load_circuit=True)
+    knives = load_slicing(cfg_slicings, of_tap, lazily=False, **circuit_kwargs)[slicing]
+
+    def apply_sliced(**subtarget):
+        """..."""
+        return (pd.Series([cut(subtarget) for cut in knives], index=knives.index)
+                .apply(lambda xs: execute_one(**xs)))
+
+    parameters["output"] = matrices.type_series_store(parameters["output"])
+    return (apply_sliced, parameters)
 
 def store_node_properties_batch(of_population, on_compute_node, in_hdf_group):
     """...This will extract node properties for all subtargets as a single datasframe.
@@ -1696,127 +1733,77 @@ def store_matrix_data(of_quantity, parameters, on_compute_node, in_hdf_group, sl
     return write_hdf
 
 
-def get_executable(computation_type, parameters):
+def get_executable(computation, in_config, slicing=None):
     """..."""
-    executable_type = EXECUTABLE[computation_type.split('-')[0]]
+    from connsense.develop.topotap import HDFStore
 
+    computation_type, of_quantity = describe(computation)
+    parameters = parameterize(computation_type, of_quantity, in_config)
+
+    executable_type = EXECUTABLE[computation_type.split('-')[0]]
     try:
         executable = parameters[executable_type]
     except KeyError as err:
         raise RuntimeError(f"No {executable_type} defined for {computation_type}") from err
 
-    _, execute = plugins.import_module(executable["source"], executable["method"])
+    _, execute_one = plugins.import_module(executable["source"], executable["method"])
 
-    return execute
+    if not slicing or slicing == "full":
+        return (execute_one, parameters)
 
+    exclude = ("description", "do-full")
+    cfg_slicings = {k: v for k, v in parameters["slicing"].items() if k not in exclude}
+    if cfg_slicings[slicing].get("compute_mode", "EXECUTE") in ("execute", "EXECUTE"):
+        return (execute_one, parameters)
 
-def store_node_properties_batch(of_population, on_compute_node, in_hdf_group):
-    """...This will extract node properties for all subtargets as a single datasframe.
-    NOT-IDEAL and needs hacks to gather differemt resuts into the same input dataframe.
-    REPLACE by single subtarget store using matrices
-    """
-    def write_batch(connsense_h5, results):
+    of_tap = HDFStore(in_config)
+    circuit_kwargs = input_circuit_args(computation, in_config, load_circuit=True)
+    knives = load_slicing(cfg_slicings, of_tap, lazily=False, **circuit_kwargs)[slicing]
+
+    def apply_sliced(**subtarget):
         """..."""
-        in_hdf = (on_compute_node/connsense_h5, in_hdf_group)
-        LOG.info("Write %s  results %s ", in_hdf, len(results))
-        return extract_nodes.write(results, of_population, in_hdf)
+        return (pd.Series([cut(subtarget) for cut in knives], index=knives.index)
+                .apply(lambda xs: execute_one(**xs)))
 
-    return write_batch
-
-
-def store_node_properties(of_population, on_compute_node, in_hdf_group):
-    """..."""
-    LOG.info("Store node properties of population %s on compute node %s in hdf %s, one subtarget at a time",
-             of_population, on_compute_node, in_hdf_group)
-
-    def write_hdf(at_path, *, result=None, update=None):
-        """..."""
-        assert not(result is None and update is None)
-        assert result is not None or update is not None
-
-        hdf_population = in_hdf_group+'/'+of_population
-        store = matrices.get_store(on_compute_node/at_path, hdf_population, "pandas.DataFrame")
-
-        if result is not None:
-            return store.write(result)
-
-        store.append_toc(store.prepare_toc(of_paths=update))
-        return (at_path, hdf_population)
-
-    return write_hdf
-
-
-def store_edge_extraction(of_population, on_compute_node, in_hdf_group):
-    """..."""
-    def write_batch(connsense_h5, results):
-        """..."""
-        in_hdf = (on_compute_node/connsense_h5, f"{in_hdf_group}/{of_population}")
-        LOG.info("Write %s batch results to %s", len(results), in_hdf)
-        return extract_connectivity.write_adj(results, to_output=in_hdf,  append=True, format="table",
-                                              return_config=True)
-
-    return write_batch
-
-
-def store_matrix_data(of_quantity, parameters, on_compute_node, in_hdf_group, slicing):
-    """..."""
-    LOG.info("Store matrix data for %s", parameters)
-    of_output = parameters["output"]
-    hdf_group = f"{in_hdf_group}/{of_quantity}"
-    if slicing:
-        hdf_group = f"{hdf_group}/{slicing}"
-
-    cached_stores = {}
-
-    def write_hdf(at_path, *, result=None, update=None):
-        """..."""
-        assert at_path
-        assert not(result is None and update is None)
-        assert result is not None or update is not None
-
-        p = on_compute_node/at_path
-        if p not in cached_stores:
-            cached_stores[p] = matrices.get_store(p, hdf_group, for_matrix_type=of_output)
-
-        if result is not None:
-            return cached_stores[p].write(result)
-
-        cached_stores[p].append_toc(cached_stores[p].prepare_toc(of_paths=update))
-        return (at_path, hdf_group)
-
-    return write_hdf
-
+    parameters["output"] = matrices.type_series_store(parameters["output"])
+    return (apply_sliced, parameters)
 
 def configure_execution(computation, in_config, on_compute_node, slicing=None):
     """..."""
     computation_type, of_quantity = describe(computation)
     parameters = parameterize(computation_type, of_quantity, in_config)
+
     _, output_paths = read_pipeline.check_paths(in_config, step=computation_type)
     _, in_hdf_group = output_paths["steps"][computation_type]
 
-    execute = get_executable(computation_type, parameters)
+    execute, parameters = get_executable(computation, in_config, slicing)
 
     if computation_type == "extract-node-populations":
         assert not slicing, "Does not apply"
-        return (execute, None,  store_node_properties(of_quantity, on_compute_node, in_hdf_group))
-        #return (execute, store_node_properties(of_quantity, on_compute_node, in_hdf_group), None)
+        return (execute, None,  store_node_properties(of_quantity, on_compute_node,
+                                                      in_hdf_group))
 
     if computation_type == "extract-edge-populations":
         assert not slicing, "Does not apply"
-        return (execute, store_edge_extraction(of_quantity, on_compute_node, in_hdf_group), None)
+        return (execute, store_edge_extraction(of_quantity, on_compute_node,
+                                               in_hdf_group), None)
 
-    return (execute, None, store_matrix_data(of_quantity, parameters, on_compute_node, in_hdf_group, slicing))
+    return (parameters, execute,
+            None, store_matrix_data(of_quantity, parameters, on_compute_node,
+                                    in_hdf_group, slicing))
 
 
-def collect_batches(of_computation, results, on_compute_node, hdf_group, slicing, of_output_type):
+def collect_batches(of_computation, results, on_compute_node, hdf_group, slicing,
+                    of_output_type):
     """..."""
-    LOG.info("Collect bactched %s results of %s on compute node %s in group %s output type %s",
-             of_computation, len(results), on_compute_node, hdf_group, of_output_type)
+    LOG.info("Collect %s results of %s on compute node %s in group %s output type %s",
+             len(results), of_computation, on_compute_node, hdf_group, of_output_type)
     computation_type, of_quantity = describe(of_computation)
 
     if computation_type == "extract-edge-populations":
         assert not slicing, "Does not apply"
-        return collect_batched_edge_population(of_quantity, results, on_compute_node, hdf_group)
+        return collect_batched_edge_population(of_quantity, results,
+                                               on_compute_node, hdf_group)
 
     if computation_type == "extract-node-populations":
         assert not slicing, "Does not apply"
@@ -1825,12 +1812,13 @@ def collect_batches(of_computation, results, on_compute_node, hdf_group, slicing
     if slicing:
         hdf_group = hdf_group+"/"+slicing
     in_connsense_h5 = on_compute_node / "connsense.h5"
-    in_store = matrices.get_store(in_connsense_h5, hdf_group, for_matrix_type=of_output_type)
 
-    batched = results.items()
-    in_store.collect({batch: matrices.get_store(on_compute_node / batch_connsense_h5, hdf_group,
+    in_store = (matrices
+                .get_store(in_connsense_h5, hdf_group, for_matrix_type=of_output_type))
+    in_store.collect({batch: matrices.get_store(on_compute_node / batch_connsense_h5,
+                                                hdf_group,
                                                 for_matrix_type=of_output_type)
-                      for batch, (batch_connsense_h5, group) in batched})
+                      for batch, (batch_connsense_h5, group) in results.items()})
     return (in_connsense_h5, hdf_group)
 
 

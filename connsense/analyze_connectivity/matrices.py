@@ -550,7 +550,7 @@ class SeriesOfMatricesStore(MatrixStore):
             long = (batch.toc if overwrite else
                     batch.toc.loc[batch.toc.index.difference(self.toc.index)])
 
-            LOG.info("series of matrices %s --> a dataframe input: %s", b, long.shape)
+            LOG.info("series of matricescollect frame  %s --> a dataframe input: %s", b, long.shape)
             colvars = long.index.get_level_values(-1).unique()
             colidxname = long.index.names[-1]
             wide = pd.concat([long.xs(d, level=colidxname) for d in colvars], axis=1,
@@ -608,12 +608,64 @@ class SeriesOfSparseMatrices:
     pass
 
 
-class DataFrameOfMatricesStore(MatrixStore):
+class FrameOfMatricesHelper:
+    """..."""
+    def __init__(self, matrix_helper=None):
+        """..."""
+        self._matrix_helper = matrix_helper or DenseMatrixHelper()
+
+    def write(self, frame_of_matrices, to_hdf_store_at_path, under_group, as_dataset):
+        """..."""
+        group_dataset = under_group + '/' + as_dataset
+
+        with h5py.File(to_hdf_store_at_path, 'a') as h:
+            h.create_group(group_dataset)
+
+        def write_matrices(column):
+            """..."""
+            def write_element(i, matrix):
+                """..."""
+                return self._matrix_helper.write(matrix, to_hdf_store_at_path,
+                                                 under_group=group_dataset,
+                                                 as_dataset=f"{i}-{column.name}")
+            return pd.Series([write_element(i, matrix) for i, matrix in column.items()],
+                             index=column.index)
+
+        #return frame_of_matrices.apply(write_matrices, axis=1)
+        return pd.concat([write_matrices(column) for column in frame_of_matrices], axis=0,
+                         keys=frame_of_matrices.columns.values, names=[frame_of_matrices.columns.name])
+
+    def read(self, dataset, under_group, in_hdf_store_at_path):
+        """..."""
+        return self._matrix_helper.read(dataset, under_group, in_hdf_store_at_path)
+
+
+class FrameOfMatricesStore(MatrixStore):
     """Each element of a dataframe is a matrix ---
+    This arises when the computation returns a pandas.DataFrame of numpy.ndarrays (or sparse arrays)
+    Each array should be written using a helper, and the toc contain these paths instead of the matrices.
+
     We could use this store for simplex-lists.
     Unlike the SeriesOfMatrices Store, the additional level of simplex dimension when we used
     SeriesOfMatricesStore will become a column instead.
     """
+    def __init__(self, *args, matrix_type=None, **kwargs):
+        """..."""
+        super().__init__(*args, using_handler=FrameOfMatricesHelper(matrix_type),
+                         **kwargs)
+
+
+    def prepare_toc(self, of_paths):
+        """This is used when several inputs' results have been written to HDF,
+        and it is time to put their paths in the TOC.
+        """
+        LOG.info("Prepare a toc of paths to framed matrices %s", of_paths.shape)
+        toc_series = of_paths.apply()
+        return pd.concat([column for column in of_paths], axis=0,
+                         keys=of_paths.columns.values, names=of_paths.name) #check this. do we expect well formed frame?
+
+
+
     @property
     def toc(self):
         """Stored matrices are a vector for each subtarget.
@@ -621,6 +673,13 @@ class DataFrameOfMatricesStore(MatrixStore):
         """
         key = self.group_identifier_toc
         return pd.read_hdf(self._root, key).applymap(self.but_lazily)
+
+
+class FrameOfMatrices:
+    """A stub that marks the output of copmutations that return a
+    pandas.DataFrame of (some-kind-of) matrices.
+    """
+    pass
 
 
 class SingleSeriesStore(MatrixStore):
@@ -795,6 +854,7 @@ class SingleSeries:
 def StoreType(for_matrix_type):
     """..."""
     import scipy, numpy, pandas #base imports to evaluate for_matrix_type
+    from pandas import Series, DataFrame
 
     try:
         matrix_type = eval(for_matrix_type)
@@ -816,10 +876,10 @@ def StoreType(for_matrix_type):
     if issubclass(matrix_type, np.ndarray):
         return DenseMatrixStore
 
-    if issubclass(matrix_type, pd.DataFrame):
+    if issubclass(matrix_type, DataFrame):
         return DataFrameStore
 
-    if issubclass(matrix_type, pd.Series):
+    if issubclass(matrix_type, Series):
         return SeriesStore
 
     if issubclass(matrix_type, SeriesOfMatrices):
@@ -830,6 +890,12 @@ def StoreType(for_matrix_type):
 
     if issubclass(matrix_type, SingleSeries):
         return SingleSeriesStore
+
+    #if issubclass(matrix_type, FrameOfMatrices):
+    #    return FrameOfMatricesStore
+#
+#    if issubclass(matrix_type, FrameOfSparseMatrices):
+#        return FrameOfSparseMatricesStore
 
     raise TypeError(f"Unhandled matrix value type {for_matrix_type}")
 
@@ -847,3 +913,32 @@ def get_store(to_hdf_at_path, under_group, for_matrix_type, in_mode='a', **kwarg
     except ValueError as err:
         LOG.error("Failed to load matrix store: %s", err)
     return None
+
+
+def type_series_store(for_matrices):
+    """..."""
+    import scipy, numpy, pandas #base imports to evaluate for_matrix_type
+    from pandas import Series, DataFrame
+    try:
+        matrix_type = eval(for_matrices)
+    except NameError as name_error:
+        raise ValueError(f"Could not evaluate {for_matrices}"
+                         " matrix-type should either be a `type` or evaulate to one.\n"
+                         "Please provide the full path,",
+                         " for example `scipy.sparse.csc_matrix`") from name_error
+    except TypeError:
+        matrix_type = for_matrices
+
+
+    if issubclass(matrix_type, Series): return DataFrame
+
+    if issubclass(matrix_type, SeriesOfMatrices): return FrameOfMatricesStore
+
+    if issubclass(matrix_type, SeriesOfSparseMatrices): return FrameOfSparseMatrices
+
+    if issubclass(matrix_type, np.ndarray): return SeriesOfMatricesStore
+
+    if issubclass(matrix_type, sparse.spmatrix): return SeriesOfSparseMatricesStore
+
+
+    raise TypeError(f"Unhandled type {matrix_type}")

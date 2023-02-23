@@ -1,0 +1,429 @@
+#+PROPERTY: header-args:jupyter-python :session ~/Library/Jupyter/runtime/active-ssh.json
+#+PROPERTY: header-args:jupyter :session ~/Library/Jupyter/runtime/active-ssh.json
+#+STARTUP: overview
+
+Let us setup an interactive ~Python~ session where we can run the code developed here.
+#+begin_src jupyter
+print("Welcome to EMACS Jupyter")
+#+end_src
+
+#+RESULTS:
+: Welcome to EMACS Jupyter
+
+#+title: Notes while we (test) develop connsense
+
+We have a lot of code in ~connsense~ that should be cleaned up while we keep developing. Here we will discuss cleaning and building new features. We have also setup an environment in section [[Setup]] that we will use for our developing our ideas.
+
+* Setup
+In our discussion we will develop scientific concepts to measure the circuit, and implement Python functions to compute them. Here we setup a notebook template to test and explore, and the structure of a ~Python~ package for our methods.
+
+#+RESULTS:
+: Welcome to EMACS Jupyter
+
+** Introduction
+#+name: notebook-init
+#+begin_src jupyter-python
+from importlib import reload
+from collections.abc import Mapping
+from collections import OrderedDict
+from pprint import pprint, pformat
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+import matplotlib
+
+reload(matplotlib)
+from matplotlib import pylab as plt
+import seaborn as sbn
+GOLDEN = (1. + np.sqrt(5.))/2.
+
+from IPython.display import display
+
+from bluepy import Synapse, Cell, Circuit
+
+print("We will plot golden aspect ratios: ", GOLDEN)
+#+end_src
+** Workspaces
+We have run ~connsense-CRAP~ for the SSCx dissemination variant /Bio-M/, extracting data that we will use to compute the factology. Here is a list of workspaces we will need to generate factsheets.
+#+name: notebook-workspaces-0
+#+begin_src jupyter-python
+ROOTSPACE = Path("/")
+PROJSPACE = ROOTSPACE / "gpfs/bbp.cscs.ch/project/proj83"
+SOODSPACE = PROJSPACE / "home/sood"
+CONNSPACE = SOODSPACE / "topological-analysis-subvolumes/test/v2"
+DEVSPACE = CONNSPACE / "test" / "develop"
+#+end_src
+
+#+RESULTS: notebook-workspaces-0
+
+We have another ~connsense-TAP~ project defined in,
+#+name: notebook-workspaces
+#+begin_src jupyter-python :noweb yes
+<<notebook-workspaces-0>>
+
+PORTALSPACE = (SOODSPACE / "portal" / "develop" / "factology-v2" / "analyses/connsense"
+               / "redefine-subtargets/create-index/morphology-mtypes")
+EXPTLSPACE = PORTALSPACE / "experimental"
+#+end_src
+#+RESULTS: notebook-workspaces
+
+While test-developing it will be good to have direct access to the ~connsense-TAP-store~ we will use,
+
+We can collect the code above in a ~Pyhton~ template file that can be used to generate notebooks,
+
+** ~connsense~ Modules
+
+#+name: notebook-connsense-tap
+#+begin_src jupyter-python
+from connsense.develop import parallelization as cnsprl, topotap as cnstap
+
+tap = cnstap.HDFStore(CONNSPACE/"pipeline.yaml")
+circuit = tap.get_circuit("Bio_M")
+print("Available analyses: ")
+pprint(tap.analyses)
+#+end_src
+
+#+RESULTS: notebook-connsense-tap
+:  2023-02-22 09:12:52,494: Load circuit Bio_M
+: Available analyses:
+: {'connectivity': {'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7fff4434b940>}}
+
+** Notebook template
+Finally, here is a template that we can use to start test-developing. We will deposit the code in a sub-directory, of the directory holding this file.
+
+#+begin_src jupyter-python :tangle develop_topotap.py :comments no :noweb yes :padline yes
+# %% [markdown]
+"""# Test Develop a Circuit Factology
+"""
+
+# %% [code]
+<<notebook-init>>
+
+<<notebook-workspaces>>
+
+<<notebook-connsense-tap>>
+
+<<notebook-reloads>>
+
+
+#+end_src
+
+#+RESULTS:
+: We will plot golden aspect ratios:  1.618033988749895
+:  2023-02-23 10:24:22,551: Load circuit Bio_M
+: Available analyses: 
+: {'connectivity': {'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7fff5c4661f0>}}
+
+
+* Matrix stores
+We have defined a ~NatrixStore~ to write results of computations to HDF. We will rewrite it with a review, may be starting with ~matrix_store.org~. For now let us test develop new features.
+** A store for computations that return a  ~frame~ of ~matrices~
+We already have a some code to handle ~series~ of matrices, both dense and sparse, but needs to be tested. We have to develop a store for computations that return ~frames~.
+
+We consider this feature while developing two analyses:
+1. simplex counts with slicing
+2. morphology cloudscape
+
+Simplex counts are run for intra-layer slices of a circuit's subtarget adjacency matrices. While the computation on a single ~subtarget~ should result in a series of numbers, for the 6 layer slices we will be a ~frame~ with layers in the indices and simplex-dimension in the columns. For managing the writing of data we will use ~DataFrameStore~. However, we can configure the ~output~ of simplex count computation to be what it returns, which is ~pandas.Series~. It is ~connsense-parallelization~ that will infer the return of a series of matrices type. For simplex counts we have a series of series of numbers when running slices while just a series of numbers when runnign a full subtarget adjacency. Let us develop this argument as code.
+
+Let us mock the computation. We have bunch of ~subtargets~,
+#+name: mock-subtargets
+#+header: :both :padline no :exports both :tangle test_develop.py
+#+begin_src jupyter-python
+subtargets = pd.Series(np.arange(0, 5, dtype=int), name="subtarget")
+subtargets.index.name = "subtarget_id"
+display(subtargets)
+#+end_src
+
+#+RESULTS: mock-subtargets
+: subtarget_id
+: 0    0
+: 1    1
+: 2    2
+: 3    3
+: 4    4
+: Name: subtarget, dtype: int64
+
+** Sliced simplex counts
+Each subtarget can be sliced,
+#+name: mock-slice-layers
+#+header: :both :padline no :exports both :tangle ./test_develop.py
+#+begin_src jupyter-python
+def to_slice_layers(subtarget):
+    """..."""
+    return pd.Index(range(7), name="layer").to_series()
+#+end_src
+
+#+RESULTS: mock-slice-layers
+
+and we can apply a computation to each slice,
+#+name: mock-apply-comp
+#+header: :both :padline no :exports both :tangle ./test_develop.py
+#+begin_src jupyter-python
+def first_slice(with_knife, then_compute):
+    def subtarget(t):
+        return with_knife(t).apply(then_compute)
+    return subtarget
+#+end_src
+
+#+RESULTS: mock-apply-comp
+
+A single run of the computation is for a ~subtarget~
+#+name: example-slice
+#+header: :comments both :padline no :exports both :tangle ./test_develop.py
+#+begin_src jupyter-python
+to_slice_layers(1)
+#+end_src
+
+#+RESULTS: example-slice
+: layer
+: 0    0
+: 1    1
+: 2    2
+: 3    3
+: 4    4
+: 5    5
+: 6    6
+: Name: layer, dtype: int64
+
+#+name: name-it
+#+header: :both :padline no :exports both :tangle ./test_develop.py
+#+begin_src jupyter-python
+def simplex_counts(adj, nmax=None):
+    """..."""
+    nmax = nmax or adj + 1
+    return pd.Series([np.random.randint(10**(nmax - ndim)) for ndim in range(nmax)],
+                     name="simplex_count", index=pd.Index(range(nmax), name="ndim"))
+#+end_src
+
+When we apply our mock ~simplex_counts~ to a ~mock~ subtarget we get what we would expect from the real case,
+#+name: mock-simplex-counts-applied-0
+#+header: :both :padline no :exports both :tangle ./test_develop.py
+#+begin_src jupyter-python
+display(subtargets.apply(simplex_counts))
+#+end_src
+
+#+RESULTS: mock-simplex-counts-applied-0
+: ndim               0       1      2     3    4
+: subtarget_id
+: 0                6.0     NaN    NaN   NaN  NaN
+: 1               42.0     3.0    NaN   NaN  NaN
+: 2              653.0    15.0    0.0   NaN  NaN
+: 3             8870.0    94.0   61.0   4.0  NaN
+: 4             1233.0  3119.0  675.0  24.0  4.0
+
+and when applied to a ~series~ of subtargets,
+#+name: mock-simplex-counts-applied-1
+#+header: :both :padline no :exports both :tangle ./test_develop.py
+#+begin_src jupyter-python
+lscounts = (subtargets
+            .apply(first_slice(with_knife=to_slice_layers, then_compute=simplex_counts)))
+
+print("simplex counts of all subtargets is a ", type(lscounts))
+#+end_src
+
+#+RESULTS: mock-simplex-counts-applied-1
+: simplex counts of all subtargets is a  <class 'pandas.core.series.Series'>
+
+We get a ~series~, with each element
+#+name: mock-simplex-counts-applied-2
+#+header: :both :padline no :exports both :tangle ./test_develop.py
+#+begin_src jupyter-python
+lscounts.iloc[0]
+#+end_src
+
+#+RESULTS: mock-simplex-counts-applied-2
+: ndim           0         1        2       3      4    5    6
+: layer
+: 0            9.0       NaN      NaN     NaN    NaN  NaN  NaN
+: 1           77.0       3.0      NaN     NaN    NaN  NaN  NaN
+: 2            2.0      99.0      7.0     NaN    NaN  NaN  NaN
+: 3           47.0     428.0      3.0     3.0    NaN  NaN  NaN
+: 4        47535.0     166.0    174.0    21.0    1.0  NaN  NaN
+: 5       469190.0   90859.0   2537.0   816.0    5.0  0.0  NaN
+: 6      4707883.0  795710.0  28792.0  6127.0  609.0  8.0  0.0
+
+We will write the resulting ~series~ of these ~frames~ to HDF5 using a ~DataFrameStore~.
+
+*** Implementation
+#+name: example-simplex-counts-matrices-1
+#+header: :comments :both :padline no :exports both :tangle test_develop.py
+#+begin_src jupyter-python
+simpcomp = "analyze-connectivity/simplex-counts"
+simpinps = cnsprl.generate_inputs(simpcomp, tap._config)
+display(simpinps.sample(5))
+#+end_src
+
+#+RESULTS: example-simplex-counts-matrices-1
+:RESULTS:
+: subtarget_id  circuit_id  connectome_id  control
+: 21            0           0              erdos-renyi-2    <connsense.develop.parallelization.DataCall ob...
+: 186           0           0              erdos-renyi-4    <connsense.develop.parallelization.DataCall ob...
+: 167           0           0              erdos-renyi-2    <connsense.develop.parallelization.DataCall ob...
+: 71            0           0              erdos-renyi-0    <connsense.develop.parallelization.DataCall ob...
+: 101           0           0              erdos-renyi-2    <connsense.develop.parallelization.DataCall ob...
+: dtype: object
+:END:
+
+Each of these is a,
+#+header: :comments :both :padline no :exports both :tangle test_develop.py
+#+begin_src jupyter-python
+pprint(simpinps.iloc[3]())
+#+end_src
+#+RESULTS:
+#+begin_example
+{'adjacency': <2x2 sparse matrix of type '<class 'numpy.int64'>'
+	with 1 stored elements in Compressed Sparse Row format>,
+ 'node_properties':             gid region  layer            x            y            z  \
+node_id
+0        653242   S1DZ      1  4657.750167  1101.352670 -1644.675056
+1        687610   S1DZ      1  4688.148292  1097.269239 -1654.816921
+
+        synapse_class      mtype  etype  \
+node_id
+0                 INH  L1_NGC-DA  cSTUT
+1                 INH  L1_NGC-SA   cNAC
+
+                                                morphology       depth
+node_id
+0        sm080619a1-7_idF_-_Scale_x1.000_y1.050_z1.000_...  164.569184
+1            sm090730a1-3_idD_-_Scale_x1.000_y1.050_z1.000  153.886370  }
+#+end_example
+a ~dict~ containing the inptus for the simplex-count computation. We require a ~slicing~ algorithm to take the same arguments as an ~analysis~ algorithm. So in this case, ~(adjacency, node_properties)~ which are the contents of each of the inputs above. In ~connsense-paralellezation~ we have implemented a method to batch execute slices of a subtarget, which does something similar to the mock method in the previous section,
+#+name: simplex-counts-batch-execute
+#+header: :both :padline no :exports both :tangle test_develop.py
+#+begin_src jupyter-python
+bexsimps, params = cnsprl.get_executable(simpcomp, tap._config, slicing="layer")
+print("slicing batch executable for simplex counts is a ", type(bexsimps))
+#+end_src
+
+#+RESULTS: simplex-counts-batch-execute
+: slicing batch executable for simplex counts is a  <class 'function'>
+
+We can apply this /slicing/ simplex counts to a single ~subtarget~. However we would not want a subtarget small enough to calculate while we are patient. We can choose original ~subtargets~ of a small size,
+#+header: :comments both :padline no :exports both :tangle test_develop.py
+#+begin_src jupyter-python
+subtarget_sizes = tap.pour_dataset("define-subtargets", "flatmap-columns").apply(len)
+small_subtargets = subtarget_sizes[(1000 <= subtarget_sizes)  & (subtarget_sizes < 2000)]
+display(small_subtargets)
+#+end_src
+
+#+RESULTS:
+: subtarget_id  circuit_id
+: 2             0             1823
+: 93            0             1953
+: 113           0             1502
+: 123           0             1625
+: 139           0             1756
+: 159           0             1766
+: 196           0             1078
+: 225           0             1137
+: Name: gids, dtype: int64
+
+#+name: simplex-counts-batch-result
+#+header: :comments both :padline no :exports both :tangle test_develop.py
+#+begin_src jupyter-python
+layer_scounts = bexsimps(**simpinps.loc[small_subtargets.index[0]].sample(n=1).iloc[0]())
+#+end_src
+
+#+RESULTS: simplex-counts-batch-result
+: /tmp/ipykernel_19076/1033153560.py:1: PerformanceWarning: indexing past lexsort depth may impact performance.
+:   layer_scounts = bexsimps(**simpinps.loc[small_subtargets.index[0]].sample(n=1).iloc[0]())
+:  2023-02-22 19:29:31,939: Shuffle 521718 edges following Erdos-Renyi
+
+which is a
+#+name: resuls-example-simplx-counts
+#+header: :comments both :padline no :exports both :tangle test_develop.py
+#+begin_src jupyter-python
+display(layer_scounts)
+#+end_src
+
+#+RESULTS: resuls-example-simplx-counts
+: dim        0       1       2     3
+: layer
+: 1       23.0    19.0     1.0   NaN
+: 2      293.0  2294.0   438.0   1.0
+: 3      318.0  2683.0   653.0   5.0
+: 4      443.0  5241.0  1665.0  13.0
+: 5      465.0  5746.0  1894.0  21.0
+: 6      281.0  2095.0   428.0   4.0
+
+For the ~output~ type we have configured for ~simplex-counts~, the ~output~ of the ~sliced-computation~ will be,
+#+header: :comments both :padline no :exports both :tangle test_develop.py
+#+begin_src jupyter-python
+from connsense.analyze_connectivity import matrices
+output_sliced = matrices.type_series_store("pandas.Series")
+print(output_sliced)
+#+end_src
+
+#+RESULTS:
+: <class 'pandas.core.frame.DataFrame'>
+
+We can get the executables for the configured ~computation~ and it's sliced ones,
+#+header: :comments both :padline no :exports both :tangle test_develop.py
+#+begin_src jupyter-python
+compnode = DEVSPACE / "compute-node-0"
+simplex_counts,_,store = (cnsprl
+                          .configure_execution(simpcomp, tap._config, compnode,
+                                               slicing=None))
+
+sliced_simplex_counts,_,store = (cnsprl
+                                 .configure_execution(simpcomp, tap._config, compnode,
+                                               slicing="layer"))
+#+end_src
+
+which have different results for a ~full-subtarget~,
+#+header: :comments both :padline no :exports both :tangle test_develop.py
+#+begin_src jupyter-python
+eg_subtarget = simpinps.loc[small_subtargets.index[0]].sample(n=1).iloc[0]()
+print("Using a sample example subtarget with adj: ", eg_subtarget["adjacency"].shape)
+display(simplex_counts(**eg_subtarget))
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+: /tmp/ipykernel_19076/1674571512.py:1: PerformanceWarning: indexing past lexsort depth may impact performance.
+:   eg_subtarget = simpinps.loc[small_subtargets.index[0]].sample(n=1).iloc[0]()
+:  2023-02-22 19:31:53,733: Shuffle 521718 edges following Erdos-Renyi
+: Using a sample example subtarget with adj:  (1823, 1823)
+: dim
+: 0      1823
+: 1     88675
+: 2    115006
+: 3      3889
+: 4         4
+: Name: simplex_count, dtype: int64
+:END:
+
+which for sliced computing will look like,
+#+header: :comments both :padline no :exports both :tangle test_develop.py
+#+begin_src jupyter-python
+print("Using a sample example subtarget with adj: ", eg_subtarget["adjacency"].shape)
+display(sliced_simplex_counts(**eg_subtarget))
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+: Using a sample example subtarget with adj:  (1823, 1823)
+: dim        0       1       2     3
+: layer
+: 1       23.0    14.0     NaN   NaN
+: 2      293.0  2297.0   482.0   4.0
+: 3      318.0  2723.0   655.0   4.0
+: 4      443.0  5139.0  1447.0   7.0
+: 5      465.0  5666.0  1857.0  19.0
+: 6      281.0  2029.0   365.0   2.0
+:END:
+
+
+** Morphology clouds
+For clouds this becomes more complicated. Individual computations return a series of sparse matrices that represent 2D images of moprhology clouds, 1 each for soma, axon, basal, and apical dendrites. When run for ~mtype~ slices there will 60 of these (4,) series. However, the underlying data is not floats, but sparse matrices.
+
+
+
+#+name: name-it
+#+header: :comments both :padline no :exports both :tangle test_develop.py
+#+begin_src jupyter-python
+#+end_src

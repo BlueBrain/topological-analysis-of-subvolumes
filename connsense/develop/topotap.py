@@ -142,7 +142,13 @@ class TapDataset:
 
         def load_slicing(s):
             """..."""
-            lazydset = self._tap.pour_dataset(self._phenomenon, self._quantity, slicing=s)
+            try:
+                lazydset = self._tap.pour_dataset(self._phenomenon, self._quantity, slicing=s)
+            except KeyError as kerr:
+                LOG.warning("No computation results of %s %s for input slicing %s: \n%s",
+                            self._phenomenon, self._quantity, s, kerr)
+                return None
+
             if self._belazy:
                 return lazydset
 
@@ -415,15 +421,40 @@ class HDFStore:
         return {param: config for param, config in tap._config["parameters"].items() if param != "create-index"}
     
     
-    def read_parameters(tap, computation_type, quantity):
+    def read_parameters(tap, computation_type, quantity, slicing=None):
         """..."""
+        from copy import deepcopy
+        from connsense.analyze_connectivity import matrices
+    
         pkey = tap.get_paramkey(computation_type)
-        if '/' not in quantity:
-            return tap.parameters[computation_type][pkey][quantity]
+        if not slicing or slicing == "full":
+            if '/' not in quantity:
+                configured = deepcopy(tap.parameters[computation_type][pkey][quantity])
+            else:
+                group, quantity = quantity.split('/')
+                configured = deepcopy(tap.parameters[computation_type][pkey][group][quantity])
     
-        group, quantity = quantity.split('/')
-        return tap.parameters[computation_type][pkey][group][quantity]
+            if slicing == "full":
+                configured.pop("slicing")
     
+            return configured
+    
+        params = tap.read_parameters(computation_type, quantity)
+    
+        try:
+            cfg_slicings = params.pop("slicing")
+        except KeyError:
+            raise ConfigurationError(f"No slicings were configured: \n{pformat(params)}")
+    
+        try:
+            slicing_params = cfg_slicings[slicing]
+        except KeyError:
+            raise ConfigurationError(f"slicing {slicing} not among configure:\n{pformat(cfg_slicings)}")
+    
+        if slicing_params.get("compute_mode", ("EXECUTE")) in ("execute", "EXECUTE"):
+            params["output"] = matrices.type_series_store(params["output"])
+    
+        return params
 
     def get_paramkey(tap, computation_type):
         """..."""
@@ -497,23 +528,24 @@ class HDFStore:
     
     def pour_dataset(tap, computation_type, of_quantity, slicing=None):
         """..."""
-        connsense_h5, hdf_group = tap.get_path(computation_type)
-        dataset = '/'.join([hdf_group, of_quantity] if not slicing else [hdf_group, of_quantity, slicing])
+        cnsh5, hdf_group = tap.get_path(computation_type)
+        dataset = '/'.join([hdf_group, of_quantity] if not slicing
+                           else [hdf_group, of_quantity, slicing])
     
         with h5py.File(tap._root, 'r') as hdf:
             if "data" in hdf[dataset]:
                 dataset = '/'.join([dataset, "data"])
     
         if computation_type == "extract-node-populations":
-            return matrices.get_store(connsense_h5, dataset, pd.DataFrame).toc
+            return matrices.get_store(cnsh5, dataset, pd.DataFrame, in_mode='r').toc
     
         if computation_type == "extract-edge-populations":
-            return read_toc_plus_payload((connsense_h5, dataset), "extract-edge-populations")
+            return read_toc_plus_payload((cnsh5, dataset), "extract-edge-populations")
     
         if computation_type.startswith("analyze-"):
             return tap.pour_analyses(computation_type, of_quantity, slicing)
     
-        return read_dataset((connsense_h5, dataset), computation_type)
+        return read_dataset((cnsh5, dataset), computation_type)
     
     def pour(tap, dataset):
         """For convenience, allow queries with tuples (computation_type, of_quantity).
@@ -534,31 +566,33 @@ class HDFStore:
         """Pour the results of running an analysis computation.
         """
         LOG.info("Pour analyses for %s quantity %s", computation_type, quantity)
-        connsense_h5, hdf_group = tap.get_path(computation_type)
+        cnsh5, hdf_group = tap.get_path(computation_type)
     
     #    if quantity == "psp/traces":
-    #        return pd.read_hdf(connsense_h5, '/'.join([hdf_group, quantitye))
+    #        return pd.read_hdf(cnsh5, '/'.join([hdf_group, quantitye))
     
     
         def pour_component(c, parameters):
             """..."""
-            LOG.info("Pour %s %s component %s: \n%s\n from store %s", computation_type, quantity, c,
-                     pformat(parameters), (connsense_h5, '/'.join([hdf_group, c])))
+            LOG.info("Pour %s %s component %s: \n%s\n from store %s",
+                     computation_type, quantity, c, pformat(parameters),
+                     (cnsh5, '/'.join([hdf_group, c])))
     
-            dataset = '/'.join([hdf_group, quantity, c] if not slicing else [hdf_group, quantity, c, slicing])
-            store = matrices.get_store(connsense_h5, dataset, parameters["output"], in_mode='r')
+            dataset = '/'.join([hdf_group, quantity, c] if not slicing
+                               else [hdf_group, quantity, c, slicing])
+            store = matrices.get_store(cnsh5, dataset, parameters["output"], in_mode='r')
             return store.toc if store else None
     
         components = tap.decompose(computation_type, quantity)
         if not components:
-            dataset = '/'.join([hdf_group, quantity] if not slicing else [hdf_group, quantity, slicing])
-            parameters = tap.read_parameters(computation_type, quantity)
-            store = matrices.get_store(connsense_h5, dataset, parameters["output"], in_mode='r')
+            dataset = '/'.join([hdf_group, quantity] if not slicing
+                               else [hdf_group, quantity, slicing])
+            parameters = tap.read_parameters(computation_type, quantity, slicing)
+            store = matrices.get_store(cnsh5, dataset, parameters["output"], in_mode='r')
             return store.toc if store else None
     
-        return {'/'.join([quantity, c]): pour_component(c, parameters) for c, parameters in components.items()}
-    
-    
+        return {'/'.join([quantity, c]): pour_component(c, parameters)
+                for c, parameters in components.items()}
 
     def create_index(tap, variable):
         """..."""
