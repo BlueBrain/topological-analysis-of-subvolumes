@@ -681,21 +681,11 @@ def read_njobs(to_parallelize, computation_of):
 def write_description(of_computation, in_config, at_dirpath):
     """..."""
     computation_type, of_quantity = describe(of_computation)
-    configured = parameterize(computation_type, of_quantity, in_config)
+    configured = deepcopy(parameterize(computation_type, of_quantity, in_config))
     configured["name"] = of_quantity
 
     LOG.info("Write setup description of computation %s in config %s\n \n\t at path %s",
              of_computation, pformat(configured), at_dirpath)
-
-    try:
-        slicings = configured["slicing"]
-    except KeyError:
-        pass
-    else:
-        for label, knife in ((key, value) for key, value in slicings.items()
-                             if key not in ("description", "do-full")):
-            if knife.get("compute_type", "EXECUTE") in ("execute", "EXECUTE"):
-                configured["output"] = matrices.type_series_store(configured["output"]).__qualname__
 
     return read_pipeline.write(configured, to_json=at_dirpath/"description.json")
 
@@ -825,15 +815,17 @@ def generate_inputs(of_computation, in_config, slicing=None, circuit_args=None,
         return inputs
 
     if not slicing or slicing == "full":
+        LOG.info("generate inputs for slicing None or full %s", slicing)
         return index_circuit_args(full)
 
     assert slicing in params["slicing"]
     cfg = {slicing: params["slicing"][slicing]}
+    if cfg[slicing].get("compute_mode", "EXECUTE") in ("execute", "EXECUTE"):
+        LOG.info("generate inputs for slicing %s with compute mode execute", slicing)
+        return index_circuit_args(full)
+
+    LOG.info("generate inputs for slicing %s with compute mode not execute", slicing)
     to_cut = load_slicing(cfg, tap, lazily=False, **circuit_kwargs)[slicing]
-
-    if to_cut.get("compute_mode", "EXECUTE") in ("execute", "EXECUTE"):
-        return full
-
     slices = generate_slices(tap, inputs=full, using_knives=to_cut)
     return index_circuit_args(slices)
 
@@ -1063,7 +1055,7 @@ def setup_multinode(process, of_computation, in_config, using_runtime, *,
     n_compute_nodes, n_parallel_jobs = prepare_parallelization(of_computation,
                                                                in_config, using_runtime)
 
-    def prepare_compute_nodes(inputs, at_dirpath, slicing, unit_weight=None):
+    def prepare_compute_nodes(inputs, at_dirpath, slicing, output_type, unit_weight=None):
         """..."""
         at_dirpath.mkdir(exist_ok=True, parents=False)
         using_configs = configure_multinode(process, of_computation, in_config, at_dirpath)
@@ -1090,8 +1082,8 @@ def setup_multinode(process, of_computation, in_config, using_runtime, *,
 
             setup = {c: read_setup_compute_node(c, for_quantity=at_dirpath)
                      for c, _ in batched.groupby("compute_node")}
-            return collect_results(computation_type, setup, at_dirpath,
-                                   in_connsense_store=h5_group, slicing=slicing)
+            return collect_results(computation_type, setup, at_dirpath, h5_group, slicing,
+                                    output_type=output_type)
 
         return ValueError(f"Unknown multinode {process}")
 
@@ -1125,11 +1117,11 @@ def setup_multinode(process, of_computation, in_config, using_runtime, *,
     else:
         max_weight = None
 
-    compute_nodes = {
-        "full": (prepare_compute_nodes(full, to_stage, None, max_weight)
-                 if "slicing" not in params else
-                 prepare_compute_nodes(full, to_stage/"full", "full", max_weight))
-    }
+    full_path, full_slicing = ((to_stage, None) if "slicing" not in params else
+                               (to_stage/"full", "full"))
+    compute_nodes = {"full": prepare_compute_nodes(full, full_path, full_slicing,
+                                                   params["output"], max_weight)}
+
     if "slicing" not in params:
         return compute_nodes
 
@@ -1138,14 +1130,22 @@ def setup_multinode(process, of_computation, in_config, using_runtime, *,
     of_tap = HDFStore(in_config)
     slicings = load_slicing(cfg_slicings, of_tap, lazily=False, **circuit_kwargs)
     for slicing, to_slice in slicings.items():
-        slicing_mode = to_slice.get("compute_mode", "EXECUTE")
-        sliced_inputs = (generate_slices(of_tap, inputs=full, using_knives=to_slice)
-                         if slicing_mode in ("datacall", "DATACALL")
-                         else full)
-        compute_nodes[slicing] = prepare_compute_nodes(sliced_inputs, to_stage/slicing, slicing, None)
+        slicing_mode = cfg_slicings[slicing].get("compute_mode", "EXECUTE")
+        if slicing_mode in ("datacall", "DATACALL"):
+            sliced_inputs = generate_slices(of_tap, inputs=full, using_knives=to_slice)
+            output_type = params["output"]
+        elif slicing_mode in ("execute", "EXECUTE"):
+            sliced_inputs = full
+            output_type = matrices.type_series_store(params["output"])
+        else:
+            raise ValueError(f"Unhangled compute mode for slicing: {slicing_mode}")
+
+        compute_nodes[slicing] = prepare_compute_nodes(sliced_inputs, to_stage/slicing,
+                                                       slicing, output_type, None)
     return compute_nodes
 
-def collect_results(computation_type, setup, from_dirpath, in_connsense_store, slicing):
+def collect_results(computation_type, setup, from_dirpath, in_connsense_store, slicing,
+                    output_type=None):
     """..."""
     if computation_type == "extract-node-populations":
         assert not slicing, "Does not apply"
@@ -1158,7 +1158,8 @@ def collect_results(computation_type, setup, from_dirpath, in_connsense_store, s
 
     if computation_type in ("analyze-connectivity", "analyze-composition",
                             "analyze-node-types", "analyze-physiology"):
-        return collect_analyze_step(setup, from_dirpath, in_connsense_store, slicing)
+        return collect_analyze_step(setup, from_dirpath, in_connsense_store, slicing,
+                                    output_type)
 
     raise NotImplementedError(f"INPROGRESS: {computation_type}")
 
@@ -1247,7 +1248,8 @@ def collect_edge_population(setup, from_dirpath, in_connsense_store):
     return (in_connsense_store, hdf_edge_population)
 
 
-def collect_analyze_step(setup, from_dirpath, in_connsense_store, slicing):
+def collect_analyze_step(setup, from_dirpath, in_connsense_store, slicing,
+                         output_type=None):
     """..."""
     try:
         with open(from_dirpath/"description.json", 'r') as f:
@@ -1255,13 +1257,11 @@ def collect_analyze_step(setup, from_dirpath, in_connsense_store, slicing):
     except FileNotFoundError as ferr:
         raise RuntimeError(f"NOTFOUND a description of the analysis extracted: {from_dirpath}") from ferr
 
-    #a = analysis["name"]
-    #hdf_analysis = f"analyses/connectivity/{a}"
     connsense_h5, group = in_connsense_store
     hdf_group = group + '/' + analysis["name"]
-    output_type = analysis["output"]
     if slicing:
         hdf_group = hdf_group + "/" + slicing
+    output_type = output_type if output_type else analysis["output"]
 
     def describe_output(of_compute_node):
         """..."""
@@ -1341,7 +1341,8 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
         s = lazy_subtarget()
         LOG.info("Execute circuit args %s lazy subtarget %s, kwargs %s",
                  circuit_args_values, s.keys(), kwargs.keys())
-        result = execute(*circuit_args_values, **lazy_subtarget(), **kwargs)
+        #result = execute(*circuit_args_values, **lazy_subtarget())
+        result = execute(circuit_kwargs, lazy_subtarget())
         if bowl:
             assert index
             bowl[index] = result
@@ -1634,24 +1635,32 @@ def get_executable(computation, in_config, slicing=None):
     except KeyError as err:
         raise RuntimeError(f"No {executable_type} defined for {computation_type}") from err
 
-    _, execute_one = plugins.import_module(executable["source"], executable["method"])
+    _, ex = plugins.import_module(executable["source"], executable["method"])
+
+    of_tap = HDFStore(in_config)
+
+    analysis_kwargs = load_kwargs(parameters, of_tap)
+    def execute_one(circuit_kwargs, subtarget_kwargs):
+        return ex(**circuit_kwargs, **subtarget_kwargs, **analysis_kwargs)
+#    def execute_one(*circuit_args, **subtarget_kwargs):
+#        return ex(*circuit_args, **subtarget_kwargs, **analysis_kwargs)
 
     if not slicing or slicing == "full":
         return (execute_one, parameters)
 
     exclude = ("description", "do-full")
     cfg_slicings = {k: v for k, v in parameters["slicing"].items() if k not in exclude}
-    if cfg_slicings[slicing].get("compute_mode", "EXECUTE") in ("execute", "EXECUTE"):
+    if cfg_slicings[slicing].get("compute_mode", "EXECUTE") in ("datacall", "DATACALL"):
         return (execute_one, parameters)
 
-    of_tap = HDFStore(in_config)
     circuit_kwargs = input_circuit_args(computation, in_config, load_circuit=True)
     knives = load_slicing(cfg_slicings, of_tap, lazily=False, **circuit_kwargs)[slicing]
 
-    def apply_sliced(**subtarget):
+    def apply_sliced(circuit_kwargs, subtarget_kwargs):
         """..."""
-        return (pd.Series([cut(subtarget) for cut in knives], index=knives.index)
-                .apply(lambda xs: execute_one(**xs)))
+        return (pd.Series([cut(subtarget_kwargs) for cut in knives],
+                          index=knives.index)
+                .apply(lambda xs: execute_one(circuit_kwargs, xs)))
 
     parameters["output"] = matrices.type_series_store(parameters["output"])
     return (apply_sliced, parameters)
@@ -1733,46 +1742,9 @@ def store_matrix_data(of_quantity, parameters, on_compute_node, in_hdf_group, sl
     return write_hdf
 
 
-def get_executable(computation, in_config, slicing=None):
-    """..."""
-    from connsense.develop.topotap import HDFStore
-
-    computation_type, of_quantity = describe(computation)
-    parameters = parameterize(computation_type, of_quantity, in_config)
-
-    executable_type = EXECUTABLE[computation_type.split('-')[0]]
-    try:
-        executable = parameters[executable_type]
-    except KeyError as err:
-        raise RuntimeError(f"No {executable_type} defined for {computation_type}") from err
-
-    _, execute_one = plugins.import_module(executable["source"], executable["method"])
-
-    if not slicing or slicing == "full":
-        return (execute_one, parameters)
-
-    exclude = ("description", "do-full")
-    cfg_slicings = {k: v for k, v in parameters["slicing"].items() if k not in exclude}
-    if cfg_slicings[slicing].get("compute_mode", "EXECUTE") in ("execute", "EXECUTE"):
-        return (execute_one, parameters)
-
-    of_tap = HDFStore(in_config)
-    circuit_kwargs = input_circuit_args(computation, in_config, load_circuit=True)
-    knives = load_slicing(cfg_slicings, of_tap, lazily=False, **circuit_kwargs)[slicing]
-
-    def apply_sliced(**subtarget):
-        """..."""
-        return (pd.Series([cut(subtarget) for cut in knives], index=knives.index)
-                .apply(lambda xs: execute_one(**xs)))
-
-    parameters["output"] = matrices.type_series_store(parameters["output"])
-    return (apply_sliced, parameters)
-
 def configure_execution(computation, in_config, on_compute_node, slicing=None):
     """..."""
     computation_type, of_quantity = describe(computation)
-    parameters = parameterize(computation_type, of_quantity, in_config)
-
     _, output_paths = read_pipeline.check_paths(in_config, step=computation_type)
     _, in_hdf_group = output_paths["steps"][computation_type]
 
@@ -2009,7 +1981,7 @@ def load_slicing(transformations, using_tap=None, lazily=True, **circuit_args):
             def slice_input(datasets):
                 if lazily:
                     assert callable(datasets)
-                    return lambda: algorithm(**datasets(), **aslice, **circuit_args,
+                    return lambda: algorithm(**circuit_args, **datasets(), **aslice,
                                              **kwargs)
                 assert not callable(datasets)
                 return algorithm(**datasets, **aslice, **circuit_args, **kwargs)

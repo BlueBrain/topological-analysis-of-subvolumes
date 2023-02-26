@@ -27,3 +27,6 @@ lscounts = (subtargets
 
 print("simplex counts of all subtargets is a ", type(lscounts))
 lscounts.iloc[0]
+def to_slice_mtypes(subtarget):
+    """..."""
+    return pd.Index(range(12), name="mtype").to_series()

@@ -238,7 +238,7 @@ class SparseMatrixHelper:
         with h5py.File(in_hdf_store_at_path, 'r') as hdf:
             hdf_group = hdf[under_group]
             data = hdf_group[dataset]
-        raw = bytes(data[:].astype(np.uint8))
+            raw = bytes(data[:].astype(np.uint8))
         bio = io.BytesIO(raw)
         return sparse.load_npz(bio)
 
@@ -550,10 +550,11 @@ class SeriesOfMatricesStore(MatrixStore):
             long = (batch.toc if overwrite else
                     batch.toc.loc[batch.toc.index.difference(self.toc.index)])
 
-            LOG.info("series of matricescollect frame  %s --> a dataframe input: %s", b, long.shape)
-            colvars = long.index.get_level_values(-1).unique()
-            colidxname = long.index.names[-1]
-            wide = pd.concat([long.xs(d, level=colidxname) for d in colvars], axis=1,
+            LOG.info("series of matrices collect frame  %s --> a dataframe input: %s", b, long.shape)
+            colidx = -1
+            colvars = long.index.get_level_values(colidx).unique()
+            colidxname = long.index.names[colidx]
+            wide = pd.concat([long.xs(d, level=colidx) for d in colvars], axis=1,
                              keys=list(colvars), names=[colidxname])
             LOG.info("series of matrices %s --> a dataframe output: %s", b,  wide.shape)
             return wide
@@ -678,6 +679,12 @@ class FrameOfMatricesStore(MatrixStore):
 class FrameOfMatrices:
     """A stub that marks the output of copmutations that return a
     pandas.DataFrame of (some-kind-of) matrices.
+    """
+    pass
+
+class FrameOfSparseMatrices:
+    """A stub that marks the output of copmutations that return a
+    pandas.DataFrame of sparse-matrices.
     """
     pass
 
@@ -916,7 +923,8 @@ def get_store(to_hdf_at_path, under_group, for_matrix_type, in_mode='a', **kwarg
 
 
 def type_series_store(for_matrices):
-    """..."""
+    """What is the type of MatrixStore that store a pandas.Series for matrices
+    per computation."""
     import scipy, numpy, pandas #base imports to evaluate for_matrix_type
     from pandas import Series, DataFrame
     try:
@@ -936,9 +944,9 @@ def type_series_store(for_matrices):
 
     if issubclass(matrix_type, SeriesOfSparseMatrices): return FrameOfSparseMatrices
 
-    if issubclass(matrix_type, np.ndarray): return SeriesOfMatricesStore
+    if issubclass(matrix_type, np.ndarray): return SeriesOfMatrices
 
-    if issubclass(matrix_type, sparse.spmatrix): return SeriesOfSparseMatricesStore
+    if issubclass(matrix_type, sparse.spmatrix): return SeriesOfSparseMatrices
 
 
     raise TypeError(f"Unhandled type {matrix_type}")

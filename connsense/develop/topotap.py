@@ -142,6 +142,7 @@ class TapDataset:
 
         def load_slicing(s):
             """..."""
+            slicing_cfg = self.parameters["slicing"][s]
             try:
                 lazydset = self._tap.pour_dataset(self._phenomenon, self._quantity, slicing=s)
             except KeyError as kerr:
@@ -153,15 +154,16 @@ class TapDataset:
                 return lazydset
 
             dataset = lazydset.apply(lambda l: l.get_value())
-            slices = prl.parse_slices(self.parameters["slicing"][s])
+            slices = prl.parse_slices(slicing_cfg)
+
+            if slicing_cfg["compute_mode"] in ("execute", "EXECUTE"):
+                return pd.concat(dataset.values, keys=dataset.index)
+
             slicing_args = list(prl.flatten_slicing(next(slices)).keys())
             return (pd.concat([g.droplevel(slicing_args) for _,g in dataset.groupby(slicing_args)], axis=1,
                               keys=[g for g,_ in dataset.groupby(slicing_args)], names=slicing_args)
                     .reorder_levels(dataset.columns.names + slicing_args, axis=1))
 
-            if not self._belazy:
-                return lazydset.apply(call).apply(lambda lzval: lzval.get_value())
-            return lazydset.apply(call)
 
         if not "slicing" in self.parameters:
             lazydset = self._tap.pour(self._dataset).sort_index()

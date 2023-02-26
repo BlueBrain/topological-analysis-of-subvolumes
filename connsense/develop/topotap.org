@@ -133,7 +133,6 @@ Available analyses:
                   'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7ffed51e5760>}}
 #+end_example
 
-
 * Introduction
 
  While the ~Python-environment~ setup above loads the other packages that we will need, we will be most interested in discussing a layer for topological-analyses.
@@ -487,14 +486,11 @@ simplex_counts("R19;C0")
 : Name: simplex_count, dtype: int64
 :END:
 
-
 * HDFStore
-
 The long-range connectivity in the SSCx circuit is based on a topographical mapping connections between subregions.
 The mapping projects each voxel in the circuit atlas to a /pixel/ in the circuit's /flatmap/. This ~voxel-->pixel~ map, from the circuit's physical space to it's ~flatmap~ space, is used to compute neighborhoods of /intra-SSCx/ white-matter (WM) projections. WM projections are expected to enter the cortex from under layer 6 and proceed upwards along cortical layers. Thalamo-cortical (TC) projections follow similar trajectories. We want to analyze local connectivity in such cortical columns.
 
 We want an interface to a ~connsense-TAP~ instance developed for topological network analyses of a brain circuit. Here we implement o replacement of ~connsense.pipeline.store.store.HDFStore~ adding methods for simpler interaction with the pipeline's data.
-
 ** Imports
 #+name: tap-imports
 #+begin_src python
@@ -529,7 +525,6 @@ LOG = logging.get_logger(__name__)
 Paths are specified in ~connsense-TAP~ condiguration, using which we can locate the H5 file with the data that results from running ~connsense-TAP~. The configuration provides paths to the H5 file, and the keys in the data-store for each of the computations / steps in the configuration. An HDFStore interface will need these paths,
 
 ** Loaders
-
 #+name: tap-locate
 #+begin_src python
 def locate_store(config, in_connsense_h5=None):
@@ -547,7 +542,6 @@ def group_steps(config):
 #+end_src
 
 ~connsense-TAP~ store data with integer IDs in the index, while saving the names for the entries in H5. The names for IDs used are,
-
 #+name: tap-connsense-index
 #+begin_src python
 SUBTARGET_ID = "subtarget_id"
@@ -560,7 +554,6 @@ from connsense.pipeline import COMPKEYS, PARAMKEY, ConfigurationError, NotConfig
 #+end_src
 
 Each individual configured of computation is entered in a list under a key that depends on it's computation type. Here is a list of these parameter keys for each computation type that ~connsense-TAP~ knows about,
-
 #+begin_src python
 PARAMKEY = {"define-subtargets": "definitions",
             "extract-voxels": "annotations",
@@ -579,11 +572,7 @@ PARAMKEY = {"define-subtargets": "definitions",
             "analyze-physiology": "analyses"}
 #+end_src
 
-#+RESULTS:
-: None
-
 We can instantiate an HDFStore interface instance with a path to the ~pipeline~ config, or the ~config~ itself. The ~config~ should contain a path to the H5 file that contains ~connsense-TAP~ data, or we can pass one as a second argument,
-
 ** HDFStore
 
 #+name: tap-connsense-hdfstore-init
@@ -810,7 +799,6 @@ In a computation of ~extract-node-types~ we enter the /types/ of ~cell-models~ w
 We extend the ~connsense-TAP~'s ~group-hierarchy~ beyond the basic ~computation-type/method~ in a different way when an ~analysis~ needs computation of the main input's slices. We have developed ~slicing~ in ~parallelization.org~. We can configure as many ~slicings~ for an analysis. The results are stored at ~connsense-h5/computation-type/quantity/slicing~ for a given ~slicing~, while the full inputs are in ~connsense-h5/computation-type/quantity/full~. The /full/ input includes controls if configured.
 
 To interface with the ~slicing~ datasets of an analysis we will use a ~kwarg~,
-
 #+name: tap-pour-dataset
 #+begin_src python :noweb yes
 <<tap-pour-dataset-0>>
@@ -998,9 +986,7 @@ def nodes(tap):
 #+end_src
 
 *** TAP Dataset
-
 The ~HDFStore~ will rely on ~TapDataset~ to provide clean interfaces to the data computed by ~connsense-TAP~. With the large datasets in store we should be able to look around a ~TapDataset~'s contents without loading any data. This will require indices,
-
 #+name: tap-dataset-0
 #+begin_src python
 
@@ -1100,6 +1086,7 @@ A ~TapDataset~ can use ~self._tap: HDFStore~ to pour datasets, taking care of ea
 
         def load_slicing(s):
             """..."""
+            slicing_cfg = self.parameters["slicing"][s]
             try:
                 lazydset = self._tap.pour_dataset(self._phenomenon, self._quantity, slicing=s)
             except KeyError as kerr:
@@ -1111,15 +1098,16 @@ A ~TapDataset~ can use ~self._tap: HDFStore~ to pour datasets, taking care of ea
                 return lazydset
 
             dataset = lazydset.apply(lambda l: l.get_value())
-            slices = prl.parse_slices(self.parameters["slicing"][s])
+            slices = prl.parse_slices(slicing_cfg)
+
+            if slicing_cfg["compute_mode"] in ("execute", "EXECUTE"):
+                return pd.concat(dataset.values, keys=dataset.index)
+
             slicing_args = list(prl.flatten_slicing(next(slices)).keys())
             return (pd.concat([g.droplevel(slicing_args) for _,g in dataset.groupby(slicing_args)], axis=1,
                               keys=[g for g,_ in dataset.groupby(slicing_args)], names=slicing_args)
                     .reorder_levels(dataset.columns.names + slicing_args, axis=1))
 
-            if not self._belazy:
-                return lazydset.apply(call).apply(lambda lzval: lzval.get_value())
-            return lazydset.apply(call)
 
         if not "slicing" in self.parameters:
             lazydset = self._tap.pour(self._dataset).sort_index()
@@ -1334,7 +1322,6 @@ While its ~dataset~ provides a ~dict~ (/i.e./ ~[]~) interface to ~connsense-TAP-
 #+end_src
 
 Some analyses may have controls. We do not save the controlled inputs during the execution of the pipeline. While the original input can be loaded from the HDFStore, we will need to generate the controlled input in order to provide a controlled input. Let us implement a ~TapDataset~ method that returns the input of the ~pipeline-step~ associated with the ~TapDataset~,
-
 #+name: tap-dataset
 #+begin_src python :noweb yes
 <<tap-dataset-2>>
@@ -1646,7 +1633,6 @@ memory usage: 2.9 MB
 : Name: simplex_count, dtype: int64
 :END:
 
-
 * Controls
 
 ** Test develop
@@ -1700,7 +1686,6 @@ pprint(list(f.name for f in CN0.glob('*')))
  'setup.json',
  'analyze-connectivity.sbatch']
 #+end_example
-
 
 * Examples
 

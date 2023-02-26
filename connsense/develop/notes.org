@@ -112,14 +112,14 @@ Finally, here is a template that we can use to start test-developing. We will de
 
 #+RESULTS:
 : We will plot golden aspect ratios:  1.618033988749895
-:  2023-02-23 10:24:22,551: Load circuit Bio_M
-: Available analyses: 
-: {'connectivity': {'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7fff5c4661f0>}}
+:  2023-02-24 15:45:50,863: Load circuit Bio_M
+: Available analyses:
+: {'connectivity': {'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7fff5c3c0760>}}
 
 
 * Matrix stores
 We have defined a ~NatrixStore~ to write results of computations to HDF. We will rewrite it with a review, may be starting with ~matrix_store.org~. For now let us test develop new features.
-** A store for computations that return a  ~frame~ of ~matrices~
+
 We already have a some code to handle ~series~ of matrices, both dense and sparse, but needs to be tested. We have to develop a store for computations that return ~frames~.
 
 We consider this feature while developing two analyses:
@@ -421,9 +421,159 @@ display(sliced_simplex_counts(**eg_subtarget))
 ** Morphology clouds
 For clouds this becomes more complicated. Individual computations return a series of sparse matrices that represent 2D images of moprhology clouds, 1 each for soma, axon, basal, and apical dendrites. When run for ~mtype~ slices there will 60 of these (4,) series. However, the underlying data is not floats, but sparse matrices.
 
+*** Mock it
+Morphology clouds will be a 2D image matrix,
+#+name: mock-morph-clouds
+#+header: :comments both :padline no :exports both :tangle test_develop.py
+#+begin_src jupyter-python
+def morphclouds(morphology, shape=(2, 2)):
+    """..."""
+    return pd.Series({"soma": np.random.uniform(0, 1, shape),
+                      "axon": np.random.uniform(0, 1, shape),
+                      "basal_dendrite": np.random.uniform(0, 1, shape),
+                      "apical_dendrite": np.random.uniform(0, 1, shape)})
+#+end_src
 
+#+RESULTS: mock-morph-clouds
 
+We want to measure morph-clouds for all morphologies of a given mtype,
+#+name: mock-slice-mtypes
+#+header: :both :padline no :exports both :tangle ./test_develop.py
+#+begin_src jupyter-python
+def to_slice_mtypes(subtarget):
+    """..."""
+    return pd.Index(range(12), name="mtype").to_series()
+#+end_src
+
+#+RESULTS: mock-slice-mtypes
+
+Let us see slicing by ~mtype~,
+
+#+header: :comments both :padline no :exports both :tangle test_develop.py
+#+begin_src jupyter-python
+msclouds = (subtargets
+            .apply(first_slice(with_knife=to_slice_mtypes, then_compute=morphclouds)))
+#+end_src
+
+However, we do not want to slice just before computing the morphology clouds. We want datacalls.
 #+name: name-it
+#+header: :comments both :padline no :exports both :tangle test_develop.py
+#+begin_src jupyter-python
+#+end_src
+
+*** Sparsity
+Let us check how we save sparse matrixes to HDF5. We will need to generate sparse matrices,
+#+name: mock-sparse-matrix-0
+#+header: :comments both :padline no :exports both :tangle test_develop.py
+#+begin_src jupyter-python
+def sparse_2D(p_nonzero, max_value=None):
+    def sparse_1D(n):
+        def sparse_0D(i, j):
+            N = max_value or i + j + 1
+            return np.random.randint(0, N) if np.random.uniform(0,1) < p_nonzero else 0
+        return lambda i: np.array([sparse_0D(i, j) for j in range(n)])
+
+    def of_dim(nrows, ncols):
+        sparse_row = sparse_1D(ncols)
+        return np.array([sparse_row(i) for i in range(nrows)])
+
+    return of_dim
+#+end_src
+
+#+RESULTS: mock-sparse-matrix-0
+
+How sparse?
+#+name: mock-sparse-matrix-1
+#+header: :comments both :padline no :exports both :tangle test_develop.py
+#+begin_src jupyter-python
+pconns = pd.Series(np.arange(-6, 1), name="pconn").apply(lambda p: 10 ** p)
+sparse_matrices = pconns.apply(sparse_2D).apply(lambda matrix: matrix(100, 100))
+display(sparse_matrices)
+#+end_src
+
+#+RESULTS: mock-sparse-matrix-1
+: 0    [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,...
+: 1    [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,...
+: 2    [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,...
+: 3    [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,...
+: 4    [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,...
+: 5    [[0, 0, 2, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 7,...
+: 6    [[0, 0, 1, 3, 0, 5, 0, 2, 0, 2, 4, 7, 2, 3, 12...
+: Name: pconn, dtype: object
+
+
+#+header: :comments both :padline no :exports both :tangle test_develop.py
+#+begin_src jupyter-python
+def _sparsity(matrix):
+    return matrix.astype(bool).mean()
+sparsity = pd.concat([pconns, sparse_matrices.apply(_sparsity).rename("sparsity")],
+                     axis=1)
+
+display(sparsity)
+#fig = plt.figure(figsize=(GOLDEN * 6, 6))
+#ax = fig.add_subplot()
+#sbn.histplot(sparsity.valyes)
+#+end_src
+
+#+RESULTS:
+:       pconn  sparsity
+: 0  0.000001    0.0000
+: 1  0.000010    0.0000
+: 2  0.000100    0.0000
+: 3  0.001000    0.0011
+: 4  0.010000    0.0093
+: 5  0.100000    0.1012
+: 6  1.000000    0.9857
+
+We can choose a sparsity of about 0.01 to get a matrix,
+#+header: :comments both :padline no :exports both :tangle test_develop.py
+#+begin_src jupyter-python
+matrix = sparse_2D(0.01, 1000000)(100, 100)
+print("Fraction of non-zero entries in matrix: ", matrix.astype(bool).mean())
+print("Max element: ", matrix.max())
+#+end_src
+
+#+RESULTS:
+: Fraction of non-zero entries in matrix:  0.011
+: Max element:  995951
+
+So let us see what happens when we convert this matrix to a sparse matrix,
+
+#+header: :comments both :padline no :exports both :tangle test_develop.py
+#+begin_src jupyter-python
+spmat = sparse.csr_matrix(matrix)
+print("sparse matrix dtype: ", spmat.dtype)
+#+end_src
+
+#+RESULTS:
+: sparse matrix dtype:  int64
+
+Now we can save the sparse matrix to a stream of bytes,
+#+header: :comments both :padline no :exports both :tangle test_develop.py
+#+begin_src jupyter-python
+bio = io.BytesIO()
+sparse.save_npz(bio, spmat)
+bio.seek(0)
+matrix_bytes = list(bio.read())
+#+end_src
+
+The ~bytes~ in ~matrix_bytes~ are written to HDF5 as a dataset. To load the dataset, these are converted back,
+#+header: :comments both :padline no :exports both :tangle test_develop.py
+#+begin_src jupyter-python
+raw = bytes(np.array(matrix_bytes)[:].astype(np.uint8))
+bio_read = io.BytesIO(raw)
+spmat_from_bytes = sparse.load_npz(bio_read)
+print("read from bytes sparse matrix data type ", spmat_from_bytes.dtype)
+print("Fraction of non-zero entries in matrix: ", spmat_from_bytes.astype(bool).mean())
+print("Max element: ", spmat_from_bytes.max())
+#+end_src
+
+#+RESULTS:
+: read from bytes sparse matrix data type  int64
+: Fraction of non-zero entries in matrix:  0.011000000000000001
+: Max element:  995951
+
+So we conclude that this code should work for the clouds, the ~dtype~ will be ~np.float~.
 #+header: :comments both :padline no :exports both :tangle test_develop.py
 #+begin_src jupyter-python
 #+end_src

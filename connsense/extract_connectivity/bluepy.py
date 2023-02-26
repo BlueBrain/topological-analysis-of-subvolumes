@@ -230,6 +230,7 @@ def extract_adj(circuit, connectome, subtarget, *, sources="intrinsic", n_parall
                                   n_batches=n_parallel_batches)
     return as_adjmat(connections, gids, intrinsic)
 
+
 def extract_edge_0(properties):
     """..."""
     synprops = [Synapse.PRE_GID, Synapse.POST_GID] + [Synapse[p.upper()] for p in properties]
