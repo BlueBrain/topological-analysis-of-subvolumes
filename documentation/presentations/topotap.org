@@ -1,0 +1,432 @@
+#+PROPERTY: header-args:jupyter-python :session ~/Library/Jupyter/runtime/active-ssh.json
+#+PROPERTY: header-args:jupyter :session ~/Library/Jupyter/runtime/active-ssh.json
+
+#+STARTUP: overview
+#+STARTUP: logdrawer
+#+STARTUP: hideblocks
+
+Let us setup an interactive ~Python~ session where we can run the code developed here.
+#+begin_src jupyter
+print("Welcome to EMACS Jupyter")
+#+end_src
+
+#+RESULTS:
+: Welcome to EMACS Jupyter
+
+#+title: Topological analyses of brain circuits
+
+We develop topological analyses of brain circuits, and implement ~Python~ code that we can use with to configure a ~connsense-pipeline~. Instead of the connectivity of the whole circuit /Mosaic/, our focus will be ~circuit-subtargets~ that are geometrically defined. We will start by describing how to configure a ~connsense-pipeline~, run it, and use ~connsensnse-tap~ to access and analyze the data.
+
+* Setup
+In our discussion we will develop scientific concepts to measure the circuit, and implement Python functions to compute them. Here we setup a notebook template to test and explore, and the structure of a ~Python~ package for our methods.
+
+** Introduction
+#+name: notebook-init
+#+begin_src jupyter-python
+from importlib import reload
+from collections.abc import Mapping
+from collections import OrderedDict
+from pprint import pprint, pformat
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+import matplotlib
+
+reload(matplotlib)
+from matplotlib import pylab as plt
+import seaborn as sbn
+
+from IPython.display import display
+
+from bluepy import Synapse, Cell, Circuit
+
+GOLDEN = (1. + np.sqrt(5.))/2.
+print("We will plot golden aspect ratios: ", GOLDEN)
+#+end_src
+** Workspaces
+We have run ~connsense-CRAP~ for the SSCx dissemination variant /Bio-M/, extracting data that we will use to compute the factology. Here is a list of workspaces we will need to generate factsheets.
+#+name: notebook-workspaces
+#+begin_src jupyter-python
+ROOTSPACE = Path("/")
+PROJSPACE = ROOTSPACE / "gpfs/bbp.cscs.ch/project/proj83"
+SOODSPACE = PROJSPACE / "home/sood"
+CONNSPACE = SOODSPACE / "topological-analysis-subvolumes/test/v2"
+DEVSPACE  = CONNSPACE / "test" / "develop"
+#+end_src
+** ~connsense~ Modules
+While test-developing it will be good to have direct access to the ~connsense-TAP-store~ we will use. We will use a module from ~connsense~ to load the HDFstore,
+#+name: notebook-connsense-tap
+#+begin_src jupyter-python
+from connsense.develop import topotap as cnstap
+tap = cnstap.HDFStore(CONNSPACE/"pipeline.yaml")
+circuit = tap.get_circuit("Bio_M")
+print("Available analyses: ")
+pprint(tap.analyses)
+#+end_src
+
+** Notebook template
+Finally, here is a template that we can use to start test-developing. We will deposit the code in a sub-directory, of the directory holding this file.
+#+begin_src jupyter-python :tangle develop_topotap.py :comments no :noweb yes :padline yes
+<<notebook-init>>
+
+<<notebook-workspaces>>
+
+<<notebook-connsense-tap>>
+
+<<notebook-reloads>>
+#+end_src
+
+#+RESULTS:
+: We will plot golden aspect ratios:  1.618033988749895
+:  2023-02-28 09:14:16,442: Load circuit Bio_M
+: Available analyses:
+: {'connectivity': {'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7fff5c2b61f0>,
+:                   'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7fff5c2b6340>}}
+
+* Introduction
+We will study flatmap columns. In the circuit's flatmap we have the following grid,
+
+#+header: :comments both :file ./figures/flatmap.png :exports both
+#+begin_src jupyter-python :tangle develop_topotap.py
+from flatmap_utility import subtargets as fmst, tessellate
+flat_xys = fmst.fmap_positions(in_data=circuit)
+tritille = tessellate.TriTille(230.0)
+graphic_fmap_cells = tritille.plot_hextiles(flat_xys,
+                                            annotate=False, with_grid=False, pointmarker=".", pointmarkersize=0.05)
+graphic_fmap_cells[0]
+#+end_src
+
+#+RESULTS:
+#+attr_html: :width 95%
+[[file:./figures/flatmap.png]]
+
+* Pipeline: TODO
+* TAP CLI
+* Subtargets
+We have information about subtargets in ~tap~,
+#+header: :comments both :exports both
+#+begin_src jupyter-python :tangle no
+display(tap.subtargets)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+             subtarget  flat_i  flat_j        flat_x  flat_y
+subtarget_id
+1               R18;C0     -27      27  3.802528e-13  6210.0
+2               R19;C0     -28      29  1.991858e+02  6555.0
+3               R18;C1     -26      28  3.983717e+02  6210.0
+4               R19;C1     -27      30  5.975575e+02  6555.0
+5               R16;C0     -24      24  3.380025e-13  5520.0
+...                ...     ...     ...           ...     ...
+236             R4;C12       6      18  4.780460e+03  1380.0
+237             R9;C15       2      29  6.174761e+03  3105.0
+238            R15;C13      -9      36  5.378018e+03  5175.0
+239             R3;C11       7      16  4.581274e+03  1035.0
+240            R15;C15      -7      38  6.174761e+03  5175.0
+
+[240 rows x 5 columns]
+#+end_example
+
+Each one is a straight up cylinderical column in the flatmap-space, and a conical column in circuit's physical space. Each ~subtarget~ is associated with a list of gids,
+#+header: :comments both :exports both :file ./figures/subtarget-sizes.png
+#+begin_src jupyter-python :tangle no
+fig_subtarget_sizes = plt.figure(figsize=(GOLDEN * 8, 8))
+
+ax = sbn.histplot(tap.subtarget_gids.apply(len).values, bins=25,
+                  ax=fig_subtarget_sizes.add_subplot())
+#+end_src
+
+#+RESULTS:
+
+#+attr_html: :width 95%
+[[file:./figures/subtarget-sizes.png]]
+
+* Nodes
+We extract node properties as ~extract-node-populations/default~, and can access the node-properties using ~tap~,
+
+#+header: :comments both  :exports both
+#+begin_src jupyter-python :tangle :no
+nodes = cnstap.TapDataset(tap, ("extract-node-populations", "default"), belazy=False)
+#+end_src
+
+We can get a frame for all the nodes over all the subtargets by calling ~.frame~,
+#+header: :comments both  :exports both
+#+begin_src jupyter-python :tangle :no
+nodes.frame.describe()
+#+end_src
+
+#+RESULTS:
+#+begin_example
+                gid         layer             x             y             z  \
+count  3.979210e+06  3.979210e+06  3.979210e+06  3.979210e+06  3.979210e+06
+mean   2.119442e+06  4.433305e+00  4.019145e+03 -3.875941e+02 -2.826167e+03
+std    1.225362e+06  1.483291e+00  1.085759e+03  1.606212e+03  1.158665e+03
+min    1.000000e+00  1.000000e+00  1.636499e+03 -3.620379e+03 -5.760277e+03
+25%    1.051573e+06  3.000000e+00  3.202430e+03 -1.687877e+03 -3.832331e+03
+50%    2.132902e+06  5.000000e+00  3.985456e+03 -4.565885e+02 -2.692254e+03
+75%    3.179796e+06  6.000000e+00  4.832919e+03  8.462939e+02 -1.886098e+03
+max    4.234929e+06  6.000000e+00  6.934595e+03  3.118426e+03 -3.786833e+02
+
+              depth
+count  3.979210e+06
+mean   9.726782e+02
+std    5.520335e+02
+min   -3.664377e+01
+25%    5.110908e+02
+50%    8.804713e+02
+75%    1.463283e+03
+max    2.287056e+03
+#+end_example
+
+As you can tell from the numbers that the ~nodes~ dataframe contains all the nodes in all the subtargets (/i.e/ all circuit nodes except those that could not be flatmapped). This dataframe is no different from the ~circuit.cells~ one, except that the ~subtarget~ is avaialble in the index,
+#+begin_src jupyter-python :tangle no
+display(nodes.frame[ ["gid", "layer", "mtype"] ].head())
+#+end_src
+
+#+RESULTS:
+:                                gid  layer     mtype
+: subtarget circuit node_id
+: R18;C0    Bio_M   0        1636113      6    L6_IPC
+:                   1         996599      6    L6_UPC
+:                   2        3524820      5    L5_UPC
+:                   3          14591      3  L3_TPC:A
+:                   4        4075085      5  L5_TPC:A
+
+Notice the ~node_id~ which is not the same as ~gid~. The ~node_id~ value is local to the ~subtarget~.
+
+* Adjacency matrices
+Adjacency matrices for edges in the local connectome were extracted as ~extract-edge-populations/local~. This data is stored as sparse matrices, and hence using ~.frame~ on the non-lazy data not make much sense. The data is also much larger than nodes. We should stick to the lazy ~datacalls~ loaded  by ~tap~,
+#+begin_src jupyter-python :tangle no
+display(tap.adjacency.frame.head())
+#+end_src
+
+#+RESULTS:
+: subtarget  circuit  connectome
+: R18;C0     Bio_M    local         <connsense.develop.parallelization.DataCall ob...
+: R19;C0     Bio_M    local         <connsense.develop.parallelization.DataCall ob...
+: R18;C1     Bio_M    local         <connsense.develop.parallelization.DataCall ob...
+: R19;C1     Bio_M    local         <connsense.develop.parallelization.DataCall ob...
+: R16;C0     Bio_M    local         <connsense.develop.parallelization.DataCall ob...
+: dtype: object
+Each entry can be expanded when needed,
+#+begin_src jupyter-python :tangle no
+adj = tap.adjacency.dataset.iloc[0]()
+
+print("matrix of type", type(adj), "and shape", adj.shape,
+      "number of connections", adj.astype(bool).sum())
+#+end_src
+
+#+RESULTS:
+: matrix of type <class 'scipy.sparse.csr.csr_matrix'> and shape (4570, 4570) number of connections 431358
+
+
+
+* Analyses
+** Simplex counts
+We already have results for simplex-counts in a ~tap-store~ resulting from a run of the ~connsense-pipeline- developed in [[Pipeline]]. Let us load the simplex-counts,
+#+begin_src jupyter-python
+simplex_counts = cnstap.TapDataset(tap, ("analyze-connectivity", "simplex-counts"),
+                                   belazy=False)
+print("Simplex counts as a %s"%(type(simplex_counts),))
+#+end_src
+
+#+RESULTS:
+: Simplex counts as a <class 'connsense.develop.topotap.TapDataset'>
+
+We have run simplex counts for both the full (original and 5 ER controls) adjacency matrices, and their slices by layer. We can load the results for the ~full-flatcolumns~ as a dataframe,
+#+begin_src jupyter-python
+simplex_counts.frame["full"]
+#+end_src
+
+#+RESULTS:
+#+begin_example
+dim                                              0         1         2  \
+subtarget circuit connectome control
+R18;C0    Bio_M   local      erdos-renyi-0  4570.0  431358.0  840153.0
+                             erdos-renyi-1  4570.0  431358.0  840884.0
+                             erdos-renyi-2  4570.0  431358.0  840077.0
+                             erdos-renyi-3  4570.0  431358.0  840216.0
+                             erdos-renyi-4  4570.0  431358.0  843070.0
+...                                            ...       ...       ...
+R3;C11    Bio_M   local      erdos-renyi-1     1.0       NaN       NaN
+                             erdos-renyi-2     1.0       NaN       NaN
+                             erdos-renyi-3     1.0       NaN       NaN
+                             erdos-renyi-4     1.0       NaN       NaN
+                             original          1.0       NaN       NaN
+
+dim                                               3     4   5   6   7
+subtarget circuit connectome control
+R18;C0    Bio_M   local      erdos-renyi-0  33636.0  27.0 NaN NaN NaN
+                             erdos-renyi-1  34024.0  32.0 NaN NaN NaN
+                             erdos-renyi-2  34160.0  22.0 NaN NaN NaN
+                             erdos-renyi-3  33681.0  36.0 NaN NaN NaN
+                             erdos-renyi-4  34321.0  20.0 NaN NaN NaN
+...                                             ...   ...  ..  ..  ..
+R3;C11    Bio_M   local      erdos-renyi-1      NaN   NaN NaN NaN NaN
+                             erdos-renyi-2      NaN   NaN NaN NaN NaN
+                             erdos-renyi-3      NaN   NaN NaN NaN NaN
+                             erdos-renyi-4      NaN   NaN NaN NaN NaN
+                             original           NaN   NaN NaN NaN NaN
+
+[1434 rows x 8 columns]
+#+end_example
+
+This computation will take a while, as all the simplex counts, for both the full and layer will be decompressed from ~connsense.h5~ and loaded into a ~pandas.DataFrame~. In about a minute you should see the result. Once loaded, the dataframe will stay with the object ~simplex_counts.frame~. For layers we have an extra level in the index,
+#+begin_src jupyter-python
+simplex_counts.frame["layer"]
+#+end_src
+
+#+RESULTS:
+#+begin_example
+dim                                                    0        1        2  \
+subtarget circuit connectome control       layer
+R18;C0    Bio_M   local      erdos-renyi-0 1        49.0     50.0      NaN
+                                           2       484.0   4802.0    984.0
+                                           3       705.0  10299.0   3168.0
+                                           4       866.0  15454.0   5649.0
+                                           5      1116.0  25783.0  12544.0
+...                                                  ...      ...      ...
+R3;C11    Bio_M   local      original      2         1.0      NaN      NaN
+                                           3         1.0      NaN      NaN
+                                           4         1.0      NaN      NaN
+                                           5         1.0      NaN      NaN
+                                           6         1.0      NaN      NaN
+
+dim                                                   3   4   5   6   7
+subtarget circuit connectome control       layer
+R18;C0    Bio_M   local      erdos-renyi-0 1        NaN NaN NaN NaN NaN
+                                           2        4.0 NaN NaN NaN NaN
+                                           3       19.0 NaN NaN NaN NaN
+                                           4       37.0 NaN NaN NaN NaN
+                                           5      119.0 NaN NaN NaN NaN
+...                                                 ...  ..  ..  ..  ..
+R3;C11    Bio_M   local      original      2        NaN NaN NaN NaN NaN
+                                           3        NaN NaN NaN NaN NaN
+                                           4        NaN NaN NaN NaN NaN
+                                           5        NaN NaN NaN NaN NaN
+                                           6        NaN NaN NaN NaN NaN
+
+[8604 rows x 8 columns]
+#+end_example
+
+We find a ~nan~ where no simplices were found. Each individual computation on a single ~flatcolumn~ returns an array / series of simplex counts by dimension /upto/ the maximum dimension of simplices found in that ~flatcolumn~. When we concatenated these data into a single ~frame~, the max-dimension was set to the maximum of maxima over all ~flatcolumns~ (and their randomizations). This filled in ~nan~ values for ~flatcolumns~ that did not have the higher missing dimensions. While we can replace the ~nans~ by zeros, as that is what they mean, they do offer a convenient way to compute the max-dimension,
+
+#+begin_src jupyter-python
+from tqdm import tqdm; tqdm.pandas()
+
+maxdim = (simplex_counts.frame["full"]
+          .apply(lambda subtarget: len(subtarget.dropna()), axis=1)
+          .rename("dim"))
+
+display(maxdim)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+subtarget  circuit  connectome  control
+R18;C0     Bio_M    local       erdos-renyi-0    5
+                                erdos-renyi-1    5
+                                erdos-renyi-2    5
+                                erdos-renyi-3    5
+                                erdos-renyi-4    5
+                                                ..
+R3;C11     Bio_M    local       erdos-renyi-1    1
+                                erdos-renyi-2    1
+                                erdos-renyi-3    1
+                                erdos-renyi-4    1
+                                original         1
+Name: dim, Length: 1434, dtype: int64
+#+end_example
+
+which we can convert to a plot,
+#+header: :comments both :file ./figures/violins_maxdim_vs_control.png :exports both
+#+begin_src jupyter-python :tangle no
+fig_maxdim = plt.figure(figsize=(GOLDEN * 8, 8))
+_ax = sbn.violinplot(x="control", y="dim", data=maxdim.reset_index(),
+                     ax=fig_maxdim.add_subplot())
+fig_maxdim
+#+end_src
+
+#+attr_html: :width 95%
+[[file:./figures/violins_maxdim_vs_control.png]]
+
+What about each layer?
+#+begin_src jupyter-python
+maxdim_by_layer = (simplex_counts.frame["layer"]
+                   .apply(lambda subtarget: len(subtarget.dropna()), axis=1)
+                   .rename("dim"))
+
+display(maxdim_by_layer)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+subtarget  circuit  connectome  control        layer
+R18;C0     Bio_M    local       erdos-renyi-0  1        2
+                                               2        4
+                                               3        4
+                                               4        4
+                                               5        4
+                                                       ..
+R3;C11     Bio_M    local       original       2        1
+                                               3        1
+                                               4        1
+                                               5        1
+                                               6        1
+Name: dim, Length: 8604, dtype: int64
+#+end_example
+
+and it looks like,
+#+header: :comments both :file ./figures/violins_sliced_maxdim_vs_control.png :exports both
+#+begin_src jupyter-python :tangle no
+fig_maxdim_by_layer = plt.figure(figsize=(GOLDEN * 8, 8))
+_ax = sbn.violinplot(x="control", y="dim", hue="layer", data=maxdim_by_layer.reset_index(),
+                     ax=fig_maxdim_by_layer.add_subplot())
+fig_maxdim_by_layer
+#+end_src
+
+#+RESULTS:
+#+attr_html: :width 95%
+[[file:./figures/violins_sliced_maxdim_vs_control.png]]
+
+
+** Model Params DD2
+Loading the results for second order distance dependent model is similar to simplex counts,
+#+begin_src jupyter-python
+params_dd2 = cnstap.TapDataset(tap, ("analyze-connectivity", "model-params-dd2"),
+                               belazy=False)
+display(params_dd2.frame)
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+:  2023-02-28 09:38:19,607: Pour analyses for analyze-connectivity quantity model-params-dd2
+:  2023-02-28 09:38:19,609: Initialize a DataFrameStore matrix store loading / writing data at /gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/connsense.h5 / analyses/connectivity/model-params-dd2
+:  2023-02-28 09:38:23,108: Frame TapDataset (analyze-connectivity/model-params-dd2) component None
+#+begin_example
+                                   exp_model_scale  exp_model_exponent
+subtarget circuit connectome seed
+R18;C0    Bio_M   local      NaN          0.749694            0.006224
+R19;C0    Bio_M   local      NaN          0.729469            0.005418
+R18;C1    Bio_M   local      NaN          0.795972            0.008555
+R19;C1    Bio_M   local      NaN          0.711651            0.006696
+R16;C0    Bio_M   local      NaN          0.751695            0.006487
+...                                            ...                 ...
+R15;C14   Bio_M   local      NaN          0.941746            0.008906
+R4;C12    Bio_M   local      NaN          0.911301            0.008335
+R9;C15    Bio_M   local      NaN          0.658517            0.004572
+R15;C13   Bio_M   local      NaN          0.266214            0.003580
+R3;C11    Bio_M   local      NaN               NaN                 NaN
+
+[239 rows x 2 columns]
+#+end_example
+:END:
+
+
+* Scratch
+#+header: :comments both  :exports both :file ./figures/file-name-for-figure.png
+#+begin_src jupyter-python :tangle no
+#+end_src

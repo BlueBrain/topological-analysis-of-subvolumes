@@ -632,12 +632,13 @@ class HDFStore:
         return reverse.reindex(value) if value is not None else reverse
     
 
+    def pour_subtargets(tap, dataset):
+        """..."""
+        return tap.pour(("define-subtargets", dataset))
     @lazy
     def subtargets(tap):
-        """Subtargets in connsense-TAP
-        """
+        """Subtargets in connsense-TAP."""
         definitions = tap.describe("define-subtargets")
-        pour_subtargets = lambda dataset: tap.pour(("define-subtargets", dataset))
     
         if len(definitions) == 0:
             LOG.warning("No subtargets configured!")
@@ -647,9 +648,9 @@ class HDFStore:
             """..."""
             LOG.info("Load dataset %s: \n%s", definition["dataset"], pformat(definition["description"]))
             _, group = definition["dataset"]
-            subtargets = pour_subtargets(f"{group}/name")
+            subtargets = tap.pour_subtargets(f"{group}/name")
             try:
-                info = pour_subtargets(f"{group}/info")
+                info = tap.pour_subtargets(f"{group}/info")
             except KeyError:
                 return subtargets
             return pd.concat([subtargets, info], axis=1)
@@ -659,6 +660,24 @@ class HDFStore:
         return {definition["dataset"][1]: of_(definition) for definition in definitions}
     
     
+    @lazy
+    def subtarget_gids(tap):
+        """..."""
+        definitions = tap.describe("define-subtargets")
+    
+        if len(definitions) == 0:
+            LOG.warning("No subtargets configured!")
+            return None
+    
+        def of_(definition):
+            """..."""
+            LOG.info("Load dataset %s: \n%s", definition["dataset"], pformat(definition["description"]))
+            _, group = definition["dataset"]
+            return tap.pour_subtargets(f"{group}/data")
+    
+        if len(definitions) == 1:
+            return of_(definitions[0])
+        return {definition["dataset"][1]: of_(definition) for definition in definitions}
 
     @lazy
     def nodes(tap):

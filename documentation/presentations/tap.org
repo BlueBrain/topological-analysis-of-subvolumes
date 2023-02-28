@@ -1,0 +1,106 @@
+#+PROPERTY: header-args:jupyter-python :session ~/Library/Jupyter/runtime/active-ssh.json
+#+PROPERTY: header-args:jupyter :session ~/Library/Jupyter/runtime/active-ssh.json
+
+#+STARTUP: overview
+#+STARTUP: logdrawer
+#+STARTUP: hideblocks
+
+Let us setup an interactive ~Python~ session where we can run the code developed here.
+#+begin_src jupyter
+print("Welcome to EMACS Jupyter")
+#+end_src
+
+#+RESULTS:
+: Welcome to EMACS Jupyter
+
+#+title: The Connsense Test & Analysis Pipeline Store (TAP)
+
+We present the ~HDFStore~ in which an instance of ~connsense-pipeline~ will store it's results.
+
+* Setup
+In our discussion we will develop scientific concepts to measure the circuit, and implement Python functions to compute them. Here we setup a notebook template to test and explore, and the structure of a ~Python~ package for our methods.
+
+** Introduction
+#+name: notebook-init
+#+begin_src jupyter-python
+from importlib import reload
+from collections.abc import Mapping
+from collections import OrderedDict
+from pprint import pprint, pformat
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+import matplotlib
+
+reload(matplotlib)
+from matplotlib import pylab as plt
+import seaborn as sbn
+
+from IPython.display import display
+
+from bluepy import Synapse, Cell, Circuit
+
+GOLDEN = (1. + np.sqrt(5.))/2.
+print("We will plot golden aspect ratios: ", GOLDEN)
+#+end_src
+** Workspaces
+We have run ~connsense-CRAP~ for the SSCx dissemination variant /Bio-M/, extracting data that we will use to compute the factology. Here is a list of workspaces we will need to generate factsheets.
+#+name: notebook-workspaces-0
+#+begin_src jupyter-python
+ROOTSPACE = Path("/")
+PROJSPACE = ROOTSPACE / "gpfs/bbp.cscs.ch/project/proj83"
+SOODSPACE = PROJSPACE / "home/sood"
+CONNSPACE = SOODSPACE / "topological-analysis-subvolumes/test/v2"
+DEVSPACE  = CONNSPACE / "test" / "develop"
+#+end_src
+
+While test-developing it will be good to have direct access to the ~connsense-TAP-store~ we will use,
+
+We can collect the code above in a ~Pyhton~ template file that can be used to generate notebooks,
+
+** ~connsense~ Modules
+
+#+name: notebook-connsense-tap
+#+begin_src jupyter-python
+from connsense.develop import parallelization as cnsprl, topotap as cnstap
+
+tap = cnstap.HDFStore(CONNSPACE/"pipeline.yaml")
+circuit = tap.get_circuit("Bio_M")
+print("Available analyses: ")
+pprint(tap.analyses)
+#+end_src
+
+#+RESULTS: notebook-connsense-tap
+:  2023-02-22 09:12:52,494: Load circuit Bio_M
+: Available analyses:
+: {'connectivity': {'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7fff4434b940>}}
+
+** Notebook template
+Finally, here is a template that we can use to start test-developing. We will deposit the code in a sub-directory, of the directory holding this file.
+#+begin_src jupyter-python :tangle develop_topotap.py :comments no :noweb yes :padline yes
+<<notebook-init>>
+
+<<notebook-workspaces>>
+
+<<notebook-connsense-tap>>
+
+<<notebook-reloads>>
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+: We will plot golden aspect ratios:  1.618033988749895
+# [goto error]
+: [0;31m---------------------------------------------------------------------------[0m
+: [0;31mNameError[0m                                 Traceback (most recent call last)
+: [0;32m/tmp/ipykernel_168303/1677611194.py[0m in [0;36m<module>[0;34m[0m
+: [1;32m     25[0m [0;32mfrom[0m [0mconnsense[0m[0;34m.[0m[0mdevelop[0m [0;32mimport[0m [0mparallelization[0m [0;32mas[0m [0mcnsprl[0m[0;34m,[0m [0mtopotap[0m [0;32mas[0m [0mcnstap[0m[0;34m[0m[0;34m[0m[0m
+: [1;32m     26[0m [0;34m[0m[0m
+: [0;32m---> 27[0;31m [0mtap[0m [0;34m=[0m [0mcnstap[0m[0;34m.[0m[0mHDFStore[0m[0;34m([0m[0mCONNSPACE[0m[0;34m/[0m[0;34m"pipeline.yaml"[0m[0;34m)[0m[0;34m[0m[0;34m[0m[0m
+: [0m[1;32m     28[0m [0mcircuit[0m [0;34m=[0m [0mtap[0m[0;34m.[0m[0mget_circuit[0m[0;34m([0m[0;34m"Bio_M"[0m[0;34m)[0m[0;34m[0m[0;34m[0m[0m
+: [1;32m     29[0m [0mprint[0m[0;34m([0m[0;34m"Available analyses: "[0m[0;34m)[0m[0;34m[0m[0;34m[0m[0m
+:
+: [0;31mNameError[0m: name 'CONNSPACE' is not defined
+:END:

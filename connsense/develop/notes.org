@@ -1,6 +1,8 @@
 #+PROPERTY: header-args:jupyter-python :session ~/Library/Jupyter/runtime/active-ssh.json
 #+PROPERTY: header-args:jupyter :session ~/Library/Jupyter/runtime/active-ssh.json
 #+STARTUP: overview
+#+STARTUP: logdrawer
+#+STARTUP: hideblocks
 
 Let us setup an interactive ~Python~ session where we can run the code developed here.
 #+begin_src jupyter

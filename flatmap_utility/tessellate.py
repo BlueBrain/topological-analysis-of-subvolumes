@@ -542,8 +542,8 @@ class TriTille:
         else:
             colors = pointcolor
 
-        plt.scatter(positions["x"], positions["y"],
-                    c=colors, marker=pointmarker, s=pointmarkersize)
+        axes.scatter(positions["x"], positions["y"],
+                     c=colors, marker=pointmarker, s=pointmarkersize)
 
         if with_grid:
 
