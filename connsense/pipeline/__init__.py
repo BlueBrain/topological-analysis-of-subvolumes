@@ -23,7 +23,7 @@ PARAMKEY = {"define-subtargets": "definitions",
             "analyze-physiology": "analyses"}
 
 COMPKEYS = ["description",
-            "index", "input", "kwargs",
+            "members", "index", "input", "kwargs",
             "loader", "extractor",  "generator", "computation",
             "output", "collector","reindex",
             "controls", "slicing"]

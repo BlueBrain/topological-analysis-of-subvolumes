@@ -1,0 +1,197 @@
+#+PROPERTY: header-args:jupyter-python :session ~/jupyter-run/active-topo-2-ssh.json
+#+PROPERTY: header-args:jupyter :session ~/jupyter-run/active-topo-2-ssh.json
+
+#+begin_src jupyter
+print("Welcome to EMACS Jupyter")
+#+end_src
+
+#+RESULTS:
+: Welcome to EMACS Jupyter
+
+#+STARTUP: :OVERVIEW
+
+#+title: Topological analysis of SSCx (~flatmap~) Columns
+We develop topological analyses for (hexagonal) columns orthogonal to the circuit's flatmap between layers 4 and 5. Each voxel in the circuit's volume is mapped to a pixel in the circuit's ~flatmap~. We use a hexagonal grid in the ~flatmap~ to define ~subtargets~ that are expanded into 3D by mapping each ~subtarget~ pixel back to its original voxel. We have used circuit ~flatmap~ to parameterize white-matter connectivity, and thalamic innervation. Here we use the hexagonal ~subtargets~ to scan spatial distribution of topological quantities such as ~simplex-counts~. While the scientific discussion will be developed elsewhere, here we will focus on developing a configuration of our analyses that we can use with ~connsense~ to run a pipeline that scans topological measurements over the circuits' ~flatmap~.
+
+
+We start by discussing individual steps of the pipeline. The pipeline config will developed in the subsections [[Path]] and [[Parameters]] of [[Pipeline]] where we put together each step's config.
+
+* Setup :noexport:
+In our discussion we will use ~Python~ code. We can interact with the code using this setup.
+#+name: notebook-init
+#+begin_src jupyter-python
+from importlib import reload
+from collections.abc import Mapping
+from collections import OrderedDict
+from pprint import pprint, pformat
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+import matplotlib
+
+reload(matplotlib)
+from matplotlib import pylab as plt
+import seaborn as sbn
+GOLDEN = (1. + np.sqrt(5.))/2.
+
+from IPython.display import display
+
+from bluepy import Synapse, Cell, Circuit
+
+print("We will plot golden aspect ratios: ", GOLDEN)
+#+end_src
+
+** Workspaces
+We have run ~connsense-CRAP~ for the SSCx dissemination variant /Bio-M/, extracting data that we will use to compute the factology. Here is a list of workspaces we will need to generate factsheets.
+#+name: notebook-workspaces-0
+#+begin_src jupyter-python
+from connsense.develop import (parallelization as cnsprl,
+                               topotap as cnstap)
+ROOTSPACE = Path("/")
+PROJSPACE = ROOTSPACE / "gpfs/bbp.cscs.ch/project/proj83"
+SOODSPACE = PROJSPACE / "home/sood"
+CONNSPACE = SOODSPACE / "topological-analysis-subvolumes/test/v2"
+#+end_src
+
+#+RESULTS: notebook-workspaces-0
+
+We have another ~connsense-TAP~ project defined in,
+#+name: notebook-workspaces
+#+begin_src jupyter-python :noweb yes
+<<notebook-workspaces-0>>
+PORTALSPACE = (SOODSPACE / "portal" / "develop" / "factology-v2" / "analyses/connsense"
+               / "redefine-subtargets/create-index/morphology-mtypes")
+EXPTLSPACE = PORTALSPACE / "experimental"
+#+end_src
+
+While test-developing it will be good to have direct access to the ~connsense-TAP-store~ we will use,
+** ~connsense~ Modules
+#+name: notebook-connsense-tap
+#+begin_src jupyter-python
+topotap_22 = cnstap.HDFStore(CONNSPACE/"pipeline.yaml", "connsense-2022-12.h5")
+topotap = cnstap.HDFStore(CONNSPACE / "pipeline.yaml")
+circuit = topotap.get_circuit("Bio_M")
+pprint(topotap.analyses)
+#+end_src
+
+#+RESULTS: notebook-connsense-tap
+:  2023-02-13 13:03:36,259: Load circuit Bio_M
+: {'connectivity': {'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7ffd4993a520>,
+:                   'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7ffdda624d60>}}
+
+** Notebook template
+Finally, here is a template that we can use to start test-developing. We will deposit the code in a sub-directory, of the directory holding this file.
+#+begin_src jupyter-python :tangle develop_topotap.py :comments no :noweb yes :padline yes
+<<notebook-init>>
+
+<<notebook-workspaces>>
+
+<<notebook-connsense-tap>>
+
+<<notebook-reloads>>
+#+end_src
+
+#+RESULTS:
+: We will plot golden aspect ratios:  1.618033988749895
+:  2023-02-14 16:11:49,403: Load circuit Bio_M
+: {'connectivity': {'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7fff5c260610>}}
+
+* Subtargets
+Though required to be defined geometically , within ~connsense-TAP~ we represent the ~subtargets~ as a collection of ~node-ids~. The ideas is that we may parcellated a brain region's physical volume into constituent /blocks/, and study how a brain circuit phenomenon varies across the /sub-/circuits composed of cells in these blocks. In ~connsense~ we call these blocks as the ~brain-region-circuit~'s ~subtargets~.
+
+The rat ~SSCx~ has 8 /non-barrel/ sub-regions with a total of 4.5 million neurons. Here we develop topological analyses for (hexagonal) columns along the circuit's (local) orientation of the layers. The flatmap is more or less a mesh between layers 4 and 5. Each voxel in the circuit's volume is mapped to a pixel in the circuit's ~flatmap~. We use a hexagonal grid in the ~flatmap~ to define ~subtargets~ that are expanded into 3D by mapping each ~subtarget~ pixel back to its original voxel. Here we use the hexagonal ~subtargets~ to scan spatial distribution of topological quantities such as ~simplex-counts~. We have used parcellation of the SSCx into /conical/ ~flatmap-columns~ oriented along cortical layers to study and parameterize the composition and connectivity of the white-matterinnervation.
+#+header: :comments both :padline yes :tangle ./develop_topotap.py
+#+begin_src jupyter-python :file ./figures/flatmap_hextiles.png
+from flatmap_utility import subtargets as fmst, tessellate
+from bluepy import Circuit
+#circuit = Circuit("/gpfs/bbp.cscs.ch/project/proj83/circuits"
+#                  "/Bio_M/20200805/CircuitConfig_TC_WM")
+#flat_xys = fmst.fmap_positions(in_data=circuit)
+#tritille = tessellate.TriTille(230.0)
+
+graphic_fmap_cells = tritille.plot_hextiles(flat_xys,
+                                            annotate=False, with_grid=False,
+                                            pointmarker=".", pointmarkersize=0.05)
+graphic_fmap_cells[0]
+#+end_src
+
+#+attr_html: :width 95%
+#+RESULTS:
+[[file:./figures/flatmap_hextiles.png]]
+To apply some ~connsense- to our analyses we will define the /flatmap/ ~subtargets~ in the YAML.
+#+name: define-subtargets
+#+header: :comments both :padline no :tangle no
+#+begin_src yaml
+define-subtargets:
+  description: >-
+    Configure how subtargets are defined.
+  definitions:
+#+end_src
+** flatmap-columns
+Hexagonal
+
+* Pipeline
+We can provide a litte header for the pipeline
+#+header: :comments both :padline no :tangle ./pipeline.yaml
+#+begin_src yaml
+description: >-
+  Configure a connsense subTarget Analysis Pipeline to analyze your circuit.
+version: 0.1.0
+date: <2023-02-13 Mon>
+#+end_src
+We start the pipeline by defnining the circuit ~subtargets~ that we will analyze. The ~input~ should be available
+#+name: define-subtargets-flatmap-columns
+#+header: :comments both :padline no :tangle no
+#+begin_src yaml
+define-subtargets:
+  description: >-
+    Configure how subtargets are defined.
+  definitions:
+    flatmap-columns:
+      description: >-
+        Hexaongal prism like columns oriented along cortical layers, from white-matter to pia.
+        The data is loaded from an NRRD file that maps each circuit voxel to a subtarget ids
+        corresponding to a flatmap column.The subtarget ids should be mapped to the subtargets
+        they refer to in a dataframe provided as the input `info`.
+      input:
+        circuit:
+          - "Bio_M"
+      kwargs:
+        path: "/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/column_identities.nrrd"
+        info: "/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/voxel-based-hex-grid-info.h5"
+      loader:
+        source: connsense.define_subtargets.flatmap
+        method: load_nrrd
+#+end_src
+** Extract
+** Analyze
+** Paths
+We need to set paths to the artefacts that the pipeline will use. We set paths for the circuit to analyze, and the root space for the pipeline's HDF5 stores, and the HDF5 group for each of the pipeline steps.
+#+header: :comments both :padline no :tangle ./pipeline.yaml
+#+begin_src yaml
+paths:
+  description: >-
+    The ~connsense~ pipeline needs paths to the input data to load from, and output paths to store data.
+    Paths to the circuit must be provided along with paths to the HDF5 archive that will store the pipeline's
+    results.
+  format: relative
+  circuit:
+    root: "/gpfs/bbp.cscs.ch/project/proj83/circuits"
+    files:
+      Bio_M: "Bio_M/20200805/CircuitConfig_TC_WM"
+  pipeline:
+    root: "/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2"
+    input:
+      store: "connsense.h5"
+    output:
+      store: "connsense.h5"
+    steps:
+      define-subtargets: "subtargets"
+      extract-node-populations: "nodes/populations"
+      extract-edge-populations: "edges/populations"
+      analyze-connectivity: "analyses/connectivity"
+#+end_src
+** Parameters
+For each pipeline step we may cond

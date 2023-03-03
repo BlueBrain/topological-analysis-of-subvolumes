@@ -123,6 +123,7 @@ class TopologicalAnalysis:
     def __init__(self, config, parallelize=None, mode="inspect", workspace=None):
         """Read the pipeline steps to run from the config.
         """
+        from connsense.develop.parallelization import read_runtime_config
         assert mode in ("inspect", "run"), mode
 
         c = config
@@ -130,9 +131,10 @@ class TopologicalAnalysis:
 
         self._path_config, self._config = self.read_config(c, return_location=True)
 
-        self._path_parallelize, self._parallelize = (
-            self.read_parallelization(p, of_pipeline=self._config, return_path=True) if parallelize
-            else (None, None))
+        self._path_parallelize, self._parallelize = (read_runtime_config(p,
+                                                                         of_pipeline=self._config,
+                                                                         return_path=True)
+                                                     if parallelize else (None, None))
 
         self._data = HDFStore(self._config)
 

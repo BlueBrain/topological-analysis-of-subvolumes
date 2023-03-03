@@ -1,14 +1,14 @@
-#+PROPERTY: header-args:jupyter-python :session ~/Library/Jupyter/runtime/active-ssh.json
-#+PROPERTY: header-args:jupyter :session ~/Library/Jupyter/runtime/active-ssh.json
+#+PROPERTY: header-args:jupyter-python :session ~/jupyter-run/active-ssh.json
+#+PROPERTY: header-args:jupyter :session ~/jupyter-run/active-ssh.json
 
 #+STARTUP: overview
 #+STARTUP: logdrawer
 #+STARTUP: hideblocks
 
 Let us setup an interactive ~Python~ session where we can run the code developed here.
-#+begin_src jupyter
+#+BEGIN_SRC jupyter
 print("Welcome to EMACS Jupyter")
-#+end_src
+#+END_SRC
 
 #+RESULTS:
 : Welcome to EMACS Jupyter
@@ -20,9 +20,14 @@ We develop topological analyses of brain circuits, and implement ~Python~ code t
 * Setup
 In our discussion we will develop scientific concepts to measure the circuit, and implement Python functions to compute them. Here we setup a notebook template to test and explore, and the structure of a ~Python~ package for our methods.
 
-** Introduction
-#+name: notebook-init
-#+begin_src jupyter-python
+To get the notebook you will have to clone,
+#+BEGIN_SRC shell
+git clone https://bbpgitlab.epfl.ch/conn/structural/topological-analysis-of-subvolumes.git
+git checkout beta
+#+END_SRC
+
+#+NAME: notebook-init
+#+BEGIN_SRC jupyter-python
 from importlib import reload
 from collections.abc import Mapping
 from collections import OrderedDict
@@ -44,164 +49,210 @@ from bluepy import Synapse, Cell, Circuit
 
 GOLDEN = (1. + np.sqrt(5.))/2.
 print("We will plot golden aspect ratios: ", GOLDEN)
-#+end_src
+#+END_SRC
+
 ** Workspaces
 We have run ~connsense-CRAP~ for the SSCx dissemination variant /Bio-M/, extracting data that we will use to compute the factology. Here is a list of workspaces we will need to generate factsheets.
-#+name: notebook-workspaces
-#+begin_src jupyter-python
+#+NAME: notebook-workspaces
+#+BEGIN_SRC jupyter-python
 ROOTSPACE = Path("/")
 PROJSPACE = ROOTSPACE / "gpfs/bbp.cscs.ch/project/proj83"
 SOODSPACE = PROJSPACE / "home/sood"
 CONNSPACE = SOODSPACE / "topological-analysis-subvolumes/test/v2"
 DEVSPACE  = CONNSPACE / "test" / "develop"
-#+end_src
+#+END_SRC
+
 ** ~connsense~ Modules
 While test-developing it will be good to have direct access to the ~connsense-TAP-store~ we will use. We will use a module from ~connsense~ to load the HDFstore,
-#+name: notebook-connsense-tap
-#+begin_src jupyter-python
+#+NAME: notebook-connsense-tap
+#+BEGIN_SRC jupyter-python
 from connsense.develop import topotap as cnstap
 tap = cnstap.HDFStore(CONNSPACE/"pipeline.yaml")
 circuit = tap.get_circuit("Bio_M")
 print("Available analyses: ")
 pprint(tap.analyses)
-#+end_src
+circuit
+#+END_SRC
 
-** Notebook template
-Finally, here is a template that we can use to start test-developing. We will deposit the code in a sub-directory, of the directory holding this file.
-#+begin_src jupyter-python :tangle develop_topotap.py :comments no :noweb yes :padline yes
-<<notebook-init>>
+#+RESULTS: notebook-connsense-tap
+:RESULTS:
+: Available analyses:
+: {'connectivity': {'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7fff5c659c70>,
+:                   'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7ffddd3b51f0>}}
+: <bluepy.circuit.Circuit at 0x7ffddfee88e0>
+:END:
 
-<<notebook-workspaces>>
+** Emacs specific :noexport:
+We can get all figures displayed 95% so that we can work with them in front of us in an Emacs buffer. Here is a method that does that witb an example. This code is here only to see how much we use it. It should find a way to a place in our ~doom-config~.
 
-<<notebook-connsense-tap>>
+#+NAME: fit-display-defun
+#+BEGIN_SRC emacs-lisp
+(defun fit-display-of (figure width height)
+    (concat "#+attr_html: :width " width " :height " height (string ?\n) figure))
+#+END_SRC
 
-<<notebook-reloads>>
-#+end_src
+#+RESULTS: fit-display-defun
+: fit-display-of
+
+#+NAME: plot-display
+#+HEADER: :var figure="" :var width="95%" :var height="95%"
+#+BEGIN_SRC emacs-lisp
+(fit-display-of figure width height)
+#+END_SRC
+
+#+RESULTS: plot-display
+: #+attr_html: :width 95% :height 95%
+
+#+RESULTS: fit-display
+: #+attr_html: :width 95% :height 95%
+
+#+HEADER: :post plot-display(*this*) :session return
+#+BEGIN_SRC jupyter-python :exports both :file ./test-fit-fig.png
+#+BEGIN_SRC jupyter-python :post attr-wrap(data=*this*) :session return :exports both :file ./test-fit-fig.png
+import pandas as pd
+from matplotlib import pyplot as plt
+import seaborn as sbn
+
+csv_url = 'https://archive.ics.uci.edu/ml/machine-learning-databases/iris/iris.data'
+col_names = ['Sepal_Length','Sepal_Width','Petal_Length','Petal_Width','Class']
+irisies = pd.read_csv(csv_url, names=col_names)
+
+fig = plt.figure(figsize=(15, 12))
+ax = sbn.histplot(x="Petal_Length", hue="Class", data=irisies, ax=fig.add_subplot())
+#+END_SRC
 
 #+RESULTS:
-: We will plot golden aspect ratios:  1.618033988749895
-:  2023-02-28 09:14:16,442: Load circuit Bio_M
-: Available analyses:
-: {'connectivity': {'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7fff5c2b61f0>,
-:                   'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7fff5c2b6340>}}
+#+attr_html: :width 95% :height 95%
+[[file:./test-fit-fig.png]]
+
+#+NAME: fit-display
+#+HEADER: :var figure="" :var attr_value="95%" :var attr_name="#+attr_html: :width "
+#+BEGIN_SRC emacs-lisp
+(concat attr_name attr_value (string ?\n) figure)
+#+END_SRC
+
+
+#+NAME: attr-wrap
+#+BEGIN_SRC sh :var figure="" :var width="95%" :results output
+echo "#+attr_html: :width $width"
+echo "$figure"
+#+END_SRC
+
+#+RESULTS: attr-wrap
+: #+attr_html: :width 95%
+:
 
 * Introduction
 We will study flatmap columns. In the circuit's flatmap we have the following grid,
+#+HEADER: :post plot-display(figure=*this*) :session return
+#+BEGIN_SRC jupyter-python :file ./figures/flatmap.png :exports both
+from flatmap_utility import subtargets as fmst
+fmst.fmap_positions(circuit, over_flatmap_voxels=None, with_orientations=None,
+                    to_subpixel_resolution=True, dropna=True)
+#+END_SRC
 
-#+header: :comments both :file ./figures/flatmap.png :exports both
-#+begin_src jupyter-python :tangle develop_topotap.py
-from flatmap_utility import subtargets as fmst, tessellate
+#+HEADER: :plot-display(figure=*this*)
+#+BEGIN_SRC jupyter-python :file ./figures/flatmap.png :exports both
+from flatmap_utility import subtargets as fmst, tesselate
 flat_xys = fmst.fmap_positions(in_data=circuit)
 tritille = tessellate.TriTille(230.0)
 graphic_fmap_cells = tritille.plot_hextiles(flat_xys,
                                             annotate=False, with_grid=False, pointmarker=".", pointmarkersize=0.05)
 graphic_fmap_cells[0]
-#+end_src
+#+END_SRC
 
-#+RESULTS:
 #+attr_html: :width 95%
 [[file:./figures/flatmap.png]]
+
 
 * Pipeline: TODO
 * TAP CLI
 * Subtargets
 We have information about subtargets in ~tap~,
-#+header: :comments both :exports both
-#+begin_src jupyter-python :tangle no
+#+HEADER: :comments both :exports code
+#+BEGIN_SRC jupyter-python :tangle no
 display(tap.subtargets)
-#+end_src
+#+END_SRC
 
 #+RESULTS:
 #+begin_example
-             subtarget  flat_i  flat_j        flat_x  flat_y
+             subtarget  flat_i  flat_j        flat_x  flat_y  conicality  \
 subtarget_id
-1               R18;C0     -27      27  3.802528e-13  6210.0
-2               R19;C0     -28      29  1.991858e+02  6555.0
-3               R18;C1     -26      28  3.983717e+02  6210.0
-4               R19;C1     -27      30  5.975575e+02  6555.0
-5               R16;C0     -24      24  3.380025e-13  5520.0
-...                ...     ...     ...           ...     ...
-236             R4;C12       6      18  4.780460e+03  1380.0
-237             R9;C15       2      29  6.174761e+03  3105.0
-238            R15;C13      -9      36  5.378018e+03  5175.0
-239             R3;C11       7      16  4.581274e+03  1035.0
-240            R15;C15      -7      38  6.174761e+03  5175.0
+1               R18;C0     -27      27  3.802528e-13  6210.0         NaN
+2               R19;C0     -28      29  1.991858e+02  6555.0         NaN
+3               R18;C1     -26      28  3.983717e+02  6210.0   -0.001376
+4               R19;C1     -27      30  5.975575e+02  6555.0         NaN
+5               R16;C0     -24      24  3.380025e-13  5520.0         NaN
+...                ...     ...     ...           ...     ...         ...
+236             R4;C12       6      18  4.780460e+03  1380.0         NaN
+237             R9;C15       2      29  6.174761e+03  3105.0         NaN
+238            R15;C13      -9      36  5.378018e+03  5175.0         NaN
+239             R3;C11       7      16  4.581274e+03  1035.0         NaN
+240            R15;C15      -7      38  6.174761e+03  5175.0         NaN
 
-[240 rows x 5 columns]
+                    volume       height
+subtarget_id
+1                      NaN          NaN
+2                      NaN          NaN
+3             2.049209e+08  1640.357801
+4                      NaN          NaN
+5                      NaN          NaN
+...                    ...          ...
+236                    NaN          NaN
+237                    NaN          NaN
+238                    NaN          NaN
+239                    NaN          NaN
+240                    NaN          NaN
+
+[240 rows x 8 columns]
 #+end_example
 
 Each one is a straight up cylinderical column in the flatmap-space, and a conical column in circuit's physical space. Each ~subtarget~ is associated with a list of gids,
-#+header: :comments both :exports both :file ./figures/subtarget-sizes.png
-#+begin_src jupyter-python :tangle no
+#+HEADER: :comments both :exports both :var width="95%" :results output
+#+BEGIN_SRC jupyter-python :tangle no :file ./figures/subtarget-sizes.png
 fig_subtarget_sizes = plt.figure(figsize=(GOLDEN * 8, 8))
 
 ax = sbn.histplot(tap.subtarget_gids.apply(len).values, bins=25,
                   ax=fig_subtarget_sizes.add_subplot())
-#+end_src
+#+END_SRC
 
 #+RESULTS:
-
-#+attr_html: :width 95%
 [[file:./figures/subtarget-sizes.png]]
+
+We have ~subtargets~' ~conicality, volume, and height~ in the ~info~. We may not be able to compute these values for each ~flatmap-column~. Some may have a geometry that does not resolve to our computations. The ~nan~ values for ~conicality~ are found in,
+#+HEADER: :post plot-display(figure=*this*)
+#+BEGIN_SRC jupyter-python :file ./figures/nan_flatmap.png :exports both
+flat_xy = OrderedDict([("flat_x", "x"), ("flat_y", "y")])
+nanxys = tap.subtargets[list(flat_xy.keys())].rename(columns=flat_xy)
+
+graphic_nanfmap = tritille.plot_hextiles(nangxys, annotate=False)
+graphic_nanfmap[0]
+#+END_SRC
+
+#+RESULTS:
+#+attr_html: :width 95% :height 95%
+[[file:./figures/nan_flatmap.png]]
 
 * Nodes
 We extract node properties as ~extract-node-populations/default~, and can access the node-properties using ~tap~,
 
-#+header: :comments both  :exports both
-#+begin_src jupyter-python :tangle :no
+#+HEADER: :comments both :exports both
+#+BEGIN_SRC jupyter-python :tangle no
 nodes = cnstap.TapDataset(tap, ("extract-node-populations", "default"), belazy=False)
-#+end_src
-
-We can get a frame for all the nodes over all the subtargets by calling ~.frame~,
-#+header: :comments both  :exports both
-#+begin_src jupyter-python :tangle :no
-nodes.frame.describe()
-#+end_src
-
-#+RESULTS:
-#+begin_example
-                gid         layer             x             y             z  \
-count  3.979210e+06  3.979210e+06  3.979210e+06  3.979210e+06  3.979210e+06
-mean   2.119442e+06  4.433305e+00  4.019145e+03 -3.875941e+02 -2.826167e+03
-std    1.225362e+06  1.483291e+00  1.085759e+03  1.606212e+03  1.158665e+03
-min    1.000000e+00  1.000000e+00  1.636499e+03 -3.620379e+03 -5.760277e+03
-25%    1.051573e+06  3.000000e+00  3.202430e+03 -1.687877e+03 -3.832331e+03
-50%    2.132902e+06  5.000000e+00  3.985456e+03 -4.565885e+02 -2.692254e+03
-75%    3.179796e+06  6.000000e+00  4.832919e+03  8.462939e+02 -1.886098e+03
-max    4.234929e+06  6.000000e+00  6.934595e+03  3.118426e+03 -3.786833e+02
-
-              depth
-count  3.979210e+06
-mean   9.726782e+02
-std    5.520335e+02
-min   -3.664377e+01
-25%    5.110908e+02
-50%    8.804713e+02
-75%    1.463283e+03
-max    2.287056e+03
-#+end_example
+#+END_SRC
 
 As you can tell from the numbers that the ~nodes~ dataframe contains all the nodes in all the subtargets (/i.e/ all circuit nodes except those that could not be flatmapped). This dataframe is no different from the ~circuit.cells~ one, except that the ~subtarget~ is avaialble in the index,
-#+begin_src jupyter-python :tangle no
+#+BEGIN_SRC jupyter-python :tangle no
 display(nodes.frame[ ["gid", "layer", "mtype"] ].head())
-#+end_src
-
-#+RESULTS:
-:                                gid  layer     mtype
-: subtarget circuit node_id
-: R18;C0    Bio_M   0        1636113      6    L6_IPC
-:                   1         996599      6    L6_UPC
-:                   2        3524820      5    L5_UPC
-:                   3          14591      3  L3_TPC:A
-:                   4        4075085      5  L5_TPC:A
+#+END_SRC
 
 Notice the ~node_id~ which is not the same as ~gid~. The ~node_id~ value is local to the ~subtarget~.
 
 * Adjacency matrices
 Adjacency matrices for edges in the local connectome were extracted as ~extract-edge-populations/local~. This data is stored as sparse matrices, and hence using ~.frame~ on the non-lazy data not make much sense. The data is also much larger than nodes. We should stick to the lazy ~datacalls~ loaded  by ~tap~,
-#+begin_src jupyter-python :tangle no
+#+BEGIN_SRC jupyter-python :tangle no
 display(tap.adjacency.frame.head())
-#+end_src
+#+END_SRC
 
 #+RESULTS:
 : subtarget  circuit  connectome
@@ -212,34 +263,32 @@ display(tap.adjacency.frame.head())
 : R16;C0     Bio_M    local         <connsense.develop.parallelization.DataCall ob...
 : dtype: object
 Each entry can be expanded when needed,
-#+begin_src jupyter-python :tangle no
+#+BEGIN_SRC jupyter-python :tangle no
 adj = tap.adjacency.dataset.iloc[0]()
 
 print("matrix of type", type(adj), "and shape", adj.shape,
       "number of connections", adj.astype(bool).sum())
-#+end_src
+#+END_SRC
 
 #+RESULTS:
 : matrix of type <class 'scipy.sparse.csr.csr_matrix'> and shape (4570, 4570) number of connections 431358
 
-
-
 * Analyses
 ** Simplex counts
 We already have results for simplex-counts in a ~tap-store~ resulting from a run of the ~connsense-pipeline- developed in [[Pipeline]]. Let us load the simplex-counts,
-#+begin_src jupyter-python
+#+BEGIN_SRC jupyter-python
 simplex_counts = cnstap.TapDataset(tap, ("analyze-connectivity", "simplex-counts"),
                                    belazy=False)
 print("Simplex counts as a %s"%(type(simplex_counts),))
-#+end_src
+#+END_SRC
 
 #+RESULTS:
 : Simplex counts as a <class 'connsense.develop.topotap.TapDataset'>
 
 We have run simplex counts for both the full (original and 5 ER controls) adjacency matrices, and their slices by layer. We can load the results for the ~full-flatcolumns~ as a dataframe,
-#+begin_src jupyter-python
+#+BEGIN_SRC jupyter-python
 simplex_counts.frame["full"]
-#+end_src
+#+END_SRC
 
 #+RESULTS:
 #+begin_example
@@ -275,9 +324,9 @@ R3;C11    Bio_M   local      erdos-renyi-1      NaN   NaN NaN NaN NaN
 #+end_example
 
 This computation will take a while, as all the simplex counts, for both the full and layer will be decompressed from ~connsense.h5~ and loaded into a ~pandas.DataFrame~. In about a minute you should see the result. Once loaded, the dataframe will stay with the object ~simplex_counts.frame~. For layers we have an extra level in the index,
-#+begin_src jupyter-python
+#+BEGIN_SRC jupyter-python
 simplex_counts.frame["layer"]
-#+end_src
+#+END_SRC
 
 #+RESULTS:
 #+begin_example
@@ -314,7 +363,7 @@ R3;C11    Bio_M   local      original      2        NaN NaN NaN NaN NaN
 
 We find a ~nan~ where no simplices were found. Each individual computation on a single ~flatcolumn~ returns an array / series of simplex counts by dimension /upto/ the maximum dimension of simplices found in that ~flatcolumn~. When we concatenated these data into a single ~frame~, the max-dimension was set to the maximum of maxima over all ~flatcolumns~ (and their randomizations). This filled in ~nan~ values for ~flatcolumns~ that did not have the higher missing dimensions. While we can replace the ~nans~ by zeros, as that is what they mean, they do offer a convenient way to compute the max-dimension,
 
-#+begin_src jupyter-python
+#+BEGIN_SRC jupyter-python
 from tqdm import tqdm; tqdm.pandas()
 
 maxdim = (simplex_counts.frame["full"]
@@ -322,7 +371,7 @@ maxdim = (simplex_counts.frame["full"]
           .rename("dim"))
 
 display(maxdim)
-#+end_src
+#+END_SRC
 
 #+RESULTS:
 #+begin_example
@@ -342,25 +391,26 @@ Name: dim, Length: 1434, dtype: int64
 #+end_example
 
 which we can convert to a plot,
-#+header: :comments both :file ./figures/violins_maxdim_vs_control.png :exports both
-#+begin_src jupyter-python :tangle no
+#+HEADER: :comments both :exports both :post plot-display(figure=*this*)
+#+BEGIN_SRC jupyter-python :file ./figures/violins_maxdim_vs_control.png
 fig_maxdim = plt.figure(figsize=(GOLDEN * 8, 8))
 _ax = sbn.violinplot(x="control", y="dim", data=maxdim.reset_index(),
                      ax=fig_maxdim.add_subplot())
 fig_maxdim
-#+end_src
+#+END_SRC
 
-#+attr_html: :width 95%
+#+RESULTS:
+#+attr_html: :width 95% :height 95%
 [[file:./figures/violins_maxdim_vs_control.png]]
 
 What about each layer?
-#+begin_src jupyter-python
+#+BEGIN_SRC jupyter-python
 maxdim_by_layer = (simplex_counts.frame["layer"]
                    .apply(lambda subtarget: len(subtarget.dropna()), axis=1)
                    .rename("dim"))
 
 display(maxdim_by_layer)
-#+end_src
+#+END_SRC
 
 #+RESULTS:
 #+begin_example
@@ -376,30 +426,29 @@ R3;C11     Bio_M    local       original       2        1
                                                4        1
                                                5        1
                                                6        1
-Name: dim, Length: 8604, dtype: int64
+NAME: dim, Length: 8604, dtype: int64
 #+end_example
 
 and it looks like,
-#+header: :comments both :file ./figures/violins_sliced_maxdim_vs_control.png :exports both
-#+begin_src jupyter-python :tangle no
+#+HEADER: :comments both :file ./figures/violins_sliced_maxdim_vs_control.png :exports both
+#+BEGIN_SRC jupyter-python :tangle no
 fig_maxdim_by_layer = plt.figure(figsize=(GOLDEN * 8, 8))
 _ax = sbn.violinplot(x="control", y="dim", hue="layer", data=maxdim_by_layer.reset_index(),
                      ax=fig_maxdim_by_layer.add_subplot())
 fig_maxdim_by_layer
-#+end_src
+#+END_SRC
 
 #+RESULTS:
 #+attr_html: :width 95%
 [[file:./figures/violins_sliced_maxdim_vs_control.png]]
 
-
 ** Model Params DD2
 Loading the results for second order distance dependent model is similar to simplex counts,
-#+begin_src jupyter-python
+#+BEGIN_SRC jupyter-python
 params_dd2 = cnstap.TapDataset(tap, ("analyze-connectivity", "model-params-dd2"),
                                belazy=False)
 display(params_dd2.frame)
-#+end_src
+#+END_SRC
 
 #+RESULTS:
 :RESULTS:
@@ -425,8 +474,32 @@ R3;C11    Bio_M   local      NaN               NaN                 NaN
 #+end_example
 :END:
 
+** Simplices
+We would like to analyze higher order statistics of simplices than the humble simplex counts. We could save simplices as lists for each subtarget input. However this data can be large. To reduce the computed data's size, we can compute statistics on each ~subtarget~'s simplices,
+#+BEGIN_SRC jupyter-python
+def node_participation(simplices):
+    """Compute node participation from DataFrame of simplices,
+    containing a list of simplices in each row.
+    """
+    return simplices.apply(lambda column: column.value_counts(), axis=0).fillna(0).astype(int)
+#+END_SRC
+or for edge participation,
+#+BEGIN_SRC jupyter-python
+def edge_participation(simplices):
+    """Compute node participation from DataFrame of simplices,
+    containing a list of simplices in each row.
+    """
+    edge_positions = list(range(simplices.shape[1]))[:-1]
+
+    def value_count_edge(position):
+        counts = simplices[ [position, position+1] ].value_counts().rename(position)
+        counts.index.rename(["source", "target"], inplace=True)
+        return counts
+
+    return pd.concat([value_count_edge(p) for p in edge_positions], axis=1).fillna(0).astype(int)
+#+END_SRC
 
 * Scratch
-#+header: :comments both  :exports both :file ./figures/file-name-for-figure.png
-#+begin_src jupyter-python :tangle no
-#+end_src
+#+HEADER: :comments both  :exports both :file ./figures/file-name-for-figure.png
+#+BEGIN_SRC jupyter-python :tangle no
+#+END_SRC

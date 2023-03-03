@@ -1,6 +1,9 @@
 #+PROPERTY: header-args:jupyter :session  ~/jupyter-run/active-ssh.json :pandoc t
 #+PROPERTY: header-args:jupyter-python :session ~/jupyter-run/active-ssh.json :pandoc t
+
 #+STARTUP: overview
+#+STARTUP: logdrawer
+#+STARTUP: hideblocks
 
 #+title: Parallelization
 
@@ -1265,12 +1268,11 @@ class DataCall:
 *** Shape of data under a call.
 We cannot make any ~DataCall.shape~ efficient. We implemented ~.shape~ above assuming the case of ~randomizations~ as a ~DataCall._transform~. However a ~DataCall(slicing(randomization))~ causes the randomizaion to be called. In general this is the most generally efficient way.
 ** Generate input datasets
-
 We will load the inputs as a list ~unit-computationss~ derived from the ~pipeline-config~.
 #+name: develop-parallelization-multinode-generate-inputs
 #+begin_src python
 def generate_inputs(of_computation, in_config, slicing=None, circuit_args=None,
-                     ,**circuit_kwargs):
+                     datacalls_for_slices=False, **circuit_kwargs):
     """..."""
     from connsense.develop.topotap import HDFStore
     LOG.info("Generate inputs for %s.", of_computation)
@@ -1309,7 +1311,9 @@ def generate_inputs(of_computation, in_config, slicing=None, circuit_args=None,
 
     assert slicing in params["slicing"]
     cfg = {slicing: params["slicing"][slicing]}
-    if cfg[slicing].get("compute_mode", "EXECUTE") in ("execute", "EXECUTE"):
+
+    if (not datacalls_for_slices
+        and (cfg[slicing].get("compute_mode", "EXECUTE") in ("execute", "EXECUTE"))):
         LOG.info("generate inputs for slicing %s with compute mode execute", slicing)
         return index_circuit_args(full)
 
@@ -1649,6 +1653,7 @@ def report_collection(of_computation, in_config):
 
 
 #+end_src
+
 Test develop check,
 #+begin_src jupyter-python :comments org :padline no :tangle no
 def check_compute_node(setup, master_inputs, n=None):
@@ -1682,6 +1687,7 @@ def check_compute_node(setup, master_inputs, n=None):
     return pd.concat(cns_check.values, keys=cns_check.index)
 
 #+end_src
+
 The version that sequences slicing and full together.
 #+name: develop-parallelization-multinode-setup-0
 #+begin_src python
@@ -1879,21 +1885,30 @@ def read_runtime_config(for_parallelization, *, of_pipeline=None, return_path=Fa
             cfg_computation_type = of_pipeline["parameters"][computation_type]
         except KeyError:
             return None
+        else:
+            LOG.info("Pipeline for %s: \n%s", computation_type, pformat(cfg_computation_type))
 
         paramkey = PARAMKEY[computation_type]
         try:
             quantities_to_configure = cfg_computation_type[paramkey]
         except KeyError:
-            LOG.warning("No quantities to configure for %s". computation)
+            LOG.warning("No quantities %s: \n%s", computation, cfg_computation_type)
             return None
+        else:
+            LOG.info("Configure runtime for %s %s", computation_type, quantities_to_configure)
 
         try:
             runtime = from_runtime[computation_type]
         except KeyError:
             LOG.warning("No runtime configured for computation type %s", computation_type)
             return None
+        else:
+            LOG.info("Use configuration: \n%s", pformat(runtime))
 
         configured = runtime[paramkey]
+
+        if not configured:
+            return None
 
         def decompose_quantity(q):
             """..."""

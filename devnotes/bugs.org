@@ -1,0 +1,6 @@
+#+title: Bugs
+
+* <2023-02-21 Tue>
+1. Discovered that there was a ~data~ group in ~extract-node-populations~ for ~hippocampus~. This creates problems in ~tap.pour_dataset~. *RESOLVED*
+2. ~create-index~ is a pain
+3. summarize a ~connsense-run~ after ~DONE~.

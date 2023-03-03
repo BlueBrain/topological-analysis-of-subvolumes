@@ -13,11 +13,16 @@ import pandas as pd
 def read_subtargets(info):
     """..."""
     LOG.info("Read subtarget info from %s", info)
-    to_flatspace = {"nrrd-file-id": "subtarget_id", "grid-i": "flat_i", "grid-j": "flat_j",
-                    "grid-x": "flat_x", "grid-y": "flat_y", "grid-subtarget": "subtarget"}
-    reorder_columns = ["subtarget", "flat_i", "flat_j", "flat_x", "flat_y"]
-    return (pd.read_hdf(info, key="grid-info").rename(columns=to_flatspace)
-            .set_index("subtarget_id")[reorder_columns])
+    to_flatspace = {"nrrd-file-id": "subtarget_id",
+                    "grid-i": "flat_i", "grid-j": "flat_j",
+                    "grid-x": "flat_x", "grid-y": "flat_y",
+                    "grid-subtarget": "subtarget"}
+    info_read = (pd.read_hdf(info, key="grid-info").rename(columns=to_flatspace)
+                 .set_index("subtarget_id"))
+    info_columns = info_read.columns
+    coord_columns = ["subtarget", "flat_i", "flat_j", "flat_x", "flat_y"]
+    reorder_columns = coord_columns + [c for c in info_columns if c not in coord_columns]
+    return info_read[reorder_columns]
 
 
 def assign_cells(in_circuit, to_subtargets_in_nrrd):

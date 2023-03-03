@@ -355,7 +355,7 @@ def extract_subtargets(definition, in_config, tap):
     kwargs = defparams.get("kwargs", {})
 
     if not members:
-        #from .flatmap import read_subtargets, load_nrrd
+        from .flatmap import read_subtargets, load_nrrd
         subtargets_with_info = read_subtargets(kwargs["info"])
         subtargets = subtargets_with_info["subtarget"]
         subtarget_info = subtargets_with_info.drop(columns="subtarget")

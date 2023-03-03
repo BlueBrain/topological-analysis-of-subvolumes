@@ -570,21 +570,30 @@ def read_runtime_config(for_parallelization, *, of_pipeline=None, return_path=Fa
             cfg_computation_type = of_pipeline["parameters"][computation_type]
         except KeyError:
             return None
+        else:
+            LOG.info("Pipeline for %s: \n%s", computation_type, pformat(cfg_computation_type))
 
         paramkey = PARAMKEY[computation_type]
         try:
             quantities_to_configure = cfg_computation_type[paramkey]
         except KeyError:
-            LOG.warning("No quantities to configure for %s". computation)
+            LOG.warning("No quantities %s: \n%s", computation, cfg_computation_type)
             return None
+        else:
+            LOG.info("Configure runtime for %s %s", computation_type, quantities_to_configure)
 
         try:
             runtime = from_runtime[computation_type]
         except KeyError:
             LOG.warning("No runtime configured for computation type %s", computation_type)
             return None
+        else:
+            LOG.info("Use configuration: \n%s", pformat(runtime))
 
         configured = runtime[paramkey]
+
+        if not configured:
+            return None
 
         def decompose_quantity(q):
             """..."""
@@ -781,7 +790,7 @@ class DataCall:
 
 
 def generate_inputs(of_computation, in_config, slicing=None, circuit_args=None,
-                     **circuit_kwargs):
+                     datacalls_for_slices=False, **circuit_kwargs):
     """..."""
     from connsense.develop.topotap import HDFStore
     LOG.info("Generate inputs for %s.", of_computation)
@@ -820,7 +829,9 @@ def generate_inputs(of_computation, in_config, slicing=None, circuit_args=None,
 
     assert slicing in params["slicing"]
     cfg = {slicing: params["slicing"][slicing]}
-    if cfg[slicing].get("compute_mode", "EXECUTE") in ("execute", "EXECUTE"):
+
+    if (not datacalls_for_slices
+        and (cfg[slicing].get("compute_mode", "EXECUTE") in ("execute", "EXECUTE"))):
         LOG.info("generate inputs for slicing %s with compute mode execute", slicing)
         return index_circuit_args(full)
 

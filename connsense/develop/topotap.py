@@ -370,13 +370,40 @@ class TapDataset:
         frame = pd.concat(data.values, keys=data.index)
         return frame.groupby(data.index.names).agg(summarize) if summarize else frame
 
+    def name_indices(self, component=None):
+        """..."""
+        if isinstance(component, str):
+            assert isinstance(self.dataset, Mapping)
+            data = self.dataset[component]
+            variable_ids = self.variable_ids[component]
+            others = None
+        elif component is None:
+            assert component is None and not isinstance(self.dataset, Mapping), component
+            data = self.dataset
+            variable_ids = self.variable_ids
+            others = None
+        else:
+            assert isinstance(component, (pd.Series, pd.DataFrame))
+            data = component
+            variable_ids = [varid for varid in component.index.names if varid.endswith("_id")]
+            other_ids = [varid for varid in component.index.names if not varid.endswith("_id")]
+            others = component.index.to_frame()[other_ids]
+
+        named = pd.concat([self.name_index(data, varid) for varid in variable_ids], axis=1)
+        return named.join(others) if others is not None else named
+
+    @lazy
+    def inputs(self):
+        """..."""
+        from connsense.develop import parallelization as devprl
+        inputs = devprl.generate_inputs(self._dataset, self._tap._config)
+        return inputs
+
     def input(self, subtarget, circuit=None, connectome=None, *, controls=None):
         """..."""
         from connsense.develop import parallelization as devprl
-
         toc_idx = self.index(subtarget, circuit, connectome)
-        inputs = devprl.generate_inputs(self._dataset, self._tap._config).loc[toc_idx]
-
+        inputs = self.inputs.loc[toc_idx]
         if not isinstance(inputs.index, pd.MultiIndex):
             inputs.index = pd.MultiIndex.from_tuples([(v,) for v in inputs.index.values],
                                                      names=[inputs.index.name])
@@ -398,6 +425,128 @@ class TapDataset:
                                keys=[c.replace(controls, '')[1:] for c in argued],
                                names=[controls])
         return controlled.apply(lambda l: l()) if not self._belazy else controlled
+    @lazy
+    def controls(self):
+        try:
+            control_type = self.inputs.index.get_level_values("control")
+        except KeyError as err:
+            LOG.error("No control configured ?")
+            raise err
+
+        controls = self.inputs[control_type != "original"]
+        idxframe = (self.name_indices(component="full") if isinstance(self.dataset, Mapping)
+                    else self.name_indices())
+        return pd.Series(controls.values,
+                         index=pd.MultiIndex.from_frame(idxframe.loc[controls.index]))
+
+
+    def apply_control(self, algorithm=None, seed=None, *, subtarget, circuit=None, connectome=None,
+                      datacall=False):
+        """...Get controlled input (datacalls).
+        Note: This method makes sense only if this TapDataset is of an analysis.
+        Returned datatype depends on the arguments.
+        If a subtarget is provided, the randomization algorithm will be run by calling
+        the datacall -- so you will get the randomized inputs to this analysis TapDataset.
+
+        Parameters
+        ------------
+        algorithm: The name of the algorithm to load randomizations for
+        seed: One, and only one, of the seeds in the connsense-pipeline
+        subtarget: Name of the subtarget to control
+        circuit: Name of the circuit whose inputs should be controled.
+        ~        If None, and there is only one configured circuit, the circuit level will be removed.
+        connectome: Name if the connectome whose inputs should be controlled
+        ~        If None, and there is only one configured connectome, the connectome level will be removed.
+        """
+        from .import parallelization as prl
+        controls = self.controls.loc[subtarget]
+
+        if circuit:
+            controls = controls.loc[circuit]
+        else:
+            if len(self._tap.circuits) == 1:
+                controls = controls.droplevel("circuit")
+
+        if connectome:
+            controls = controls.loc[connectome]
+        else:
+            if len(self._tap.connectomes) == 1:
+                controls = controls.droplevel("connectome")
+
+        if not algorithm:
+            return controls
+
+        try:
+            configured = self.parameters["controls"]
+        except KeyError as kerr:
+            Log.warning("No controls have been set for the TapDataset %s", self._dataset)
+            raise kerr
+        controls_configured = prl.load_control(configured)
+
+        algorithm_index = [c for c, _, _ in controls_configured if c.startswith(f"{algorithm}-")]
+        controls = controls.loc[algorithm_index]
+
+        if seed is None:
+            return controls
+
+        _datacall = controls.loc[f"{algorithm}-{seed}"]
+
+        return _datacall if datacall else _datacall()
+
+    @lazy
+    def slicings(self):
+        """Slicings for this (analysis) TapDataset, read from connsense-pipeline.yaml
+        """
+        try:
+            configured = self.parameters["slicing"]
+        except KeyError:
+            raise ConfigurationError(f"Slicing  not configured for {self._dataset}")
+
+        return {key: value for key, value in configured.items()
+                if key.lower() not in ("do-full", "do_full", "description")}
+
+    @lazy
+    def sliced_inputs(self):
+        """..."""
+        from .import parallelization as prl
+
+        def slice(s):
+            inputs = prl.generate_inputs(self._dataset, self._tap._config, slicing=s,
+                                         datacalls_for_slices=True)
+            idxframe = self.name_indices(inputs)
+            return pd.Series(inputs.values,
+                             index=pd.MultiIndex.from_frame(idxframe.loc[inputs.index]))
+
+        return {s: slice(s) for s in self.slicings}
+
+    def slice(self, s, value=None, *, subtarget,  circuit=None, connectome=None,
+              datacall=False):
+        """..."""
+        from .import parallelization as prl
+        slices = self.slices[s]
+
+        if circuit:
+            slices = slices.loc[circuit]
+        else:
+            if len(self._tap.circuits) == 1:
+                slices = slices.droplevel("circuit")
+
+        if connectome:
+            slices = slices.loc[connectome]
+        else:
+            if len(self._tap.connectomes) == 1:
+                slices = slices.droplevel("connectome")
+
+        if not value:
+            return slices
+
+        return slices.loc[value]
+
+    def load_adjacency_controls(self, subtargets, control_names, belazy=False):
+        """...Load adjacency and control them by the provided name.
+        Return pandas Series for the controls, each with an adjacency matrix.
+        """
+        raise NotImplementedError("INPROGRESS")
 
 class HDFStore:
     """An interface to the H5 data extracted by connsense-TAP.
@@ -523,6 +672,14 @@ class HDFStore:
             circuit.variant = labeled
             self._circuits[labeled] = circuit
         return self._circuits[labeled]
+    
+    @lazy
+    def circuits(self):
+        return self.index_variable("circuit")
+    
+    @lazy
+    def connectomes(self):
+        return self.index_variable("connectome")
 
     def get_path(tap, computation_type):
         """..."""
@@ -773,3 +930,11 @@ class HDFStore:
     def load_adjacency_controls(tap, analysis, subtargets, control_name):
         """..."""
         pass
+    
+    
+
+    def get_controls(tap, analysis, controls=None):
+        """..."""
+        from .import parallelization as prl
+        ctrls = prl.control_inputs(of_computation=analysis, in_config=tap._config, using_tap=tap)
+        return ctrls.reorder_levels([l for l in ctrls.index.names if l!="control"]+["control"])

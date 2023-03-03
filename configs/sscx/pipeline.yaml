@@ -1,0 +1,285 @@
+# #+title: Connsense Topology Pipeline for SSCx
+
+# We an provide a litte header for the pipeline
+# #+header: :comments both :padline no :tangle ./pipeline.yaml
+
+# [[file:config.org::+begin_src yaml][No heading:1]]
+description: >-
+  Configure a connsense subTarget Analysis Pipeline to analyze your circuit.
+version: 0.1.0
+date: <2023-02-13 Mon>
+# No heading:1 ends here
+
+# We need to set paths to the artefacts that the pipeline will use. We set paths for the circuit to analyze, and the root space for the pipeline's HDF5 stores, and the HDF5 group for each of the pipeline steps.
+# #+header: :comments both :padline no :tangle ./pipeline.yaml
+
+# [[file:config.org::*paths][paths:1]]
+paths:
+  description: >-
+    The ~connsense~ pipeline needs paths to the input data to load from, and output paths to store data.
+    Paths to the circuit must be provided along with paths to the HDF5 archive that will store the pipeline's
+    results.
+  format: relative
+  circuit:
+    root: "/gpfs/bbp.cscs.ch/project/proj83/circuits"
+    files:
+      Bio_M: "Bio_M/20200805/CircuitConfig_TC_WM"
+  pipeline:
+    root: "/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2"
+    input:
+      store: "connsense.h5"
+    output:
+      store: "connsense.h5"
+    steps:
+      define-subtargets: "subtargets"
+      extract-node-populations: "nodes/populations"
+      extract-edge-populations: "edges/populations"
+      analyze-connectivity: "analyses/connectivity"
+# paths:1 ends here
+
+# We provide the parameters for each step.
+# #+header: :comments both :padline no :tangle ./pipeline.yaml
+
+# [[file:config.org::*parameters][parameters:1]]
+parameters:
+  description: >-
+    Provide parameters that apply to each step.
+# parameters:1 ends here
+
+# #+header: :comments both :padline no :tangle ./pipeline.yaml
+
+# [[file:config.org::*define-subtargets][define-subtargets:1]]
+  define-subtargets:
+    description: >-
+      Configure the subtargets to analyze, entrying each definition as a key, value.
+    definitions:
+# define-subtargets:1 ends here
+
+# #+header: :comments both :padline no :tangle ./pipeline.yaml
+
+# [[file:config.org::*flatmap-columns][flatmap-columns:1]]
+      flatmap-columns:
+        description: >-
+          Hexaongal prism like columns oriented along cortical layers,
+          from white-matter to pia.  The data is loaded from an NRRD file that maps each
+          circuit voxel to a subtarget ids corresponding to a flatmap column.The subtarget
+          ids should be mapped to the subtargets they refer to in a dataframe provided as
+          the input `info`.
+        input:
+          circuit:
+          - "Bio_M"
+        kwargs:
+          path: "/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/column_identities.nrrd"
+          info: "/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/voxel-based-hex-grid-info-with-conicality.h5"
+        loader:
+          source: connsense.define_subtargets.flatmap
+          method: load_nrrd
+# flatmap-columns:1 ends here
+
+# Within ~connsense~ we use an ~internal~ index for ~subtarget, circuit, connectome~. While we can infer this information from [[paths]] and [[define-subtargets]], we have not yet (<2023-02-13 Mon>) implemented this feature.
+# #+header: :comments both :padline no :tangle ./pipeline.yaml
+
+# [[file:config.org::*create-index][create-index:1]]
+  create-index:
+    description:
+      Create tap-store indices by listing datasets for each index variable.
+    variables:
+      circuit:
+        - "Bio_M"
+      connectome:
+        - "local"
+      subtarget:
+        dataset: ["define-subtargets", "flatmap-columns/name"]
+# create-index:1 ends here
+
+# #+header: :comments both :padline no :tangle ./pipeline.yaml
+
+# [[file:config.org::*extract-node-populations][extract-node-populations:1]]
+  extract-node-populations:
+    description: >-
+      Specify the populations to extract from a circuit.
+    populations:
+# extract-node-populations:1 ends here
+
+# The population of /non-barrel/ SSCx biophysical nodes will be the node-population that we analyze,
+# #+header: :comments both :padline no :tangle ./pipeline.yaml
+
+# [[file:config.org::*default][default:1]]
+      default:
+        description: >-
+          The default population will be that of neurons in the SSCx.
+          To extract the neurons we will use a `connsense` method that uses ~bluepy~.
+        input:
+          subtarget:
+            dataset:  ["define-subtargets", "flatmap-columns"]
+          circuit:
+            - "Bio_M"
+        kwargs:
+          properties:
+            - region
+            - layer
+            - x
+            - y
+            - z
+            - depth
+            - synapse_class
+            - mtype
+            - etype
+            - morphology
+        extractor:
+          source: connsense.extract_nodes.bluepy
+          method: extract_node_properties
+        output: "pandas.DataFrame"
+# default:1 ends here
+
+# #+header: :comments both :padline no :tangle ./pipeline.yaml
+
+# [[file:config.org::*extract-edge-populations][extract-edge-populations:1]]
+  extract-edge-populations:
+    description: >-
+      Specify the edge populations to extract from a circuit.
+    populations:
+# extract-edge-populations:1 ends here
+
+# The population of local connections resulting from axo-dendritic appositions.
+# #+header: :comments both :padline no :tangle ./pipeline.yaml
+
+# [[file:config.org::*local][local:1]]
+      local:
+        input:
+          subtarget:
+            dataset:  ["define-subtargets", "flatmap-columns"]
+          circuit:
+            - "Bio_M"
+          connectome:
+            - "local"
+        extractor:
+          source: connsense.extract_connectivity.bluepy
+          method: extract_adj
+        output: "sparse.spmatrix"
+# local:1 ends here
+
+# We will analyze several phenomena related to network topology, each entered in ~analyses~,
+# #+header: :comments both :padline no :tangle ./pipeline.yaml
+
+# [[file:config.org::*analyze-connectivity][analyze-connectivity:1]]
+  analyze-connectivity:
+    description: >-
+      Configure each analyses' parameters, as a mapping under section `analyses`.
+    analyses:
+# analyze-connectivity:1 ends here
+
+# #+header: :comments both :padline no :tangle ./pipeline.yaml
+
+# [[file:config.org::*description][description:1]]
+      simplex-counts:
+        description: >-
+          Number of simplices by dimension.
+# description:1 ends here
+
+# We will compute ~simplex-counts~ for each of the ~flatmap-columns~, using ~adjacency~ matrices that we extract as dataset ~("extract-edge-populations", "local")~. We will also use ~node_properties~ that we extract as ~node-population~ ~default~.
+# #+header: :comments both :padline no :tangle ./pipeline.yaml
+
+# [[file:config.org::*input][input:1]]
+        input:
+          node_properties:
+            dataset: ["extract-node-populations", "default"]
+          adjacency:
+            dataset: ["extract-edge-populations", "local"]
+# input:1 ends here
+
+# We will use random controls for each ~subtarget~, entering them by name and value. We start with Erdos-Renyi controls, 5 of them specified by seed.
+# #+header: :comments both :padline no :tangle ./pipeline.yaml
+
+# [[file:config.org::*controls][controls:1]]
+        controls:
+          erdos-renyi:
+            description: >-
+              Erdos-Renyi shuffle of edges.
+            seeds: [0, 1, 2, 3, 4]
+            algorithm:
+              source: "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/randomization.py"
+              method: "ER_shuffle"
+# controls:1 ends here
+
+# We will slice each ~subtarget~ into ~subtgraphs~ consisting of each of the cortical layers. Thus a single ~subtarget~ should give us 6 of these ~slicings~. To compute analysis on a ~slicing~ we will have to enter it inside the ~analysis~ config.
+
+# We may store computation of each slice of a single subtarget as a ~datacall~. This will result in each slice of each subtarget to be sequenced as a ~unit-computation~. In ~connsense-parallelization~, we then parallelize based on the sizes of all the slices. The computation is seprated from that of ~full-subtargets~. This does not work well with ~simplex-counts~ as ~datacall~ of a single ~slice~ requires us to first load the adjacency matrices, then control them. With large adjacency matrices the computation of a unit ~slice-subtarget~ will require the same resources as loading the original full and randomizing it. Instead we will have to serially compute the slices' simplex-counts for each subtarget.
+
+# We can specify this in the config as ~compute_mode: EXECUTE~, instead of ~DATACALL~ which will create individual ~datacalls~, or ~DATASET~ that should save each ~slice-subtarget~ to a ~TapDataset~.
+# #+header: :comments both :padline no :tangle ./pipeline.yaml
+
+# [[file:config.org::*slicing][slicing:1]]
+        slicing:
+          description: >-
+            Slice analysis input according to some rules.
+          do-full: true #to run the original full matrices as well...
+          layer:
+            description: >-
+              Intralayer subgraphs.
+            compute_mode: EXECUTE
+            slices:
+              layer: [1, 2, 3, 4, 5, 6]
+            algorithm:
+              source: "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py"
+              method: "subgraph_intralayer"
+# slicing:1 ends here
+
+# Finally, we need to specify the method to use to compute ~simplex-counts~ for each ~subtarget~, and the data-type of it's output.
+# #+header: :comments both :padline no :tangle ./pipeline.yaml
+
+# [[file:config.org::*computation][computation:1]]
+        computation:
+          source: "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py"
+          method: "simplex_counts"
+        output: "pandas.Series"
+# computation:1 ends here
+
+# This analysis is used to create parameters for the distance dependent connection-probablity order 2 control model.
+# #+header: :comments both :padline no :tangle ./pipeline.yaml
+
+# [[file:config.org::*model-params-dd2][model-params-dd2:1]]
+      model-params-dd2:
+        description: >-
+          Parameters for distance dependent connectivity model of order 2.
+          Note that the `coord_names` in key `kwargs:` must agree with the configuration
+          of the control model that will use the results of this analysis.
+# model-params-dd2:1 ends here
+
+# We will compute ~simplex-counts~ for each of the ~flatmap-columns~, using ~adjacency~ matrices that we extract as dataset ~("extract-edge-populations", "local")~. We will also use ~node_properties~ that we extract as ~node-population~ ~default~.
+# #+header: :comments both :padline no :tangle ./pipeline.yaml
+
+# [[file:config.org::*input][input:1]]
+        input:
+          node_properties:
+            dataset: ["extract-node-populations", "default"]
+          adjacency:
+            dataset: ["extract-edge-populations", "local"]
+# input:1 ends here
+
+# Finally, we need to specify the method to use to compute ~simplex-counts~ for each ~subtarget~, and the data-type of it's output.
+# #+header: :comments both :padline no :tangle ./pipeline.yaml
+
+# [[file:config.org::*computation][computation:1]]
+        computation:
+          source: "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/modelling.py"
+          method: "conn_prob_2nd_order_model"
+        output: "pandas.DataFrame"
+# computation:1 ends here
+
+# The method that we will use to compute model parameters needs these parameters,
+# #+header: :comments both :padline no :tangle ./pipeline.yaml
+
+# [[file:config.org::*kwargs][kwargs:1]]
+        kwargs:
+          bin_size_um: 50
+          max_range_um: 1000
+          sample_size: null
+          coord_names: ["x", "y", "z"]
+# kwargs:1 ends here
+
+# #+header: :comments both :padline no :tangle ./pipeline.yaml
+
+# [[file:config.org::*Scratch][Scratch:1]]
+
+# Scratch:1 ends here
