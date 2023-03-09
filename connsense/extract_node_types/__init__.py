@@ -56,7 +56,7 @@ def extract_component(variable, component, from_tap, to_output):
 
     LOG.info("Extract node types %s from circuit %s to output %s", variable, from_circuit.variant, to_output)
 
-    data = extract(from_circuit)
+    data = extract(from_circuit, **component.get("kwargs", {}))
 
     connsense_h5, modeltypes = to_output
 
