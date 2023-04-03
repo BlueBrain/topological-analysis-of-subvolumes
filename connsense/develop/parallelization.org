@@ -566,7 +566,7 @@ def filter_datasets(described):
     """..."""
     return {var: val for var, val in described.items()
             if (var not in ("circuit", "connectome") and isinstance(val, Mapping)
-                and ("dataset" in val or "datacall" in val))}
+                and ("dataset" in val or "datacall" in val or "datajoin" in val or "dataprod" in val))}
 
 #+end_src
 We can load a ~dataset~ from ~connsense-TAP~, and subject it to any configured transformations. There may be too many datasets (one per ~computation-subtarget~), and thus not feasible to load them all to memory. So we load only one at at time.
@@ -607,8 +607,19 @@ def load_dataset(tap, variable, values):
         try:
             to_call = values["datacall"]
         except KeyError:
-            raise ValueError("values need to define either dataset or datacall")
-        dataset = brew_dataset(tap, to_call)
+            try:
+                to_join = values["datajoin"]
+            except KeyError:
+                try:
+                    to_prod = values["dataprod"]
+                except KeyError:
+                    raise ValueError("values need to define either dataset, datacall, datajoin, or dataprod")
+                else:
+                    dataset = cross_datasets(tap, variable, to_prod)
+            else:
+                dataset = mix_datasets(tap, variable, to_join)
+        else:
+            dataset = brew_dataset(tap, variable, to_call)
     else:
         LOG.info("Pour %s dataset: \n%s", variable, dset)
         dataset = tap.pour_dataset(*dset).apply(lazily(to_evaluate=unpack_value))
@@ -616,7 +627,13 @@ def load_dataset(tap, variable, values):
     if isinstance(dataset, pd.DataFrame):
         return pd.Series([r for _, r in dataset.iterrows()], index=dataset.index).apply(DataCall)
 
-    return dataset if "reindex" not in values else reindex(tap, dataset, values["reindex"])
+    dataset = dataset if "reindex" not in values else reindex(tap, dataset, values["reindex"])
+
+    try:
+        subset = values["subset"]
+    except KeyError:
+        return dataset
+    return dataset.loc[subset]
 
 
 def bind_belazy(call):
@@ -636,13 +653,158 @@ def bind_lazy(call, **kwargs):
     return datacall
 
 
-def brew_dataset(tap, call):
+def brew_dataset(tap, variable, call):
     """..."""
     in_store = pour(tap, call["input"]).apply(lazy_keyword).apply(DataCall)
     _, recipe = plugins.import_module(call["recipe"])
     return in_store.apply(bind_lazy(call=recipe, **call["kwargs"]))
 
+def mix_datasets(tap, variable, recipe):
+    """..."""
+    how = recipe.get("how", "cross")
+    dsets = [(variable, load_dataset(tap, variable, values)) for variable, values in recipe.items()
+             if variable != "how"]
+
+    assert len(dsets) > 0
+    assert isinstance(dsets[0][1], pd.Series)
+    if len(dsets) == 1:
+        to_include_varname = {varid: dsets[0][0] + '_' + varid for varid in dsets[0][1].index.names
+                              if varid not in ("circuit_id", "connectome_id")}
+        dataset = dsets[0][1].copy()
+        dataset.index.rename(to_include_varname, inplace=True)
+        return dataset
+
+    assert len(dsets) == 2
+
+    assert isinstance(dsets[1][1], pd.Series)
+    assert dsets[0][1].name == dsets[1][1].name
+    quantity = dsets[0][1].name
+
+    assert dsets[1][1].index.names == dsets[0][1].index.names
+
+    def merge(d0, d1):
+        assert "circuit_id" not in d0.index.names
+        assert "connectome_id" not in d0.index.names
+        idxvars = d0.index.names
+
+        dd = (pd.merge(d0.reset_index(), d1.reset_index(),
+                       suffixes=("_"+n for n,_ in dsets), how=how)
+              .rename(columns={c+'_'+n:n+'_'+c for c in idxvars for n,_ in dsets}))
+        return (dd.set_index([n+'_'+c for c in idxvars for n,_ in dsets])
+                .rename(columns={quantity+'_'+n: n for n,_ in dsets}))
+                #.rename(columns={quantity+'_'+n: n+'_'+quantity for n,_ in dsets}))
+
+    try:
+        circuits_0 = dsets[0][1].index.get_level_values("circuit_id").unique()
+    except KeyError:
+        circuits = None
+    else:
+        circuits_1 = dsets[0][1].index.get_level_values("circuit_id").unique()
+        circuits = circuits_0.intersection(circuits_1)
+
+    if circuits is None:
+        return merge(dsets[0][1], dsets[1][1])
+
+    def merge_circuit(c):
+        d0 = dsets[0][1].xs(c, level="circuit_id")
+        d1 = dsets[1][1].xs(c, level="circuit_id")
+        try:
+            connectomes_0 = d0.index.get_level_values("connectome_id").unique()
+        except KeyError:
+            return merge(d0, d1)
+        connectomes_1 = d1.index.get_level_values("connectome_id").unique()
+        connectomes = connectomes_0.intersection(connectomes_1)
+
+        def merge_connectome(x):
+            d0_no_conn = d0.xs(x, level="connectome_id")
+            d1_no_conn = d1.xs(x, level="connectome_id")
+            return merge(d0_no_conn, d1_no_conn)
+
+        merged = pd.concat([merge_connectome(x) for x in connectomes], axis=0,
+                           keys=connectomes, names=["connectome_id"])
+
+    merged = pd.concat([merge_circuit(c) for c in circuits], axis=0,
+                       keys=circuits, names=["circuit_id"])
+
+    indices = (merged.index.names[1:] + ["circuit_id"]
+               if "connectome_id" not in merged.index.names else
+               merged.index.names[2:] + ["circuit_id", "connectome_id"])
+
+    return merged.reorder_levels(indices).apply(lambda r: r.to_dict(), axis=1).rename(variable)
+
+
+def cross_datasets(tap, variable, recipe):
+    """..."""
+    assert isinstance(recipe, list)
+    assert len(recipe) == 2
+
+    dsets = [load_dataset(tap, variable, values) for values in recipe]
+
+    assert len(dsets) == 2
+
+    assert isinstance(dsets[0], pd.Series)
+    assert isinstance(dsets[1], pd.Series)
+    assert dsets[0].name == dsets[1].name
+    quantity = dsets[0].name
+
+    assert dsets[1].index.names == dsets[0].index.names
+
+    def merge(d0, d1):
+        assert "circuit_id" not in d0.index.names
+        assert "connectome_id" not in d0.index.names
+        idxvars = d0.index.names
+
+        dd = pd.merge(d0.reset_index(), d1.reset_index(), how="cross")
+        mdd = dd.set_index([f"{c}_x" for c in idxvars] + [f"{c}_y" for c in idxvars])
+
+        if len(idxvars) == 1:
+            mdd.index = pd.Index(mdd.index.values, name=idxvars[0])
+        else:
+            idxframe = pd.DataFrame({var: (mdd.index.to_frame()[[f"{var}_x", f"{var}_y"]]
+                                           .apply(tuple, axis=1))
+                                     for var in idxvars})
+            mdd.index = pd.MultiIndex.from_frame(idxframe)
+
+    try:
+        circuits_0 = dsets[0].index.get_level_values("circuit_id").unique()
+    except KeyError:
+        circuits = None
+    else:
+        circuits_1 = dsets[0].index.get_level_values("circuit_id").unique()
+        circuits = circuits_0.intersection(circuits_1)
+
+    if circuits is None:
+        return merge(dsets[0], dsets[1])
+
+    def merge_circuit(c):
+        d0 = dsets[0].xs(c, level="circuit_id")
+        d1 = dsets[1].xs(c, level="circuit_id")
+        try:
+            connectomes_0 = d0.index.get_level_values("connectome_id").unique()
+        except KeyError:
+            return merge(d0, d1)
+        connectomes_1 = d1.index.get_level_values("connectome_id").unique()
+        connectomes = connectomes_0.intersection(connectomes_1)
+
+        def merge_connectome(x):
+            d0_no_conn = d0.xs(x, level="connectome_id")
+            d1_no_conn = d1.xs(x, level="connectome_id")
+            return merge(d0_no_conn, d1_no_conn)
+
+        merged = pd.concat([merge_connectome(x) for x in connectomes], axis=0,
+                           keys=connectomes, names=["connectome_id"])
+
+    merged = pd.concat([merge_circuit(c) for c in circuits], axis=0,
+                       keys=circuits, names=["circuit_id"])
+
+    indices = (merged.index.names[1:] + ["circuit_id"]
+               if "connectome_id" not in merged.index.names else
+               merged.index.names[2:] + ["circuit_id", "connectome_id"])
+
+    return merged.reorder_levels(indices).apply(lambda r: (r["x"], r["y"]), axis=1).rename(variable)
+
 #+end_src
+
 While we can ~pour~ ~datasets~ that are already in ~connsense-TAP-HDFStore~, sometimes we may want to define a ~dataset~ that we do not want to keep in ~connsense-TAP-HDFStore~, but use as input in another --- /i.e./ we want to ~brew~ a fresh ~dataset~,
 
 Let us use Haskel notation to understand the types we want to manipulate for chained function calls.
@@ -676,24 +838,123 @@ def lazy_keyword(input_datasets):
 #+end_src
 
 We can load datasets for all the input variables in a computation.
-#+name: develop-parallelization-inputs-pour-datasets
+#+name: develop-parallelization-inputs-pour-datasets-cross
 #+begin_src python
 
-def pour(tap, datasets):
-    """..."""
-    LOG.info("Pour tap \n%s\n to get values for variables:\n%s",
+def pour_cross(tap, datasets):
+    """...develop a version of pour that can cross datasets.
+    The levels of circuit_id and connectome_id in the right dataset will be dropped,
+    assuming that the dataset has already been filtered to contain circuit_id and connectome_id
+    that are present in the left dataset.
+    """
+    LOG.info("Pour cross product of tap \n%s\n values for variables:\n%s",
              tap._root, pformat(datasets))
     dsets = sorted([(variable, load_dataset(tap, variable, values))
                     for variable, values in datasets.items()],
                    key=lambda x: len(x[1].index.names), reverse=True)
 
-    common_index = dsets[0][1].index
+    assert len(dsets) == 2, f"Cross can only be between two datasets. Provided: {len(dsets)}"
 
-    return (pd.concat([dset.reindex(common_index) for _, dset in dsets],
-                      axis=1, keys=[name for name, _ in dsets])
+    assert dsets[0][1].index.names == dsets[1][1].index.names, "Index variables must be the same."
+    circargs = [level for level in dsets[0][1].index.names if level in ("circuit_id", "connectome_id")]
+
+    def prefix_dset(name, to_index):
+        return {varid: f"{name}_{varid}" for varid in to_index.names if varid not in circargs}
+
+    left_name = dsets[0][0]
+    left = dsets[0][1].rename(left_name)
+    left_index = prefix_dset(left_name, left.index)
+    LOG.info("rename left index to:\n%s", pformat(left_index))
+    left.index.rename(left_index, inplace=True)
+
+    right_name = dsets[1][0]
+    right = dsets[1][1].rename(right_name)
+    right_index = prefix_dset(right_name, right.index)
+    LOG.info("rename right index to:\n%s", pformat(right_index))
+    right.index.rename(right_index, inplace=True)
+
+    return (pd.merge(left, right, left_index=True, right_index=True)
+            .reorder_levels(list(left_index.values()) + list(right_index.values()) + circargs)
             .apply(lambda row: row.to_dict(), axis=1))
 
 #+end_src
+
+
+#+header: :noweb yes
+#+name: develop-parallelization-inputs-pour-datasets
+#+begin_src python
+<<develop-parallelization-inputs-pour-datasets-cross>>
+
+def pour(tap, datasets):
+    """..."""
+    LOG.info("Pour tap \n%s\n to get values for variables:\n%s",
+             tap._root, pformat(datasets))
+
+    dsets = sorted([(variable, load_dataset(tap, variable, values))
+                    for variable, values in datasets.items()],
+                   key=lambda x: len(x[1].index.names), reverse=True)
+
+    def rename_series(dset, data):
+        try:
+            rename = data.rename
+        except AttributeError:
+            LOG.warning("Dataset reference %s does not point to a pandas.Series", dset)
+            return data
+        return rename(dset)
+
+    primary = rename_series(*dsets[0])
+
+    if len(dsets) == 1:
+        return (primary.apply(lambda value: {dsets[0][0]: value})
+                if isinstance(primary, pd.Series) else
+                primary.apply(lambda row: row.to_dict(), axis=1))
+
+    common_index = dsets[0][1].index.names
+
+    def rename_index(dset, data):
+        if not (join_index := datasets[dset].get("join_index", None)):
+            return rename_series(dset, data)
+
+        data = data.droplevel([varid for varid, revarid in join_index.items()
+                               if revarid.lower() == "drop"])
+        data.index.rename({varid: revarid for varid, revarid in join_index.items()
+                           if revarid and revarid.lower() != "drop"}, inplace=True)
+        return rename_series(dset, data)
+
+    def merge_with(leading, dset, data):
+        reindexed = rename_index(dset, data)
+        return pd.merge(leading, reindexed, left_index=True, right_index=True)
+
+    leading = primary
+    for dset, data in dsets[1:]:
+        leading = merge_with(leading, dset, data)
+    return leading.apply(lambda row: row.to_dict(), axis=1).reorder_levels(common_index)
+
+    def merge(dset, data):
+        reindexed = rename_index(dset, data)
+        return (pd.merge(primary, reindexed, left_index=True, right_index=True)
+                [data.name])
+
+    return pd.concat([primary] + [merge(dset, data) for dset, data in dsets[1:]], axis=1,
+                     keys=[dset for dset,_ in dsets], names=["dataset"])
+
+    def reindex (dset):
+        in_dset = dset[1].index.names
+        not_in_dset = [n for n in primary.index.names if n not in in_dset]
+        return (rename_index(*dset)
+                .reindex(primary.reorder_levels(in_dset + not_in_dset).index)
+                .reorder_levels(primary.index.names))
+
+    return (pd.concat([reindex(dset) for dset in dsets], axis=1,
+                      keys=[name for name, _ in dsets])
+            .apply(lambda row: row.to_dict(), axis=1))
+
+#+end_src
+
+#+RESULTS: develop-parallelization-inputs-pour-datasets
+: None
+
+If a ~transformation~ has been specified, we need to apply it. What should we expect of a ~dataset-transformation~?
 If a ~transformation~ has been specified, we need to apply it. What should we expect of a ~dataset-transformation~?
 Let us consider specific cases that we want.
 
@@ -1281,7 +1542,15 @@ def generate_inputs(of_computation, in_config, slicing=None, circuit_args=None,
     params = parameterize(computation_type, of_quantity, in_config)
     tap = HDFStore(in_config)
 
-    datasets = pour(tap=HDFStore(in_config), datasets=filter_datasets(params["input"]))
+    join_input = params["input"].get("join", None)
+
+    if not join_input:
+        datasets = pour(tap, filter_datasets(params["input"]))
+    elif join_input.lower() == "cross":
+        datasets = pour_cross(tap, filter_datasets(params["input"]))
+    else:
+        raise ValueError(f"Unhandled join of inputs: {join_input}")
+
     original = datasets.apply(lazy_keyword).apply(DataCall)
 
     controlled = control_inputs(of_computation, in_config, using_tap=tap)
@@ -1297,9 +1566,20 @@ def generate_inputs(of_computation, in_config, slicing=None, circuit_args=None,
         """..."""
         if circuit_args is None:
             return inputs
-        missing = {f"{var}_id": tap.index_variable(var, value)
-                   for var, value in circuit_args.items()
-                   if f"{var}_id" not in inputs.index.names}
+
+        missing = {}
+        for var, value in circuit_args.items():
+            varid = f"{var}_id"
+            idval = tap.index_variable(var, value)
+
+            if varid not in inputs.index.names:
+                missing[varid] = idval
+            else:
+                inputs = inputs.xs(idval, level=varid, drop_level=False)
+
+        #missing = {f"{var}_id": tap.index_variable(var, value)
+                   #for var, value in circuit_args.items()
+                   #if f"{var}_id" not in inputs.index.names}
         for variable_id, value in missing.items():
             inputs = (pd.concat([inputs], axis=0, keys=[value], names=[variable_id])
                       .reorder_levels(inputs.index.names + [variable_id]))
@@ -2404,7 +2684,14 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
             """..."""
             r = execute_one(lazy_dataset(s))
             LOG.info("store one lazy subtarget %s result \n%s", s, r)
-            LOG.info("Result data types %s", r.describe())
+
+            if r is None:
+                LOG.warning("THERE is no RESULT for subtarget index  %s", index)
+                return None
+
+            if r.empty:
+                LOG.warning("Result is empty.")
+            LOG.info("Result data types\n%s", r.describe())
             return to_store_one(in_hdf.format(index), result=r)
 
         if to_store_batch:
@@ -2420,7 +2707,10 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
                 toc = toc.droplevel("compute_node")
             except KeyError:
                 pass
-            result = to_store_one(in_hdf.format(index), update=toc)
+
+            tocna = toc[toc.isna()]
+            LOG.info("TOC elements that were NA for subtarget index %s: \n%s", index, tocna)
+            result = to_store_one(in_hdf.format(index), update=toc.dropna())
 
         if in_bowl is not None:
             in_bowl[index] = result
@@ -2625,7 +2915,7 @@ def load_kwargs(parameters, to_tap, on_compute_node=None, consider_input=False):
     """..."""
     def load_dataset(value):
         """..."""
-        return (to_tap.read_dataset(value["dataset"])
+        return (to_tap.pour_dataset(*value["dataset"], subset=value.get("subset", None))
                 if isinstance(value, Mapping) and "dataset" in value
                 else value)
 
@@ -2741,9 +3031,6 @@ def get_executable(computation, in_config, slicing=None):
     return (apply_sliced, parameters)
 #+end_src
 
-#+RESULTS: develop-parallelization-single-node-multiprocess-executable
-: None
-
 that will compute the result for a ~unit-computation~. Each compute-nude will process several ~unit-computations~ in parallel. Each parallel batch's results will be stored in it's own ~connsense-TAP-store~ and collected into the ~compute-node~'s  ~connsense-TAP-store~. The results of a parallel batch can be written to the store per ~unit-computation~ or collected into a batch before storing. Whether a /single/ or a /batch/ store is used will depend on the computation's type.
 
 #+name: develop-parallelization-single-node-multiprocess-stores
@@ -2790,8 +3077,8 @@ def store_edge_extraction(of_population, on_compute_node, in_hdf_group):
         """..."""
         in_hdf = (on_compute_node/connsense_h5, f"{in_hdf_group}/{of_population}")
         LOG.info("Write %s batch results to %s", len(results), in_hdf)
-        return extract_connectivity.write_adj(results, to_output=in_hdf,  append=True, format="table",
-                                              return_config=True)
+        return extract_connectivity.write_adj(results, to_output=in_hdf, append=True,
+                                              format="table", return_config=True)
 
     return write_batch
 
@@ -2817,7 +3104,11 @@ def store_matrix_data(of_quantity, parameters, on_compute_node, in_hdf_group, sl
             cached_stores[p] = matrices.get_store(p, hdf_group, for_matrix_type=of_output)
 
         if result is not None:
-            return cached_stores[p].write(result)
+            assert update is None, "No update allowed once result has been presented."
+            LOG.info("Write a result to store %s with size %s", p, len(result))
+            path = cached_stores[p].write(result)
+            LOG.info("Wrote a result to store %s with size %s to path %s", p, len(result), path)
+            return path
 
         cached_stores[p].append_toc(cached_stores[p].prepare_toc(of_paths=update))
         return (at_path, hdf_group)
@@ -2840,13 +3131,13 @@ def configure_execution(computation, in_config, on_compute_node, slicing=None):
 
     if computation_type == "extract-node-populations":
         assert not slicing, "Does not apply"
-        return (execute, None,  store_node_properties(of_quantity, on_compute_node,
-                                                      in_hdf_group))
+        return (parameters, execute, None,  store_node_properties(of_quantity, on_compute_node,
+                                                                  in_hdf_group))
 
     if computation_type == "extract-edge-populations":
         assert not slicing, "Does not apply"
-        return (execute, store_edge_extraction(of_quantity, on_compute_node,
-                                               in_hdf_group), None)
+        return (parameters, execute, store_edge_extraction(of_quantity, on_compute_node,
+                                                           in_hdf_group), None)
 
     return (parameters, execute,
             None, store_matrix_data(of_quantity, parameters, on_compute_node,

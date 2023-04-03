@@ -1,0 +1,544 @@
+#+PROPERTY: header-args:jupyter-python :session ~/jupyter-run/active-1-ssh.json
+#+PROPERTY: header-args:jupyter :session ~/jupyter-run/active-1-ssh.json
+
+#+STARTUP: overview
+#+STARTUP: logdrawer
+#+STARTUP: hideblocks
+
+Let us setup an interactive ~Python~ session where we can run the code developed here.
+#+BEGIN_SRC jupyter
+print("Welcome to EMACS Jupyter")
+#+END_SRC
+
+#+RESULTS:
+: Welcome to EMACS Jupyter
+
+
+#+title: Connectivity across the ~flatmap~.
+
+We will characterize the structure of activity across flatmap columns. For this we will need to look into the ~long-range~ connectivity /between/ pairs of ~flatmap-columns~.
+
+The 4.2 million cells in the SSCx are connected bby 13.2 billion synapses determined by /axo-dendritic/ overlap, comprising local-connectivity and long-range-connectivity defined by topographic mappings between subregions and laminar axonal projection profiles, both parametrized by whole brain data sets. We also incorported /core-/ and /matrix-type/ thalamocortical projection systems, associated with sensory and higher-order extrinsic inputs respectively.
+
+To find the number of edges in a circuit's connectome we will look directly in the SONATA edges file, and implement a method that gives us the sizes of each of the connectomes in the circuit,
+#+name: overview-connectivity
+#+begin_src jupyter-python
+def overview_connectivity(circuit):
+    """..."""
+    from libsonata import EdgePopulation
+    edgepops = {projected: EdgePopulation(path, "", "default")
+                for projected, path in circuit.config["projections"].items()}
+    edgepops["axo-dendritic"] = EdgePopulation(circuit.config["connectome"], "", "default")
+    return pd.Series({connectome: len(edges) for connectome, edges in edgepops.items()})
+#+end_src
+
+Using this method we find,
+#+begin_src jupyter-python :tangle no
+pprint("Number of synapses in the circuit's connectomes:")
+pprint(overview_connectivity(circuit))
+#+end_src
+
+#+RESULTS:
+: "Number of synapses in the circuit's connectomes:"
+: {'Thalamocortical_input_POM': 380469331,
+:  'Thalamocortical_input_VPM': 582893048,
+:  'axo-dendritic': 9138314390,
+:  'intra_SSCX_midrange_wm': 4075356328}
+
+
+The modeled synaptic connectivity has a highly nonrandom topology with substantial structural differences but also synerge between local and long-range connectivity. Long-range connections features a more divergent structure with a comparitively small group of neurons serving as hubs to distribute excitation to distant locations. Instead of distinct networks, we find the local and interregional connectivities to exist on a spectrum of scales.
+
+We use thalamocortical projections to predict from anatomical grounds the assemblies of neurons that are likely to fire together, based on their common innvervation by thalamo-cortical afferents. Anatomical factors of laminar profiles of innervation, neuronal morphologies and their placement provide an initial constraint on the emergence of neuronal assemblies in all layers in terms of their scale, and their spatial separation.
+* Setup
+
+To get the notebook you will have to clone,
+#+BEGIN_SRC shell
+git clone https://bbpgitlab.epfl.ch/conn/structural/topological-analysis-of-subvolumes.git
+git checkout beta
+#+END_SRC
+
+In our discussion we will develop scientific concepts to measure the circuit, and implement Python functions to compute them. Here we setup a notebook template to test and explore, and the structure of a ~Python~ package for our methods.
+
+#+NAME: notebook-init
+#+BEGIN_SRC jupyter-python
+from importlib import reload
+from collections.abc import Mapping
+from collections import OrderedDict
+from pprint import pprint, pformat
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+import matplotlib
+
+reload(matplotlib)
+from matplotlib import pylab as plt
+import seaborn as sbn
+
+from IPython.display import display
+
+from bluepy import Synapse, Cell, Circuit
+
+GOLDEN = (1. + np.sqrt(5.))/2.
+print("We will plot golden aspect ratios: ", GOLDEN)
+#+END_SRC
+
+** Workspaces
+We have run ~connsense-CRAP~ for the SSCx dissemination variant /Bio-M/, extracting data that we will use to compute the factology. Here is a list of workspaces we will need to generate factsheets.
+#+NAME: notebook-workspaces
+#+BEGIN_SRC jupyter-python
+ROOTSPACE = Path("/")
+PROJSPACE = ROOTSPACE / "gpfs/bbp.cscs.ch/project/proj83"
+SOODSPACE = PROJSPACE / "home/sood"
+TOPOTAP = SOODSPACE / "topological-analysis-subvolumes/test/v2"
+DEVSPACE  = TOPOTAP / "test" / "develop"
+#+END_SRC
+
+#+RESULTS: notebook-workspaces
+
+While in ~connsense-tap~ we have focused on ~flatmap-columns~, for a ~flatmap-tapestry~ we can use information about the whole circuit mosaic. We have extracted some analyses for the whole circuit in the ~portal-lab~,
+
+#+NAME: notebook-workspaces-portal
+#+BEGIN_SRC jupyter-python
+FACTSPACE = PROJSPACE / "home/sood" / "portal" / "factology"
+MOSAICTAP = FACTSPACE / "analyses/connsense" / "redefine-subtargets/create-index/morphology-mtypes/mosaic"
+LABOSPACE = FACTSPACE / "laboratory"
+#+END_SRC
+
+
+** ~connsense~ Modules
+While test-developing it will be good to have direct access to the ~connsense-TAP-store~ we will use. We will use a module from ~connsense~ to load the HDFstore,
+#+NAME: notebook-connsense-tap
+#+BEGIN_SRC jupyter-python
+from connsense.develop import topotap as cnstap
+topotap = cnstap.HDFStore(TOPOTAP/"pipeline.yaml")
+circuit = topotap.get_circuit("Bio_M")
+print("Available analyses in topology tap: ")
+pprint(topotap.analyses)
+circuit
+#+END_SRC
+
+#+RESULTS: notebook-connsense-tap
+:RESULTS:
+:  2023-03-22 14:45:59,937: Load circuit Bio_M
+: Available analyses in topology tap:
+: {'connectivity': {'long-range-simplex-sources': <connsense.develop.topotap.TapDataset object at 0x7ffeccb415e0>,
+:                   'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7ffeccb410a0>,
+:                   'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7ffeccb415b0>}}
+: <bluepy.circuit.Circuit at 0x7fff44863730>
+:END:
+
+And we can also load the mosaic tap,
+#+NAME: notebook-connsense-tap-portal
+#+BEGIN_SRC jupyter-python
+from connsense.develop import topotap as cnstap
+mosaictap = cnstap.HDFStore(MOSAICTAP/"pipeline.yaml")
+q_circuit = mosaictap.get_circuit("Bio_M")
+assert q_circuit.config == circuit.config
+print("Available analyses in mosaic tap: ")
+pprint(mosaictap.analyses)
+#+END_SRC
+
+#+RESULTS: notebook-connsense-tap-portal
+:  2023-03-22 14:46:41,772: Load circuit Bio_M
+: Available analyses in mosaic tap:
+: {'connectivity': {'convergence': <connsense.develop.topotap.TapDataset object at 0x7ffecd1b4730>,
+:                   'divergence': <connsense.develop.topotap.TapDataset object at 0x7ffecd1b4220>}}
+
+** Emacs specific :noexport:
+We can get all figures displayed 95% so that we can work with them in front of us in an Emacs buffer. Here is a method that does that witb an example. This code is here only to see how much we use it. It should find a way to a place in our ~doom-config~.
+
+#+NAME: fit-display-defun
+#+BEGIN_SRC emacs-lisp
+(defun fit-display-of (figure width height)
+    (concat "#+attr_html: :width " width " :height " height (string ?\n) figure))
+#+END_SRC
+
+#+NAME: plot-display
+#+HEADER: :var figure="" :var width="95%" :var height="95%"
+#+BEGIN_SRC emacs-lisp
+(fit-display-of figure width height)
+#+END_SRC
+
+#+HEADER: :post plot-display(*this*)
+#+BEGIN_SRC jupyter-python :exports both :file ./test-fit-fig.png
+,#+BEGIN_SRC jupyter-python :post attr-wrap(data=*this*) :session return :exports both :file ./test-fit-fig.png
+import pandas as pd
+from matplotlib import pyplot as plt
+import seaborn as sbn
+
+csv_url = 'https://archive.ics.uci.edu/ml/machine-learning-databases/iris/iris.data'
+col_names = ['Sepal_Length','Sepal_Width','Petal_Length','Petal_Width','Class']
+irisies = pd.read_csv(csv_url, names=col_names)
+
+fig = plt.figure(figsize=(GOLDEN * 12, 12))
+ax = sbn.histplot(x="Petal_Length", hue="Class", data=irisies, ax=fig.add_subplot())
+#+END_SRC
+
+#+RESULTS:
+#+attr_html: :width 95% :height 95%
+[[file:./test-fit-fig.png]]
+
+#+NAME: fit-display
+#+HEADER: :var figure="" :var attr_value="95%" :var attr_name="#+attr_html: :width "
+#+BEGIN_SRC emacs-lisp
+(concat attr_name attr_ value (string ?\n) figure)
+#+END_SRC
+
+#+NAME: attr-wrap
+#+BEGIN_SRC sh :var figure="" :var width="95%" :results output
+echo "#+attr_html: :width $width"
+echo "$figure"
+#+END_SRC
+
+#+RESULTS: attr-wrap
+: #+attr_html: :width 95%
+:
+
+** Run the setup in EMACS :noexport:
+Here we use ~noweb~ to include the code written there.
+#+begin_src jupyter-python :noweb yes
+<<notebook-init>>
+
+<<notebook-workspaces>>
+
+<<notebook-workspaces-portal>>
+
+<<notebook-connsense-tap>>
+
+<<notebook-connsense-tap-portal>>
+#+end_src
+
+#+RESULTS:
+#+begin_example
+We will plot golden aspect ratios:  1.618033988749895
+ 2023-04-02 18:32:52,173: Load circuit Bio_M
+ 2023-04-02 18:32:52,200: Load circuit Bio_M
+Available analyses in topology tap:
+{'connectivity': {'cross-col-k-indegree': <connsense.develop.topotap.TapDataset object at 0x7fff5c24e310>,
+                  'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7fff5c24e2e0>,
+                  'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7fff5c24e370>,
+                  'thalamic-innervation': <connsense.develop.topotap.TapDataset object at 0x7fff5c24e220>}}
+Available analyses in mosaic tap:
+{'connectivity': {'convergence': <connsense.develop.topotap.TapDataset object at 0x7fff5c25b040>,
+                  'divergence': <connsense.develop.topotap.TapDataset object at 0x7fff5c25b5b0>}}
+#+end_example
+
+* Long range connectivity between ~flatmap-columns~
+
+We have studied the /local connectivity/ of ~flatmap-columns~ in the circuit extensively. The /local/ structure is useful towards understanding the /local/ features of physiological activity. To understand how /inter-connectivity/ between ~flatmap-columns~ influences physiology we will have to measure it. With a large number $N=240$ of ~flatmap-columns in the rat-SSCx, saving a ~connectivity-matrix~ (/i.e./ ~adjacency~) for each one of them will use too much space. We may not want to save any of the matrices if their computation is efficient. In any case, we will have to compute them.
+
+We develop efficient methods to compute all of the $N \times (N-1)$ /cross/ ~adjacencies~ between the ~flatmap-columns~ in ~micasa~. Here, let us notice that we are particularly interested in the ~long-range-cross-connectivity~ of ~flatmap-columns~ that are (heavily) innervated by thalamic fibers. The number of afferent fibers from the thalamus is not uniformaly distributed over the SSCx. While we can delve into characterizing thalamic-innervation, for now we can assume that these ~flatmap-columns~ of /thalamic/ interest are known.
+
+We can define an extractor for connectivity using ~micasa~,
+#+NAME: extract-connectivity-wm
+#+HEADER: :comments both :padline yes :tangle ./tapestry.py
+#+BEGIN_SRC jupyter-python
+from micasa.connsense.develop.extract.edge_populations import extract_connectivity
+
+extract_long_range = ExtractorConnectivity(tap.subtarget_gids.loc[100, 0], circuit,
+                                           connectome="intra_SSCX_midrange_wm")
+#+END_SRC
+which will extract /intra-flatmap-column/ connectivity in the white-matter connectome if we invoke,
+#+NAME: extract-connectivity-local-wm
+#+HEADER: :comments both :padline yes :tangle ./tapestry.py
+#+BEGIN_SRC jupyter-python
+local_wm_100 = extract_long_range()
+#+END_SRC
+and to get /long-range-connectivity/ that is between the selected 100th ~flatmap-column~, and another one,
+#+NAME: extract-connectivity-long-range-wm
+#+HEADER: :comments both :padline yes :tangle ./tapestry.py
+#+BEGIN_SRC jupyter-python
+long_range_wm_100_119 = extract_long_range(tap.subtarget_gids.loc[119,0])
+#+END_SRC
+
+We may need a subtarget assignment, a method that should be in tap.
+#+NAME: flatmap-column-assignment
+#+HEADER: :comments both :padline yes :tangle ./tapestry.py
+#+BEGIN_SRC jupyter-python
+def assign_subtargets(tap):
+    """..."""
+    def series(of_gids):
+        return pd.Series(of_gids, name="gid",
+                         index=pd.RangeIndex(0, len(of_gids), 1, name="node_id"))
+    return (pd.concat([series(gs) for gs in tap.subtarget_gids], axis=0,
+                      keys=tap.subtarget_gids.index)
+            .reset_index().set_index("gid"))
+#+END_SRC
+** Python script to run slow extractor
+We have experienced extracton of white-matter connectivity to be too slow for interactive development. We can run a Python script and put the results to disc to test them.
+#+header: :comments none :padline yes
+#+begin_src python :tangle ./test-dev/extract-connectivity/extract_connectivity.py
+"""A little script to extract connectivity between a couple of subrargets."""
+from pathlib import Path
+import argparse
+
+from connsense.develop.topotap import HDFStore
+from connsense.io import logging
+
+from micasa.connsense.develop.extract.edge_populations.extract_connectivity\
+    import ExtractorConnectivity, FrameEdges
+
+LOG = logging.get_logger("Compute cross connectivity between a pair of subtargerts.")
+
+ROOTSPACE = Path("/")
+PROJSPACE = ROOTSPACE / "gpfs/bbp.cscs.ch/project/proj83"
+CONNSPACE = PROJSPACE / "home/sood" / "topological-analysis-subvolumes" / "test/v2"
+
+def extract_pair_subtarget(x, y, circuit, connectome, savedir):
+    LOG.info("Extract pair subtargets %s, %s, %s, %s, save in %s", x, y, circuit, connectome, savedir)
+    tap = HDFStore(CONNSPACE/"pipeline.yaml")
+    circuit = tap.get_circuit(circuit)
+    connectome = circuit.connectome if connectome == "local" else circuit.projection(connectome)
+
+    extract = ExtractorConnectivity(tap.subtarget_gids.loc[x, 0], circuit, connectome,
+                                    Connectivity=FrameEdges)
+    sources, edges, targets = extract(tap.subtarget_gids.loc[y, 0])
+
+    src = x; conn = (x, y); trg = y
+    conn_h5 = Path(savedir) / "connectivity.h5"
+    sources.to_hdf(conn_h5, key=f"subtargets_{x}_{y}/sources")
+    edges.to_hdf(conn_h5, key=f"subtargets_{x}_{y}/edges")
+    targets.to_hdf(conn_h5, key=f"subtargets_{x}_{y}/targets")
+    return conn_h5
+
+
+def main(args):
+    """..."""
+    LOG.info("Load arguments and call extration of paired subtargets %s, %s", args.subtarget_x, args.subtarget_y)
+    return extract_pair_subtarget(int(args.subtarget_x), int(args.subtarget_y),
+                                  args.circuit, args.connectome
+                                  , Path(args.savedir))
+
+
+if __name__ == "__main__":
+    LOG.info("test develop extraction of cross connectivity between flatmap-columns")
+    parser = argparse.ArgumentParser(description="Extract cross connectivity")
+    parser.add_argument("subtarget_x", help="A subtarget in the pair to measure")
+    parser.add_argument("subtarget_y", help="A subtarget in the pair to measure")
+    parser.add_argument("--circuit", help="Circuit variant name", required=False, default="Bio_M")
+    parser.add_argument("--connectome", help="Circuit connectome", required=False, default="intra_SSCX_midrange_wm")
+    parser.add_argument("--savedir", help="To save output h5", required=False, default=Path.cwd())
+
+    args = parser.parse_args()
+    LOG.info("Run extraction of connectivity for \n%s", args)
+    main(args)
+
+#+end_src
+
+We can use the ~Python-script~ above in a ~slurm-script~.
+#+begin_src sh :tangle ./test-dev/extract-connectivity/extract_connectivity.sbatch
+#!/bin/bash -l
+#SBATCH --nodes=1
+#SBATCH --time=24:00:00
+#SBATCH --exclusive
+#SBATCH --constraint=cpu
+#SBATCH --mem=0
+#SBATCH --account=proj83
+#SBATCH --partition=prod
+#SBATCH --job-name=test-extract-connectivity
+#SBATCH --output=extract-connectivity.out
+#SBATCH --error=extract-connectivity.err
+source /gpfs/bbp.cscs.ch/home/sood/work/workspaces/venvs/load-py39.sh
+python ./extract_connectivity.py "$@"
+#+end_src
+
+
+** Simplices
+We can get simplices from ~topology~,
+#+begin_src jupyter-python
+def get_simplices(flatmap_column):
+    subtarget_id, circuit_id = flatmap_column; connectome_id = 0
+    adj = tap.adjacency.dataset.loc[subtarget_id, circuit_id, connectome_id]()
+    nodeps = tap.nodes.dataset.loc[subtarget_id, circuit_id]()
+    return pd.concat([topology.list_simplices_by_dimension(adj, nodeps)],
+                     keys=[(subtarget_id, circuit_id)], names=SUBTARGET_ID)
+#+end_src
+
+We may need indexed nodes in a ~flatmap-column~,
+#+begin_src jupyter-python
+def index_subtarget(tap, flatmap_column, nodes=None):
+    """..."""
+    subtarget_id, circuit_id = flatmap_column
+
+    if nodes is None or (isinstance(nodes, str) and nodes.lower() == "all"):
+        nodes = tap.nodes.dataset.loc[subtarget_id, circuit_id].index.values
+
+    return pd.DataFrame({"subtarget_id": subtarget_id, "circuit_id": circuit_id,
+                         "node_id": nodes})
+
+#+end_src
+
+We can compute simplex lists in a the /local-connectome/ of ~flatmap-columns~. We would like to know if there are ~target-nodes~ in a given ~flatmap-column~ that are /post-synaptic/ to all the nodes in a ~simplex~. We can call the number of simplices that ~sink~ at a ~target-node~ as the ~target-node~'s ~sink-participation~. Analogously we can define a ~source-node~'s ~source-participation~ by computing the number of ~simplices~ that ~source~ at the ~source-node~.
+#+name: sink-simplices
+#+begin_src jupyter-python
+def list_sink_simplices(source_adj, cross_adj, target_adj, node_properties=None):
+    """Compute simplices in graph represented by adjacency matrix `source_adj`
+    with vertices that all have an outgoing connection to a node in graph represented
+    by adjacency matrix `target_adj`, with cross connectivity between the two graphs
+    in `cross_adj`.
+    """
+    from scipy.sparse import hstack
+
+    adj00 = source_adj
+    adj01, adj10 = cross_adj
+    adj11 = target_adj
+
+    nodes0, nodes1 = node_properties if node_properties else (None, None)
+
+    xadj = hstack([adj00, adj01])
+    xnodes = pd.concat([nodes0, nodes1], axis=0).droplevel(None).reset_index(drop=True)
+    xnodes.index.rename("node", inplace=True)
+    return topology.list_simplices_by_dimension(xadj, xnodes)
+
+#+end_src
+
+Similarly we can define ~source-simplices~,
+#+name: sink-simplices
+#+begin_src jupyter-python
+def list_source_simplices(source_adj, cross_adj, target_adj, node_properties=None):
+    """Compute simplices in graph represented by adjacency matrix `target_adj`
+    with vertices that all have an incoming connection from a node in graph represented
+    by adjacency matrix `source_adj`, with cross connectivity between the two graphs
+    in `cross_adj`.
+    """
+    from scipy.sparse import vstack
+
+    adj01, adj10 = cross_adj
+    adj11 = target_adj
+    adj11 = target_adj
+
+    nodes0, nodes1 = node_properties if node_properties else (None, None)
+
+    xadj = vstack([adj01, adj11])
+    xnodes = pd.concat([nodes0, nodes1], axis=0).droplevel(None).reset_index(drop=True)
+    xnodes.index.rename("node", inplace=True)
+    return topology.list_simplices_by_dimension(xadj, xnodes)
+
+#+end_src
+
+
+
+#+name: find-sinks
+#+begin_src jupyter-python
+def find_sinks(tap, flatmap_column, circuit, connectome, affends=None):
+    """Find simplices that sink at each node in a flatmap-column."""
+
+    if affends is None:
+        affends = (find_afferent(tap, flatmap_column, circuit, connectome)
+                   .reset_index().groupby(NODE_ID).target_node.apply(list))
+
+    def of_source(flatmap_column, simplex_nodes):
+        sdim = len(simplex_nodes)
+        simplex = index_subtarget(tap, flatmap_column, simplex_nodes)
+        simplex.index.rename("spos", inplace=True)
+        simplex_pos = simplex.reset_index().set_index(NODE_ID)
+
+        target_lists = (pd.concat([simplex_pos, affends.reindex(simplex_pos.index)], axis=1)
+                        .set_index("spos").target_node).sort_index()
+        targets = pd.concat([pd.Series(ns, name="target_node") for ns in target_lists],
+                            keys=target_lists.index).droplevel(None)
+        counts = targets.value_counts()
+        return counts.index[counts == sdim].values
+
+    of_source.afferent_edges = affends
+    return of_source
+#+end_src
+
+#+RESULTS:
+
+How does a node in a /target/ ~flatmap-column~ connect to ~simplices~ in other ~flatmap-columns~?
+How many /local-connnectome/ simplices in a given ~flatmap-column~ does a node connect to?
+
+What about sources?
+#+begin_src jupyter-python
+def find_sources(tap, flatmap_column, circuit, connectome, effends=None):
+    """Find simplices that souce at each node in a flatmap-column."""
+
+    if effends is None:
+        effends = (find_efferent(tap, flatmap_column, circuit, connectome)
+                   .reset_index().groupby(NODE_ID).target_node.apply(list))
+
+    def of_source(flatmap_column, simplex_nodes):
+        sdim = len(simplex_nodes)
+        simplex = index_subtarget(tap, flatmap_column, simplex_nodes)
+        simplex.index.rename("spos", inplace=True)
+        simplex_pos = simplex.reset_index().set_index(NODE_ID)
+
+        target_lists = (pd.concat([simplex_pos, affends.reindex(simplex_pos.index)], axis=1)
+                        .set_index("spos").target_node).sort_index()
+        targets = pd.concat([pd.Series(ns, name="target_node") for ns in target_lists],
+                            keys=target_lists.index).droplevel(None)
+        counts = targets.value_counts()
+        return counts.index[counts == sdim].values
+
+    of_source.afferent_edges = affends
+    return of_source
+#+end_src
+
+We have not implemented ~find_efferent~. We may not need it if we change our approach.
+
+Connectivity is between a group of source nodes and a group of target nodes.
+#+begin_src jupyter-python
+def is_subtarget(reference):
+    """..."""
+    ints = (int, np.uint8, np.uint16, np.uint32, np.uint64, np.int16, np.int32, np.int64)
+    return (isinstance(reference, tuple) and len(reference) == 2
+            and isinstance(reference[0], ints) and isinstance(reference[1], ints))
+
+
+def _resolve_subtarget(tap, reference):
+    """..."""
+    if is_subtarget(reference):
+        return reference
+
+    s, _ = reference
+    if not is_subtarget(reference=s):
+        return None
+
+    return s
+
+
+def _resolve_nodes(tap, reference, indexed=True):
+    """..."""
+    if is_subtarget(reference):
+        nodes = tap.nodes.dataset.loc[reference].index.values
+        return index_subtarget(tap, reference, nodes) if indexed else nodes
+
+    s, nodes = reference
+    if not is_subtarget(reference=s):
+        return None
+
+    return index_subtarget(tap, s, nodes)
+
+
+def find_edges(tap, sources=None, targets=None, *, connectome):
+    """Find connectome edges from nodes among sources to nodes among targets."""
+    source_nodes = _resolve_nodes(sources, indexed=True)
+    target_nodes = _resolve_nodes(targets, indexed=False)
+
+    afferent = (find_afferent(tap, _resolve_subtarget(targets), connectome)
+                .reset_index().groupby(NODE_ID).target_node.apply(list))
+
+#+end_src
+
+* Incoming connections to a simplex
+
+A simplex is a fully directional one represented as a vector of integer node ids. We compute the simplices in ~connsense-TAP~ to be represented as local ~node-ids~ which we can translate to the ~global-id~ (~gid~) using the ~subtarget~'s ~node-properties~. Then we can look up the ~long-range~ connetome's ~afferent~ gids, map them to the ~flatmap-columns~, and compute a scalar or vector ~weight~ for them. Thus we will have a length ~N~ vector of ~weights~ for each ~simplex~ (of a given dimension) in a given ~flatmap-column~. Over all the columns we have a matrix of weights that can be plotted as a ~heatmap~. We can visualize individual rows or columns over a ~flatmap-grid~.
+
+We can compute the weights based on filters. Let us develop these ideas further in code.
+
+#+NAME: gather-simplex-inputs
+#+HEADER: :comments both :padline yes :tangle ./tapestry.py
+#+BEGIN_SRC jupyter-python
+def gather_inputs(circuit, subtarget, simplex, *, tap):
+    """..."""
+    gids = tap.
+
+#+END_SRC
+
+* Appendix
+
+** Setup computational environment
+

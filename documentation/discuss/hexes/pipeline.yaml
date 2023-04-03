@@ -1,23 +1,9 @@
 
+# We need to set paths to the artefacts that the pipeline will use. We set paths for the circuit to analyze, and the root space for the pipeline's HDF5 stores, and the HDF5 group for each of the pipeline steps. The only change we need to make here, building on the config we alread have for ~flatmap-columns~, is to set the ~pipeline.root~,
 
-# #+RESULTS:
-# : Welcome to EMACS Jupyter
-# #+title: Connsense Topology Pipeline for SSCx
-
-# We an provide a litte header for the pipeline
 # #+header: :comments both :padline no :tangle ./pipeline.yaml
 
-# [[file:config.org::+begin_src yaml][No heading:2]]
-description: >-
-  Configure a connsense subTarget Analysis Pipeline to analyze your circuit.
-version: 0.1.0
-date: <2023-02-13 Mon>
-# No heading:2 ends here
-
-# We need to set paths to the artefacts that the pipeline will use. We set paths for the circuit to analyze, and the root space for the pipeline's HDF5 stores, and the HDF5 group for each of the pipeline steps.
-# #+header: :comments both :padline no :tangle ./pipeline.yaml
-
-# [[file:config.org::*paths][paths:1]]
+# [[file:hexes.org::*paths][paths:1]]
 paths:
   description: >-
     The ~connsense~ pipeline needs paths to the input data to load from, and output paths to store data.
@@ -29,7 +15,7 @@ paths:
     files:
       Bio_M: "Bio_M/20200805/CircuitConfig_TC_WM"
   pipeline:
-    root: "/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2"
+    root: "/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/hexes"
     input:
       store: "connsense.h5"
     output:
@@ -44,7 +30,7 @@ paths:
 # We provide the parameters for each step.
 # #+header: :comments both :padline no :tangle ./pipeline.yaml
 
-# [[file:config.org::*parameters][parameters:1]]
+# [[file:hexes.org::*parameters][parameters:1]]
 parameters:
   description: >-
     Provide parameters that apply to each step.
@@ -52,7 +38,7 @@ parameters:
 
 # #+header: :comments both :padline no :tangle ./pipeline.yaml
 
-# [[file:config.org::*define-subtargets][define-subtargets:1]]
+# [[file:hexes.org::*define-subtargets][define-subtargets:1]]
   define-subtargets:
     description: >-
       Configure the subtargets to analyze, entrying each definition as a key, value.
@@ -61,29 +47,24 @@ parameters:
 
 # #+header: :comments both :padline no :tangle ./pipeline.yaml
 
-# [[file:config.org::*flatmap-columns][flatmap-columns:1]]
-      flatmap-columns:
+# [[file:hexes.org::*hexes][hexes:1]]
+      hexes:
         description: >-
-          Hexaongal prism like columns oriented along cortical layers,
-          from white-matter to pia.  The data is loaded from an NRRD file that maps each
-          circuit voxel to a subtarget ids corresponding to a flatmap column.The subtarget
-          ids should be mapped to the subtargets they refer to in a dataframe provided as
-          the input `info`.
+          Columns like the flatmap columns, based on hexagonal tiling.
         input:
           circuit:
           - "Bio_M"
         kwargs:
-          path: "/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/column_identities.nrrd"
-          info: "/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/voxel-based-hex-grid-info-with-conicality.h5"
+          path: "/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/hexes/hexes.csv"
         loader:
-          source: connsense.define_subtargets.flatmap
-          method: load_nrrd
-# flatmap-columns:1 ends here
+          source: "/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/hexes/topology/pandas.py"
+          method: "read_csv"
+# hexes:1 ends here
 
 # Within ~connsense~ we use an ~internal~ index for ~subtarget, circuit, connectome~. While we can infer this information from [[paths]] and [[define-subtargets]], we have not yet (<2023-02-13 Mon>) implemented this feature.
 # #+header: :comments both :padline no :tangle ./pipeline.yaml
 
-# [[file:config.org::*create-index][create-index:1]]
+# [[file:hexes.org::*create-index][create-index:1]]
   create-index:
     description:
       Create tap-store indices by listing datasets for each index variable.
@@ -96,12 +77,14 @@ parameters:
         - "Thalamocortical_input_VPM"
         - "Thalamocortical_input_POM"
       subtarget:
-        dataset: ["define-subtargets", "flatmap-columns/name"]
+        dataset: ["define-subtargets", "hexes/name"]
 # create-index:1 ends here
+
+# We will extract populations of nodes, naming them as we would like to in our analyses to follow.
 
 # #+header: :comments both :padline no :tangle ./pipeline.yaml
 
-# [[file:config.org::*extract-node-populations][extract-node-populations:1]]
+# [[file:hexes.org::*extract-node-populations][extract-node-populations:1]]
   extract-node-populations:
     description: >-
       Specify the populations to extract from a circuit.
@@ -111,14 +94,14 @@ parameters:
 # The population of /non-barrel/ SSCx biophysical nodes will be the node-population that we analyze,
 # #+header: :comments both :padline no :tangle ./pipeline.yaml
 
-# [[file:config.org::*default][default:1]]
+# [[file:hexes.org::*default][default:1]]
       default:
         description: >-
           The default population will be that of neurons in the SSCx.
           To extract the neurons we will use a `connsense` method that uses ~bluepy~.
         input:
           subtarget:
-            dataset:  ["define-subtargets", "flatmap-columns"]
+            dataset:  ["define-subtargets", "hexes"]
           circuit:
             - "Bio_M"
         kwargs:
@@ -139,9 +122,11 @@ parameters:
         output: "pandas.DataFrame"
 # default:1 ends here
 
+# Just as for ~node-populations~ we will extract ~edge-populations~. Notice that the paths we have set in the ~tap-HDFStore~ are motivated by equivalent terminology in SONATA.
+
 # #+header: :comments both :padline no :tangle ./pipeline.yaml
 
-# [[file:config.org::*extract-edge-populations][extract-edge-populations:1]]
+# [[file:hexes.org::*extract-edge-populations][extract-edge-populations:1]]
   extract-edge-populations:
     description: >-
       Specify the edge populations to extract from a circuit.
@@ -155,11 +140,11 @@ parameters:
 # #+name: local-edges
 # #+header: :comments both :padline no :tangle ./pipeline.yaml
 
-# [[file:config.org::local-edges][local-edges]]
+# [[file:hexes.org::local-edges][local-edges]]
       local:
         input:
           subtarget:
-            dataset:  ["define-subtargets", "flatmap-columns"]
+            dataset:  ["define-subtargets", "hexes"]
           circuit:
             - "Bio_M"
           connectome:
@@ -171,57 +156,36 @@ parameters:
 # local-edges ends here
 
 
-# experiment with,
+# The population ~long-range-sources~ will be of edges (represented as (CSR) directed adjacency matrices), one for each pair ~(X, Y)~ of ~flatmap-columns~. The ~edge-population~ for a ~flatmap-column~  ~X~ will have it's ~targets~ among nodes in ~X~, while the ~sources~ of the edges will be among another. The primary index in ~connsense~ will be the ~flatmap-column~ that is receiving the ~incoming~ conenctions. With ~circuit, connectome~ specified, we will have another ~input~, the ~sources~ that will specify a subset of ~flatmap-columns~ to be /crossed/ with each dataset in ~connsense-TAP~ that matches the specification of ~subtarget, circuit, connectome~ inputs.
+
+# Well, finally we decided to keep things explicit, with a ~pre-~ and a ~post- specified as input arguments to the method that will extract the cross adjacency,
+
 # #+name: long-range-sources
 # #+header: :comments both :padline no :tangle ./pipeline.yaml
 
-# [[file:config.org::long-range-sources][long-range-sources]]
+# [[file:hexes.org::long-range-sources][long-range-sources]]
       long-range-cross:
         input:
           pre:
             dataset: ["define-subtargets", "flatmap-columns"]
-            subset: [[83, 0], [84, 0], [99, 0], [100, 0], [103, 0], [119, 0]]
-          circuit:
-            - "Bio_M"
-          connectome:
-            - "intra_SSCX_midrange_wm"
-          post:
-            dataset: ["define-subtargets", "flatmap-columns"]
-          join: CROSS
-        extractor:
-          source: micasa.connsense.develop.extract.edge_populations.extract_connectivity
-          method: extract_cross_adj
-        output: "sparse.spmatrix"
-# long-range-sources ends here
-
-
-# We can also have local cross adj,
-# #+name: local-cross
-# #+header: :comments both :padline no :tangle ./pipeline.yaml
-
-# [[file:config.org::local-cross][local-cross]]
-      local-cross:
-        input:
-          pre:
-            dataset: ["define-subtargets", "flatmap-columns"]
-            subset: [[100, 0], [9, 0]]
+            subset: [[100, 0]]
           circuit:
             - "Bio_M"
           connectome:
             - "local"
           post:
-            dataset: ["define-subtargets", "flatmap-columns"]
+            dataset: ["define-subtargets", "hexes"]
           join: CROSS
-        extractor:
+        computation:
           source: micasa.connsense.develop.extract.edge_populations.extract_connectivity
           method: extract_cross_adj
         output: "sparse.spmatrix"
-# local-cross ends here
+# long-range-sources ends here
 
 # We will analyze several phenomena related to network topology, each entered in ~analyses~,
 # #+header: :comments both :padline no :tangle ./pipeline.yaml
 
-# [[file:config.org::*analyze-connectivity][analyze-connectivity:1]]
+# [[file:hexes.org::*analyze-connectivity][analyze-connectivity:1]]
   analyze-connectivity:
     description: >-
       Configure each analyses' parameters, as a mapping under section `analyses`.
@@ -230,7 +194,7 @@ parameters:
 
 # #+header: :comments both :padline no :tangle ./pipeline.yaml
 
-# [[file:config.org::*description][description:1]]
+# [[file:hexes.org::*description][description:1]]
       simplex-counts:
         description: >-
           Number of simplices by dimension.
@@ -239,7 +203,7 @@ parameters:
 # We will compute ~simplex-counts~ for each of the ~flatmap-columns~, using ~adjacency~ matrices that we extract as dataset ~("extract-edge-populations", "local")~. We will also use ~node_properties~ that we extract as ~node-population~ ~default~.
 # #+header: :comments both :padline no :tangle ./pipeline.yaml
 
-# [[file:config.org::*input][input:1]]
+# [[file:hexes.org::*input][input:1]]
         input:
           node_properties:
             dataset: ["extract-node-populations", "default"]
@@ -250,7 +214,7 @@ parameters:
 # We will use random controls for each ~subtarget~, entering them by name and value. We start with Erdos-Renyi controls, 5 of them specified by seed.
 # #+header: :comments both :padline no :tangle ./pipeline.yaml
 
-# [[file:config.org::*controls][controls:1]]
+# [[file:hexes.org::*controls][controls:1]]
         controls:
           erdos-renyi:
             description: >-
@@ -268,7 +232,7 @@ parameters:
 # We can specify this in the config as ~compute_mode: EXECUTE~, instead of ~DATACALL~ which will create individual ~datacalls~, or ~DATASET~ that should save each ~slice-subtarget~ to a ~TapDataset~.
 # #+header: :comments both :padline no :tangle ./pipeline.yaml
 
-# [[file:config.org::*slicing][slicing:1]]
+# [[file:hexes.org::*slicing][slicing:1]]
         slicing:
           description: >-
             Slice analysis input according to some rules.
@@ -287,7 +251,7 @@ parameters:
 # Finally, we need to specify the method to use to compute ~simplex-counts~ for each ~subtarget~, and the data-type of it's output.
 # #+header: :comments both :padline no :tangle ./pipeline.yaml
 
-# [[file:config.org::*computation][computation:1]]
+# [[file:hexes.org::*computation][computation:1]]
         computation:
           source: "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py"
           method: "simplex_counts"
@@ -297,7 +261,7 @@ parameters:
 # This analysis is used to create parameters for the distance dependent connection-probablity order 2 control model.
 # #+header: :comments both :padline no :tangle ./pipeline.yaml
 
-# [[file:config.org::*model-params-dd2][model-params-dd2:1]]
+# [[file:hexes.org::*model-params-dd2][model-params-dd2:1]]
       model-params-dd2:
         description: >-
           Parameters for distance dependent connectivity model of order 2.
@@ -308,7 +272,7 @@ parameters:
 # We will compute ~simplex-counts~ for each of the ~flatmap-columns~, using ~adjacency~ matrices that we extract as dataset ~("extract-edge-populations", "local")~. We will also use ~node_properties~ that we extract as ~node-population~ ~default~.
 # #+header: :comments both :padline no :tangle ./pipeline.yaml
 
-# [[file:config.org::*input][input:1]]
+# [[file:hexes.org::*input][input:1]]
         input:
           node_properties:
             dataset: ["extract-node-populations", "default"]
@@ -319,7 +283,7 @@ parameters:
 # Finally, we need to specify the method to use to compute ~simplex-counts~ for each ~subtarget~, and the data-type of it's output.
 # #+header: :comments both :padline no :tangle ./pipeline.yaml
 
-# [[file:config.org::*computation][computation:1]]
+# [[file:hexes.org::*computation][computation:1]]
         computation:
           source: "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/modelling.py"
           method: "conn_prob_2nd_order_model"
@@ -329,7 +293,7 @@ parameters:
 # The method that we will use to compute model parameters needs these parameters,
 # #+header: :comments both :padline no :tangle ./pipeline.yaml
 
-# [[file:config.org::*kwargs][kwargs:1]]
+# [[file:hexes.org::*kwargs][kwargs:1]]
         kwargs:
           bin_size_um: 50
           max_range_um: 1000
@@ -339,7 +303,7 @@ parameters:
 
 # #+header: :comments both :padline no :tangle ./pipeline.yaml
 
-# [[file:config.org::*description][description:1]]
+# [[file:hexes.org::*description][description:1]]
       thalamic-innervation:
         description: >-
           Number of thalamo-cortical synapses at each cell in a subtarget.
@@ -348,7 +312,7 @@ parameters:
 # We will compute ~simplex-counts~ for each of the ~flatmap-columns~, using ~adjacency~ matrices that we extract as dataset ~("extract-edge-populations", "local")~. We will also use ~node_properties~ that we extract as ~node-population~ ~default~.
 # #+header: :comments both :padline no :tangle ./pipeline.yaml
 
-# [[file:config.org::*input][input:1]]
+# [[file:hexes.org::*input][input:1]]
         vpm:
           description: >-
             Thalamic innervation of a subtarget, that originates in the VPM.
@@ -364,7 +328,7 @@ parameters:
 # Finally, we need to specify the method to use to compute ~simplex-counts~ for each ~subtarget~, and the data-type of it's output.
 # #+header: :comments both :padline no :tangle ./pipeline.yaml
 
-# [[file:config.org::*computation][computation:1]]
+# [[file:hexes.org::*computation][computation:1]]
           computation:
             source: micasa.connsense.develop.analyze.composition.projections.projections
             method: "innervate_cells"
@@ -374,7 +338,7 @@ parameters:
 # We will compute ~simplex-counts~ for each of the ~flatmap-columns~, using ~adjacency~ matrices that we extract as dataset ~("extract-edge-populations", "local")~. We will also use ~node_properties~ that we extract as ~node-population~ ~default~.
 # #+header: :comments both :padline no :tangle ./pipeline.yaml
 
-# [[file:config.org::*input][input:1]]
+# [[file:hexes.org::*input][input:1]]
         pom:
           description: >-
             Thalamic innervation of a subtarget, that originates in the VPM.
@@ -390,38 +354,9 @@ parameters:
 # Finally, we need to specify the method to use to compute ~simplex-counts~ for each ~subtarget~, and the data-type of it's output.
 # #+header: :comments both :padline no :tangle ./pipeline.yaml
 
-# [[file:config.org::*computation][computation:1]]
+# [[file:hexes.org::*computation][computation:1]]
           computation:
             source: micasa.connsense.develop.analyze.composition.projections.projections
             method: "innervate_cells"
           output: "pandas.Series"
 # computation:1 ends here
-
-# #+header: :comments both :padline no :tangle ./pipeline.yaml
-
-# [[file:config.org::*cross-col-k-indegree][cross-col-k-indegree:1]]
-      cross-col-k-indegree:
-        description: >-
-          Compute generalized in-degree of nodes in adj_target from nodes in adj_source.
-          The k-in-degree of a node v is the number of k-simplices in adj_source with all its nodes mapping to v
-          through edges in adj_cross
-        input:
-          adj_cross:
-            dataset: ["extract-edge-populations", "long-range-cross"]
-          adj_source:
-            dataset: ["extract-edge-populations", "local"]
-            join_index:
-              subtarget_id: pre_subtarget_id
-              circuit_id: circuit_id
-              connectome_id: DROP
-        computation:
-          source: "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py"
-          method: "cross_col_k_in_degree"
-        output: "pandas.DataFrame"
-# cross-col-k-indegree:1 ends here
-
-# #+header: :comments both :padline no :tangle ./pipeline.yaml
-
-# [[file:config.org::*Scratch][Scratch:1]]
-
-# Scratch:1 ends here

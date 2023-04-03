@@ -77,7 +77,8 @@ def iter_afferent(to_gids, in_subtarget, connectome_labeled, of_circuit):
     labeled, edges_are_intrinsic = connectome_labeled
     connectome = find_connectome(labeled, of_circuit)
 
-    return connectome.iter_connections(pre=in_subtarget if edges_are_intrinsic else None, post=to_gids,
+    return connectome.iter_connections(pre=in_subtarget if edges_are_intrinsic else None,
+                                       post=to_gids,
                                        return_synapse_count=True)
 
 
@@ -89,11 +90,13 @@ def get_connections(in_subtarget, connectome_labeled, of_circuit, n_batches=1):
 
     def run_batch(gids, *, index=0, in_bowl=None):
         """..."""
-        LOG.info("Get connections for %s gids batch %s among %s batches", len(gids), index, n_batches)
+        LOG.info("Get connections for %s gids batch %s among %s batches",
+                 len(gids), index, n_batches)
         def afferent(gid):
             """..."""
             iterc = iter_afferent([gid], in_subtarget,connectome_labeled, of_circuit)
-            return pd.DataFrame(list(iterc), columns=[Synapse.PRE_GID, Synapse.POST_GID, "nsyn"])
+            return pd.DataFrame(list(iterc),
+                                columns=[Synapse.PRE_GID, Synapse.POST_GID, "nsyn"])
 
         connections_batches = [batch for batch in (afferent(gid=g) for g in tqdm(gids))
                                if batch is not None and not batch.empty]
@@ -102,7 +105,7 @@ def get_connections(in_subtarget, connectome_labeled, of_circuit, n_batches=1):
             return pd.DataFrame()
 
         connections = pd.concat(connections_batches)
-        LOG.info("Done connections for %s gids batch %s among %s batches: \t%s connections",
+        LOG.info("Done connections for %s gids batch %s of %s: \t%s connections",
                  len(gids), index or 1, n_batches, len(connections))
         if in_bowl is not None:
             in_bowl[index] = connections
@@ -115,10 +118,12 @@ def get_connections(in_subtarget, connectome_labeled, of_circuit, n_batches=1):
 
     LOG.info("Extract edges for %s cells in %s batches", len(in_subtarget), n_batches)
     batched_gids = pd.DataFrame({"gid": in_subtarget,
-                                "batch": np.linspace(0, n_batches - 1.e-9, len(in_subtarget), dtype=int)})
+                                "batch": np.linspace(0, n_batches - 1.e-9,
+                                                     len(in_subtarget), dtype=int)})
     for batch, gids in batched_gids.groupby("batch"):
         LOG.info("Spawn extraction of batch %s / %s", batch, n_batches)
-        p = Process(target=run_batch, args=(gids["gid"].values,), kwargs={"index": batch, "in_bowl": bowl})
+        p = Process(target=run_batch, args=(gids["gid"].values,),
+                    kwargs={"index": batch, "in_bowl": bowl})
         p.start()
         processes.append(p)
 
@@ -128,7 +133,8 @@ def get_connections(in_subtarget, connectome_labeled, of_circuit, n_batches=1):
         p.join()
 
     batched_connections = [x for x in bowl.values() if x is not None and not x.empty]
-    return pd.concat(batched_connections).reset_index(drop=True) if batched_connections else pd.DataFrame()
+    return (pd.concat(batched_connections).reset_index(drop=True) if batched_connections
+            else pd.DataFrame())
 
 
 def anonymize_gids(connections, gids, edges_are_intrinsic):
@@ -137,7 +143,8 @@ def anonymize_gids(connections, gids, edges_are_intrinsic):
     source_gids = connections[Synapse.PRE_GID].to_numpy(int)
     target_gids = connections[Synapse.POST_GID].to_numpy(int)
 
-    nodes_idx = pd.Series(gids.index.values, name="index", index=pd.Index(gids.to_numpy(), name="gid")).sort_index()
+    nodes_idx = pd.Series(gids.index.values, name="index",
+                          index=pd.Index(gids.to_numpy(), name="gid")).sort_index()
     N = len(gids)
 
     if edges_are_intrinsic:
@@ -149,7 +156,8 @@ def anonymize_gids(connections, gids, edges_are_intrinsic):
         nodes_idx += 1
 
     edges = (pd.DataFrame({"source": source_ids, "target": target_ids}).join(connections)
-             .set_index([Synapse.PRE_GID, Synapse.POST_GID]).rename(columns={"nsyn": 'weight'}))
+             .set_index([Synapse.PRE_GID, Synapse.POST_GID])
+             .rename(columns={"nsyn": 'weight'}))
 
     return (edges.sort_index(), nodes_idx.sort_index())
 
@@ -157,8 +165,8 @@ def anonymize_gids(connections, gids, edges_are_intrinsic):
 def get_adjacency(edges, number_nodes):
     """..."""
     N = number_nodes
-    weighted = (edges.value_counts().rename("weight").reset_index() if "weight" not in edges
-                else edges)
+    weighted = (edges.value_counts().rename("weight").reset_index()
+                if "weight" not in edges  else edges)
     rows = weighted["source"].to_numpy(int)
     cols = weighted["target"].to_numpy(int)
     data = weighted["weight"]
@@ -221,12 +229,16 @@ def extract_adj_series(circuit, connectome, subtarget):
     return as_adjmat(connections, gids, edges_are_intrinsic)
 
 
-def extract_adj(circuit, connectome, subtarget, *, sources="intrinsic", n_parallel_batches=1):
+def extract_adj(circuit, connectome, subtarget, *, sources="intrinsic",
+                n_parallel_batches=1):
     """..."""
-    LOG.info("Extract connectivity for circuit %s connectome %s, subtargets \n%s", circuit, connectome, subtarget)
+    LOG.info("Extract connectivity for circuit %s connectome %s, subtargets \n%s",
+             circuit, connectome, subtarget)
     intrinsic = sources == "intrinsic"
     gids = pd.Series(subtarget, name="gid")
-    connections = get_connections(subtarget, connectome_labeled=(connectome, intrinsic), of_circuit=circuit,
+    connections = get_connections(subtarget,
+                                  connectome_labeled=(connectome, intrinsic),
+                                  of_circuit=circuit,
                                   n_batches=n_parallel_batches)
     return as_adjmat(connections, gids, intrinsic)
 

@@ -1,5 +1,6 @@
 """General utilities."""
 
+from types import ModuleType
 from collections.abc import Mapping
 import importlib
 from pprint import pformat
@@ -61,6 +62,7 @@ def import_module(from_path, with_method=None):
 
 def import_module_with_name(n):
     """Must be in the environment."""
+    if isinstance(n, ModuleType): return n
     assert isinstance(n, str)
     return importlib.import_module(n)
 

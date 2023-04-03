@@ -38,8 +38,10 @@ def resolve_connectomes(in_argued):
 def write_adj(matrices, to_output, append=False, format=True, return_config=False):
     """..."""
     hdf, group = to_output
-    LOG.info("Write adjacencies like %s", matrices.head())
-
+    LOG.info("Write %s adjacencies:\n%s", len(matrices),
+             matrices.apply(lambda m:
+                            pd.Series({"dim": m.shape,
+                                       "cnxns": m.astype(bool).sum(), "nsyns": m.sum()})))
     write_toc_plus_payload(matrices, (hdf, group), append=append, format=format)
     return (hdf, group)
 

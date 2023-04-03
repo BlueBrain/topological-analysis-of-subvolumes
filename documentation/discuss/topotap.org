@@ -1,5 +1,5 @@
-#+PROPERTY: header-args:jupyter-python :session ~/jupyter-run/active-ssh.json
-#+PROPERTY: header-args:jupyter :session ~/jupyter-run/active-ssh.json
+#+PROPERTY: header-args:jupyter-python :session ~/jupyter-run/active-1-ssh.json
+#+PROPERTY: header-args:jupyter :session ~/jupyter-run/active-1-ssh.json
 
 #+STARTUP: overview
 #+STARTUP: logdrawer
@@ -51,6 +51,9 @@ GOLDEN = (1. + np.sqrt(5.))/2.
 print("We will plot golden aspect ratios: ", GOLDEN)
 #+END_SRC
 
+#+RESULTS: notebook-init
+: We will plot golden aspect ratios:  1.618033988749895
+
 ** Workspaces
 We have run ~connsense-CRAP~ for the SSCx dissemination variant /Bio-M/, extracting data that we will use to compute the factology. Here is a list of workspaces we will need to generate factsheets.
 #+NAME: notebook-workspaces
@@ -61,6 +64,8 @@ SOODSPACE = PROJSPACE / "home/sood"
 CONNSPACE = SOODSPACE / "topological-analysis-subvolumes/test/v2"
 DEVSPACE  = CONNSPACE / "test" / "develop"
 #+END_SRC
+
+#+RESULTS: notebook-workspaces
 
 ** ~connsense~ Modules
 While test-developing it will be good to have direct access to the ~connsense-TAP-store~ we will use. We will use a module from ~connsense~ to load the HDFstore,
@@ -76,10 +81,11 @@ circuit
 
 #+RESULTS: notebook-connsense-tap
 :RESULTS:
+:  2023-03-14 09:29:23,557: Load circuit Bio_M
 : Available analyses:
-: {'connectivity': {'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7fff5c659c70>,
-:                   'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7ffddd3b51f0>}}
-: <bluepy.circuit.Circuit at 0x7ffddfee88e0>
+: {'connectivity': {'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7fff5c2bf2e0>,
+:                   'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7fff5c2bf3d0>}}
+: <bluepy.circuit.Circuit at 0x7fffbb6b6550>
 :END:
 
 ** Emacs specific :noexport:
@@ -103,8 +109,6 @@ We can get all figures displayed 95% so that we can work with them in front of u
 #+RESULTS: plot-display
 : #+attr_html: :width 95% :height 95%
 
-#+RESULTS: fit-display
-: #+attr_html: :width 95% :height 95%
 
 #+HEADER: :post plot-display(*this*) :session return
 #+BEGIN_SRC jupyter-python :exports both :file ./test-fit-fig.png
@@ -121,26 +125,17 @@ fig = plt.figure(figsize=(15, 12))
 ax = sbn.histplot(x="Petal_Length", hue="Class", data=irisies, ax=fig.add_subplot())
 #+END_SRC
 
-#+RESULTS:
-#+attr_html: :width 95% :height 95%
-[[file:./test-fit-fig.png]]
-
 #+NAME: fit-display
 #+HEADER: :var figure="" :var attr_value="95%" :var attr_name="#+attr_html: :width "
 #+BEGIN_SRC emacs-lisp
 (concat attr_name attr_value (string ?\n) figure)
 #+END_SRC
 
-
 #+NAME: attr-wrap
 #+BEGIN_SRC sh :var figure="" :var width="95%" :results output
 echo "#+attr_html: :width $width"
 echo "$figure"
 #+END_SRC
-
-#+RESULTS: attr-wrap
-: #+attr_html: :width 95%
-:
 
 * Introduction
 We will study flatmap columns. In the circuit's flatmap we have the following grid,
@@ -153,7 +148,7 @@ fmst.fmap_positions(circuit, over_flatmap_voxels=None, with_orientations=None,
 
 #+HEADER: :plot-display(figure=*this*)
 #+BEGIN_SRC jupyter-python :file ./figures/flatmap.png :exports both
-from flatmap_utility import subtargets as fmst, tesselate
+from flatmap_utility import subtargets as fmst, tessellate
 flat_xys = fmst.fmap_positions(in_data=circuit)
 tritille = tessellate.TriTille(230.0)
 graphic_fmap_cells = tritille.plot_hextiles(flat_xys,
@@ -161,9 +156,14 @@ graphic_fmap_cells = tritille.plot_hextiles(flat_xys,
 graphic_fmap_cells[0]
 #+END_SRC
 
+#+RESULTS:
 #+attr_html: :width 95%
+:RESULTS:
+: /gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/topological-analysis-of-subvolumes/flatmap_utility/flatmap_utility.py:199: UserWarning: Optimal rotation is not uniquely or poorly defined for the given sets of vectors.
+:   res = Rotation.align_vectors(vtgt, vv)
+: Rotation errors: min: 0.0, median: 0.09387602600937707, mean: 0.1362824184485066, std: 0.15664142313770807, max: 2.0
 [[file:./figures/flatmap.png]]
-
+:END:
 
 * Pipeline: TODO
 * TAP CLI
@@ -175,6 +175,13 @@ display(tap.subtargets)
 #+END_SRC
 
 #+RESULTS:
+:RESULTS:
+:  2023-03-06 10:53:26,327: Load dataset ('define-subtargets', 'flatmap-columns'):
+: ('Hexaongal prism like columns oriented along cortical layers, from '
+:  'white-matter to pia.  The data is loaded from an NRRD file that maps each '
+:  'circuit voxel to a subtarget ids corresponding to a flatmap column.The '
+:  'subtarget ids should be mapped to the subtargets they refer to in a '
+:  'dataframe provided as the input `info`.')
 #+begin_example
              subtarget  flat_i  flat_j        flat_x  flat_y  conicality  \
 subtarget_id
@@ -206,21 +213,22 @@ subtarget_id
 
 [240 rows x 8 columns]
 #+end_example
+:END:
 
 Each one is a straight up cylinderical column in the flatmap-space, and a conical column in circuit's physical space. Each ~subtarget~ is associated with a list of gids,
-#+HEADER: :comments both :exports both :var width="95%" :results output
+#+HEADER: :comments both :exports both :var width="95%" :results output :post plot-display(figure=*this*)
 #+BEGIN_SRC jupyter-python :tangle no :file ./figures/subtarget-sizes.png
-fig_subtarget_sizes = plt.figure(figsize=(GOLDEN * 8, 8))
+fig_subtarget_sizes = plt.figure(figsize=(GOLDEN * 12, 12))
 
 ax = sbn.histplot(tap.subtarget_gids.apply(len).values, bins=25,
                   ax=fig_subtarget_sizes.add_subplot())
 #+END_SRC
 
 #+RESULTS:
+#+attr_html: :width 95% :height 95%
 [[file:./figures/subtarget-sizes.png]]
 
 We have ~subtargets~' ~conicality, volume, and height~ in the ~info~. We may not be able to compute these values for each ~flatmap-column~. Some may have a geometry that does not resolve to our computations. The ~nan~ values for ~conicality~ are found in,
-#+HEADER: :post plot-display(figure=*this*)
 #+BEGIN_SRC jupyter-python :file ./figures/nan_flatmap.png :exports both
 flat_xy = OrderedDict([("flat_x", "x"), ("flat_y", "y")])
 nanxys = tap.subtargets[list(flat_xy.keys())].rename(columns=flat_xy)
@@ -230,6 +238,18 @@ graphic_nanfmap[0]
 #+END_SRC
 
 #+RESULTS:
+:RESULTS:
+# [goto error]
+: [0;31m---------------------------------------------------------------------------[0m
+: [0;31mNameError[0m                                 Traceback (most recent call last)
+: [0;32m/tmp/ipykernel_28068/3521415563.py[0m in [0;36m<module>[0;34m[0m
+: [1;32m      2[0m [0mnanxys[0m [0;34m=[0m [0mtap[0m[0;34m.[0m[0msubtargets[0m[0;34m[[0m[0mlist[0m[0;34m([0m[0mflat_xy[0m[0;34m.[0m[0mkeys[0m[0;34m([0m[0;34m)[0m[0;34m)[0m[0;34m][0m[0;34m.[0m[0mrename[0m[0;34m([0m[0mcolumns[0m[0;34m=[0m[0mflat_xy[0m[0;34m)[0m[0;34m[0m[0;34m[0m[0m
+: [1;32m      3[0m [0;34m[0m[0m
+: [0;32m----> 4[0;31m [0mgraphic_nanfmap[0m [0;34m=[0m [0mtritille[0m[0;34m.[0m[0mplot_hextiles[0m[0;34m([0m[0mnangxys[0m[0;34m,[0m [0mannotate[0m[0;34m=[0m[0;32mFalse[0m[0;34m)[0m[0;34m[0m[0;34m[0m[0m
+: [0m[1;32m      5[0m [0mgraphic_nanfmap[0m[0;34m[[0m[0;36m0[0m[0;34m][0m[0;34m[0m[0;34m[0m[0m
+:
+: [0;31mNameError[0m: name 'tritille' is not defined
+:END:
 #+attr_html: :width 95% :height 95%
 [[file:./figures/nan_flatmap.png]]
 
@@ -363,7 +383,7 @@ R3;C11    Bio_M   local      original      2        NaN NaN NaN NaN NaN
 
 We find a ~nan~ where no simplices were found. Each individual computation on a single ~flatcolumn~ returns an array / series of simplex counts by dimension /upto/ the maximum dimension of simplices found in that ~flatcolumn~. When we concatenated these data into a single ~frame~, the max-dimension was set to the maximum of maxima over all ~flatcolumns~ (and their randomizations). This filled in ~nan~ values for ~flatcolumns~ that did not have the higher missing dimensions. While we can replace the ~nans~ by zeros, as that is what they mean, they do offer a convenient way to compute the max-dimension,
 
-#+BEGIN_SRC jupyter-python
+#+BEGIN_SRC jupy-python
 from tqdm import tqdm; tqdm.pandas()
 
 maxdim = (simplex_counts.frame["full"]
@@ -498,6 +518,101 @@ def edge_participation(simplices):
 
     return pd.concat([value_count_edge(p) for p in edge_positions], axis=1).fillna(0).astype(int)
 #+END_SRC
+
+* Connectome-utilities
+Here we use ~conntility~. To load a circuit,
+#+name: load-circuit
+#+begin_src jupyter-python
+import pandas
+import numpy
+import bluepy
+
+circ_fn = "/gpfs/bbp.cscs.ch/project/proj83/circuits/Bio_M/20200805/CircuitConfig_TC_WM"
+circ = bluepy.Circuit(circ_fn)
+#+end_src
+
+#+RESULTS: load-circuit
+
+With a circuit in hand we can load a config with ~conntility~,
+#+name: loader-config
+#+begin_src jupyter-python
+from conntility.circuit_models import neuron_groups
+
+loader_config = {"loading": {"base_target": "Mosaic",
+                             "properties": ["ss_flat_x", "ss_flat_y", "x", "y", "z", "layer",
+                                            "synapse_class", "mtype", "etype"]},
+                 "filtering": [{"column": "layer", "value": 4}],
+                 "grouping": [{"method": "group_by_grid",
+                               "columns": ["ss_flat_x", "ss_flat_y"],
+                               "args": [230.0],
+                               "kwargs": {"prefix": "hex230-"}}]}
+
+base_group = neuron_groups.load_group_filter(circ, loader_config)
+base_group = base_group.loc[base_group["hex230-x"] > -1E6]
+
+display(base_group)
+#+end_src
+
+#+RESULTS: loader-config
+:RESULTS:
+: /gpfs/bbp.cscs.ch/project/proj83/home/sood/proj83-rsync/Connectome-utilities/conntility/flatmapping/_supersample_utility.py:136: UserWarning: Optimal rotation is not uniquely or poorly defined for the given sets of vectors.
+:   res = Rotation.align_vectors(vtgt, vv)
+: Rotation errors: min: 0.0, median: 0.09387602600937707, mean: 0.1362824184485066, std: 0.15664142313770807, max: 2.0
+#+begin_example
+                    etype  layer   mtype synapse_class            x  \
+hex230-i hex230-j
+-7       11          cNAC      4   L4_BP           INH  3935.875808
+ 7       13        cACint      4   L4_BP           INH  5429.642871
+-25      26          bNAC      4   L4_BP           INH  1964.702652
+-23      31          cNAC      4   L4_BP           INH  2625.043789
+ 9       12          cNAC      4   L4_BP           INH  5243.143890
+...                   ...    ...     ...           ...          ...
+ 4       16         cSTUT      4  L4_LBC           INH  5454.385788
+ 6       9           dNAC      4  L4_LBC           INH  4803.351240
+-9       15          dNAC      4  L4_LBC           INH  3967.728001
+ 2       26          cNAC      4  L4_LBC           INH  5921.843550
+-4       5           dNAC      4  L4_LBC           INH  3839.505128
+
+                             y            z      gid    ss_flat_x  \
+hex230-i hex230-j
+-7       11       -2120.645544 -2156.657847  2206292   723.002011
+ 7       13       -1262.427607 -4874.859457  2206293  4087.381313
+-25      26        1091.962301 -1301.027629  2206294   183.262735
+-23      31        2167.404245 -1035.677347  2206295  1467.736632
+ 9       12       -1681.832926 -5378.442266  2206296  4109.221373
+...                        ...          ...      ...          ...
+ 4       16        -859.306284 -4217.743437  2885708  3813.424272
+ 6       9        -2302.172723 -4608.297791  2885709  2882.768952
+-9       15       -1128.846627 -2056.902446  2885710  1319.944360
+ 2       26        1415.952912 -4478.548625  2885711  5476.205274
+-4       5        -3086.204151 -2490.231175  2885712   256.305188
+
+                     ss_flat_y     hex230-x  hex230-y hex230-subtarget
+hex230-i hex230-j
+-7       11        1920.459284   796.743371    2070.0            R6;C2
+ 7       13         705.720657  3983.716857     690.0           R2;C10
+-25      26        5823.590582   199.185843    5865.0           R17;C0
+-23      31        6209.748800  1593.486743    6210.0           R18;C4
+ 9       12         191.553310  4182.902700     345.0           R1;C10
+...                        ...          ...       ...              ...
+ 4       16        1406.395811  3983.716857    1380.0           R4;C10
+ 6       9          405.078887  2987.787643     345.0            R1;C7
+-9       15        2724.312314  1195.115057    2760.0            R8;C3
+ 2       26        2917.727638  5577.203600    2760.0           R8;C14
+-4       5          946.839179   199.185843    1035.0            R3;C0
+
+[639422 rows x 13 columns]
+#+end_example
+:END:
+
+We can load a matrix of connections /between/ the defined groups. We load the midrange connection count.
+#+name: midrange-connection-count
+#+begin_src jupyter-python
+from conntility import circuit_models
+M = circuit_models.circuit_matrix_between_groups(circ, base_group,
+                                                 connectome="intra_SSCX_midrange_wm",
+                                                 extract_full=True)
+#+end_src
 
 * Scratch
 #+HEADER: :comments both  :exports both :file ./figures/file-name-for-figure.png

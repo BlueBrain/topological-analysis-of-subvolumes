@@ -302,17 +302,28 @@ class SeriesHelper:
     @staticmethod
     def write(series, to_hdf_store_at_path, under_group, as_dataset):
         """..."""
-        LOG.debug("SeriesHelper write series at %s group %s as dataset %s: \n%s",
+        LOG.info("SeriesHelper write series at %s group %s as dataset %s: \n%s",
                   to_hdf_store_at_path, under_group, as_dataset, series.describe())
 
         at_path = to_hdf_store_at_path
         under_key = lambda key: '/'.join([under_group, as_dataset, key] if key else [under_group, as_dataset])
 
         index = series.index.to_frame().reset_index(drop=True)
-        index.to_hdf(at_path, under_key("index"), format="table")
+        LOG.debug("SeriesHelper write series index under key %s: \n%s",  under_key("index"), index.describe())
+        if index.empty:
+            index.to_hdf(at_path, under_key("index"))
+        else:
+            index.to_hdf(at_path, under_key("index"), format="table")
+        LOG.debug("Check index written: \n%s", pd.read_hdf(at_path, key=under_key("index")))
 
         values = series.reset_index(drop=True)
-        values.to_hdf(at_path, under_key("values"), format="table")
+        LOG.debug("SeriesHelper write series values under key %s: \n%s",  under_key("values"), values.describe())
+        if values.empty:
+            values.to_hdf(at_path, under_key("values"))
+        else:
+            values.to_hdf(at_path, under_key("values"), format="table")
+        LOG.debug("Check values written: \n%s", pd.read_hdf(at_path, key=under_key("values")))
+
 
         return under_key(None)
         #under_key = f"{under_group}/{as_dataset}"

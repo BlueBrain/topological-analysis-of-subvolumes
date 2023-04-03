@@ -160,10 +160,10 @@ class TapDataset:
                 return pd.concat(dataset.values, keys=dataset.index)
 
             slicing_args = list(prl.flatten_slicing(next(slices)).keys())
-            return (pd.concat([g.droplevel(slicing_args) for _,g in dataset.groupby(slicing_args)], axis=1,
-                              keys=[g for g,_ in dataset.groupby(slicing_args)], names=slicing_args)
-                    .reorder_levels(dataset.columns.names + slicing_args, axis=1))
-
+            sliced = pd.concat([g.droplevel(slicing_args) for _,g in dataset.groupby(slicing_args)], axis=1,
+                                keys=[g for g,_ in dataset.groupby(slicing_args)], names=slicing_args)
+            return (sliced if isinstance(dataset, pd.Series) else
+                    sliced.reorder_levels(dataset.columns.names + slicing_args, axis=1))
 
         if not "slicing" in self.parameters:
             lazydset = self._tap.pour(self._dataset).sort_index()
@@ -225,7 +225,7 @@ class TapDataset:
         """..."""
         varindex = result.index.get_level_values(variable_id)
 
-        if variable_id.endswith("_id"):
+        if variable_id and variable_id.endswith("_id"):
             variable = variable_id.strip("_id")
             return pd.Series(self._tap.create_index(variable).loc[varindex].values, name=variable,
                              index=(varindex if index_only_variable else result.index))
@@ -307,7 +307,9 @@ class TapDataset:
         """..."""
         if not isinstance(self.dataset, Mapping):
             return self.dataset.index.names
-        return {component: dset.index.names for component, dset in self.dataset.items()}
+        return {component: (dset.index.names if dset is not None else None)
+                for component, dset in self.dataset.items()}
+
 
     def frame_component(self, c=None, name_indices=True):
         """..."""
@@ -322,6 +324,10 @@ class TapDataset:
             assert c is None and not isinstance(self.dataset, Mapping), c
             component = self.dataset
             variable_ids = self.variable_ids
+
+        if component is None:
+            LOG.warning("No dataset found for component %s", c)
+            return None
 
         def cleanup_index(r):
             try:
@@ -685,8 +691,13 @@ class HDFStore:
         """..."""
         return (tap._root, tap._groups[computation_type])
     
-    def pour_dataset(tap, computation_type, of_quantity, slicing=None):
+    def pour_dataset(tap, computation_type, of_quantity, slicing=None,
+                     *, subset=None):
         """..."""
+        def slice_subset(dataset):
+            """..."""
+            return dataset.loc[subset] if subset is not None else dataset
+    
         cnsh5, hdf_group = tap.get_path(computation_type)
         dataset = '/'.join([hdf_group, of_quantity] if not slicing
                            else [hdf_group, of_quantity, slicing])
@@ -696,15 +707,18 @@ class HDFStore:
                 dataset = '/'.join([dataset, "data"])
     
         if computation_type == "extract-node-populations":
-            return matrices.get_store(cnsh5, dataset, pd.DataFrame, in_mode='r').toc
+            return slice_subset(matrices.get_store(cnsh5, dataset, pd.DataFrame, in_mode='r')
+                                .toc)
     
         if computation_type == "extract-edge-populations":
-            return read_toc_plus_payload((cnsh5, dataset), "extract-edge-populations")
+            return slice_subset(read_toc_plus_payload((cnsh5, dataset),
+                                                      "extract-edge-populations"))
     
         if computation_type.startswith("analyze-"):
-            return tap.pour_analyses(computation_type, of_quantity, slicing)
+            return slice_subset(tap.pour_analyses(computation_type, of_quantity, slicing))
     
-        return read_dataset((cnsh5, dataset), computation_type)
+        return slice_subset(read_dataset((cnsh5, dataset), computation_type))
+    
     
     def pour(tap, dataset):
         """For convenience, allow queries with tuples (computation_type, of_quantity).

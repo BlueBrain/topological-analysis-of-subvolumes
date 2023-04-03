@@ -1,0 +1,131 @@
+#+title: Setup
+
+
+* Computational Environment
+:PROPERTIES:
+:CUSTOM_ID: computational-environment
+:END:
+
+In our discussion we will develop scientific concepts to measure the circuit, and implement Python functions to compute them. Here we setup a notebook template to test and explore, and the structure of a ~Python~ package for our methods.
+
+#+NAME: notebook-init
+#+BEGIN_SRC jupyter-python
+from importlib import reload
+from collections.abc import Mapping
+from collections import OrderedDict
+from pprint import pprint, pformat
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+import matplotlib
+
+reload(matplotlib)
+from matplotlib import pylab as plt
+import seaborn as sbn
+
+from IPython.display import display
+
+from bluepy import Synapse, Cell, Circuit
+
+GOLDEN = (1. + np.sqrt(5.))/2.
+print("We will plot golden aspect ratios: ", GOLDEN)
+#+END_SRC
+
+#+RESULTS: notebook-init
+: We will plot golden aspect ratios:  1.618033988749895
+
+*** Workspaces
+We have run ~connsense-CRAP~ for the SSCx dissemination variant /Bio-M/, extracting data that we will use to compute the factology. Here is a list of workspaces we will need to generate factsheets.
+#+NAME: notebook-workspaces
+#+BEGIN_SRC jupyter-python
+ROOTSPACE = Path("/")
+PROJSPACE = ROOTSPACE / "gpfs/bbp.cscs.ch/project/proj83"
+SOODSPACE = PROJSPACE / "home/sood"
+CONNSPACE = SOODSPACE / "topological-analysis-subvolumes/test/v2"
+DEVSPACE  = CONNSPACE / "test" / "develop"
+#+END_SRC
+
+#+RESULTS: notebook-workspaces
+
+*** ~connsense~ Modules
+While test-developing it will be good to have direct access to the ~connsense-TAP-store~ we will use. We will use a module from ~connsense~ to load the HDFstore,
+#+NAME: notebook-connsense-tap
+#+BEGIN_SRC jupyter-python
+from connsense.develop import topotap as cnstap
+tap = cnstap.HDFStore(CONNSPACE/"pipeline.yaml")
+circuit = tap.get_circuit("Bio_M")
+print("Available analyses: ")
+pprint(tap.analyses)
+circuit
+#+END_SRC
+
+#+RESULTS: notebook-connsense-tap
+:RESULTS:
+:  2023-03-16 09:14:21,574: Load circuit Bio_M
+: Available analyses:
+: {'connectivity': {'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7fff5c2bc2e0>,
+:                   'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7fff5c2bc3d0>}}
+: <bluepy.circuit.Circuit at 0x7fffbb69ba00>
+:END:
+
+*** Emacs specific :noexport:
+We can get all figures displayed 95% so that we can work with them in front of us in an Emacs buffer. Here is a method that does that witb an example. This code is here only to see how much we use it. It should find a way to a place in our ~doom-config~.
+
+#+NAME: fit-display-defun
+#+BEGIN_SRC emacs-lisp
+(defun fit-display-of (figure width height)
+    (concat "#+attr_html: :width " width " :height " height (string ?\n) figure))
+#+END_SRC
+
+#+RESULTS: fit-display-defun
+: fit-display-of
+
+#+NAME: plot-display
+#+HEADER: :var figure="" :var width="95%" :var height="95%"
+#+BEGIN_SRC emacs-lisp
+(fit-display-of figure width height)
+#+END_SRC
+
+#+RESULTS: plot-display
+: #+attr_html: :width 95% :height 95%
+
+#+RESULTS: fit-display
+: #+attr_html: :width 95%
+
+#+HEADER: :post plot-display(*this*) :session return
+#+BEGIN_SRC jupyter-python :exports both :file ./test-fit-fig.png
+#+BEGIN_SRC jupyter-python :post attr-wrap(data=*this*) :session return :exports both :file ./test-fit-fig.png
+import pandas as pd
+from matplotlib import pyplot as plt
+import seaborn as sbn
+
+csv_url = 'https://archive.ics.uci.edu/ml/machine-learning-databases/iris/iris.data'
+col_names = ['Sepal_Length','Sepal_Width','Petal_Length','Petal_Width','Class']
+irisies = pd.read_csv(csv_url, names=col_names)
+
+fig = plt.figure(figsize=(15, 12))
+ax = sbn.histplot(x="Petal_Length", hue="Class", data=irisies, ax=fig.add_subplot())
+#+END_SRC
+
+#+RESULTS:
+#+attr_html: :width 95% :height 95%
+[[file:./test-fit-fig.png]]
+
+#+NAME: fit-display
+#+HEADER: :var figure="" :var attr_value="95%" :var attr_name="#+attr_html: :width "
+#+BEGIN_SRC emacs-lisp
+(concat attr_name attr_value (string ?\n) figure)
+#+END_SRC
+
+
+#+NAME: attr-wrap
+#+BEGIN_SRC sh :var figure="" :var width="95%" :results output
+echo "#+attr_html: :width $width"
+echo "$figure"
+#+END_SRC
+
+#+RESULTS: attr-wrap
+: #+attr_html: :width 95%
+:

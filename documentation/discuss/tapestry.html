@@ -1,0 +1,590 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+<head>
+<!-- 2023-03-16 Thu 10:14 -->
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Connectivity across the ~flatmap~.</title>
+<meta name="author" content="Vishal Sood" />
+<meta name="generator" content="Org Mode" />
+<style>
+  #content { max-width: 60em; margin: auto; }
+  .title  { text-align: center;
+             margin-bottom: .2em; }
+  .subtitle { text-align: center;
+              font-size: medium;
+              font-weight: bold;
+              margin-top:0; }
+  .todo   { font-family: monospace; color: red; }
+  .done   { font-family: monospace; color: green; }
+  .priority { font-family: monospace; color: orange; }
+  .tag    { background-color: #eee; font-family: monospace;
+            padding: 2px; font-size: 80%; font-weight: normal; }
+  .timestamp { color: #bebebe; }
+  .timestamp-kwd { color: #5f9ea0; }
+  .org-right  { margin-left: auto; margin-right: 0px;  text-align: right; }
+  .org-left   { margin-left: 0px;  margin-right: auto; text-align: left; }
+  .org-center { margin-left: auto; margin-right: auto; text-align: center; }
+  .underline { text-decoration: underline; }
+  #postamble p, #preamble p { font-size: 90%; margin: .2em; }
+  p.verse { margin-left: 3%; }
+  pre {
+    border: 1px solid #e6e6e6;
+    border-radius: 3px;
+    background-color: #f2f2f2;
+    padding: 8pt;
+    font-family: monospace;
+    overflow: auto;
+    margin: 1.2em;
+  }
+  pre.src {
+    position: relative;
+    overflow: auto;
+  }
+  pre.src:before {
+    display: none;
+    position: absolute;
+    top: -8px;
+    right: 12px;
+    padding: 3px;
+    color: #555;
+    background-color: #f2f2f299;
+  }
+  pre.src:hover:before { display: inline; margin-top: 14px;}
+  /* Languages per Org manual */
+  pre.src-asymptote:before { content: 'Asymptote'; }
+  pre.src-awk:before { content: 'Awk'; }
+  pre.src-authinfo::before { content: 'Authinfo'; }
+  pre.src-C:before { content: 'C'; }
+  /* pre.src-C++ doesn't work in CSS */
+  pre.src-clojure:before { content: 'Clojure'; }
+  pre.src-css:before { content: 'CSS'; }
+  pre.src-D:before { content: 'D'; }
+  pre.src-ditaa:before { content: 'ditaa'; }
+  pre.src-dot:before { content: 'Graphviz'; }
+  pre.src-calc:before { content: 'Emacs Calc'; }
+  pre.src-emacs-lisp:before { content: 'Emacs Lisp'; }
+  pre.src-fortran:before { content: 'Fortran'; }
+  pre.src-gnuplot:before { content: 'gnuplot'; }
+  pre.src-haskell:before { content: 'Haskell'; }
+  pre.src-hledger:before { content: 'hledger'; }
+  pre.src-java:before { content: 'Java'; }
+  pre.src-js:before { content: 'Javascript'; }
+  pre.src-latex:before { content: 'LaTeX'; }
+  pre.src-ledger:before { content: 'Ledger'; }
+  pre.src-lisp:before { content: 'Lisp'; }
+  pre.src-lilypond:before { content: 'Lilypond'; }
+  pre.src-lua:before { content: 'Lua'; }
+  pre.src-matlab:before { content: 'MATLAB'; }
+  pre.src-mscgen:before { content: 'Mscgen'; }
+  pre.src-ocaml:before { content: 'Objective Caml'; }
+  pre.src-octave:before { content: 'Octave'; }
+  pre.src-org:before { content: 'Org mode'; }
+  pre.src-oz:before { content: 'OZ'; }
+  pre.src-plantuml:before { content: 'Plantuml'; }
+  pre.src-processing:before { content: 'Processing.js'; }
+  pre.src-python:before { content: 'Python'; }
+  pre.src-R:before { content: 'R'; }
+  pre.src-ruby:before { content: 'Ruby'; }
+  pre.src-sass:before { content: 'Sass'; }
+  pre.src-scheme:before { content: 'Scheme'; }
+  pre.src-screen:before { content: 'Gnu Screen'; }
+  pre.src-sed:before { content: 'Sed'; }
+  pre.src-sh:before { content: 'shell'; }
+  pre.src-sql:before { content: 'SQL'; }
+  pre.src-sqlite:before { content: 'SQLite'; }
+  /* additional languages in org.el's org-babel-load-languages alist */
+  pre.src-forth:before { content: 'Forth'; }
+  pre.src-io:before { content: 'IO'; }
+  pre.src-J:before { content: 'J'; }
+  pre.src-makefile:before { content: 'Makefile'; }
+  pre.src-maxima:before { content: 'Maxima'; }
+  pre.src-perl:before { content: 'Perl'; }
+  pre.src-picolisp:before { content: 'Pico Lisp'; }
+  pre.src-scala:before { content: 'Scala'; }
+  pre.src-shell:before { content: 'Shell Script'; }
+  pre.src-ebnf2ps:before { content: 'ebfn2ps'; }
+  /* additional language identifiers per "defun org-babel-execute"
+       in ob-*.el */
+  pre.src-cpp:before  { content: 'C++'; }
+  pre.src-abc:before  { content: 'ABC'; }
+  pre.src-coq:before  { content: 'Coq'; }
+  pre.src-groovy:before  { content: 'Groovy'; }
+  /* additional language identifiers from org-babel-shell-names in
+     ob-shell.el: ob-shell is the only babel language using a lambda to put
+     the execution function name together. */
+  pre.src-bash:before  { content: 'bash'; }
+  pre.src-csh:before  { content: 'csh'; }
+  pre.src-ash:before  { content: 'ash'; }
+  pre.src-dash:before  { content: 'dash'; }
+  pre.src-ksh:before  { content: 'ksh'; }
+  pre.src-mksh:before  { content: 'mksh'; }
+  pre.src-posh:before  { content: 'posh'; }
+  /* Additional Emacs modes also supported by the LaTeX listings package */
+  pre.src-ada:before { content: 'Ada'; }
+  pre.src-asm:before { content: 'Assembler'; }
+  pre.src-caml:before { content: 'Caml'; }
+  pre.src-delphi:before { content: 'Delphi'; }
+  pre.src-html:before { content: 'HTML'; }
+  pre.src-idl:before { content: 'IDL'; }
+  pre.src-mercury:before { content: 'Mercury'; }
+  pre.src-metapost:before { content: 'MetaPost'; }
+  pre.src-modula-2:before { content: 'Modula-2'; }
+  pre.src-pascal:before { content: 'Pascal'; }
+  pre.src-ps:before { content: 'PostScript'; }
+  pre.src-prolog:before { content: 'Prolog'; }
+  pre.src-simula:before { content: 'Simula'; }
+  pre.src-tcl:before { content: 'tcl'; }
+  pre.src-tex:before { content: 'TeX'; }
+  pre.src-plain-tex:before { content: 'Plain TeX'; }
+  pre.src-verilog:before { content: 'Verilog'; }
+  pre.src-vhdl:before { content: 'VHDL'; }
+  pre.src-xml:before { content: 'XML'; }
+  pre.src-nxml:before { content: 'XML'; }
+  /* add a generic configuration mode; LaTeX export needs an additional
+     (add-to-list 'org-latex-listings-langs '(conf " ")) in .emacs */
+  pre.src-conf:before { content: 'Configuration File'; }
+
+  table { border-collapse:collapse; }
+  caption.t-above { caption-side: top; }
+  caption.t-bottom { caption-side: bottom; }
+  td, th { vertical-align:top;  }
+  th.org-right  { text-align: center;  }
+  th.org-left   { text-align: center;   }
+  th.org-center { text-align: center; }
+  td.org-right  { text-align: right;  }
+  td.org-left   { text-align: left;   }
+  td.org-center { text-align: center; }
+  dt { font-weight: bold; }
+  .footpara { display: inline; }
+  .footdef  { margin-bottom: 1em; }
+  .figure { padding: 1em; }
+  .figure p { text-align: center; }
+  .equation-container {
+    display: table;
+    text-align: center;
+    width: 100%;
+  }
+  .equation {
+    vertical-align: middle;
+  }
+  .equation-label {
+    display: table-cell;
+    text-align: right;
+    vertical-align: middle;
+  }
+  .inlinetask {
+    padding: 10px;
+    border: 2px solid gray;
+    margin: 10px;
+    background: #ffffcc;
+  }
+  #org-div-home-and-up
+   { text-align: right; font-size: 70%; white-space: nowrap; }
+  textarea { overflow-x: auto; }
+  .linenr { font-size: smaller }
+  .code-highlighted { background-color: #ffff00; }
+  .org-info-js_info-navigation { border-style: none; }
+  #org-info-js_console-label
+    { font-size: 10px; font-weight: bold; white-space: nowrap; }
+  .org-info-js_search-highlight
+    { background-color: #ffff00; color: #000000; font-weight: bold; }
+  .org-svg { }
+</style>
+</head>
+<body>
+<div id="content" class="content">
+<h1 class="title">Connectivity across the <code>flatmap</code>.</h1>
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#orgd7d4690">1. Setup</a>
+<ul>
+<li><a href="#org4551fca">1.1. Workspaces</a></li>
+<li><a href="#orgedc7f39">1.2. <code>connsense</code> Modules</a></li>
+</ul>
+</li>
+<li><a href="#org576791d">2. Long range connectivity between <code>flatmap-columns</code></a>
+<ul>
+<li><a href="#orgeefa5d8">2.1. Simplices</a></li>
+</ul>
+</li>
+<li><a href="#orgad3693a">3. Incoming connections to a simplex</a></li>
+<li><a href="#org97cbf7c">4. Appendix</a>
+<ul>
+<li><a href="#org16543af">4.1. Setup computational environment</a></li>
+</ul>
+</li>
+</ul>
+</div>
+</div>
+<p>
+Let us setup an interactive <code>Python</code> session where we can run the code developed here.
+</p>
+<div class="org-src-container">
+<pre class="src src-jupyter">print("Welcome to EMACS Jupyter")
+</pre>
+</div>
+
+
+<p>
+We will characterize the structure of activity across flatmap columns. For this we will need to look into the <code>long-range</code> connectivity <i>between</i> pairs of <code>flatmap-columns</code>.
+</p>
+
+<div id="outline-container-orgd7d4690" class="outline-2">
+<h2 id="orgd7d4690"><span class="section-number-2">1.</span> Setup</h2>
+<div class="outline-text-2" id="text-1">
+<p>
+To get the notebook you will have to clone,
+</p>
+<div class="org-src-container">
+<pre class="src src-shell"><span style="color: #6434A3;">git</span> clone https://bbpgitlab.epfl.ch/conn/structural/topological-analysis-of-subvolumes.git
+<span style="color: #6434A3;">git</span> checkout beta
+</pre>
+</div>
+
+<p>
+In our discussion we will develop scientific concepts to measure the circuit, and implement Python functions to compute them. Here we setup a notebook template to test and explore, and the structure of a <code>Python</code> package for our methods.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python" id="org303a4a7"><span style="color: #0000FF;">from</span> importlib <span style="color: #0000FF;">import</span> <span style="color: #006FE0;">reload</span>
+<span style="color: #0000FF;">from</span> collections.abc <span style="color: #0000FF;">import</span> Mapping
+<span style="color: #0000FF;">from</span> collections <span style="color: #0000FF;">import</span> OrderedDict
+<span style="color: #0000FF;">from</span> pprint <span style="color: #0000FF;">import</span> pprint, pformat
+<span style="color: #0000FF;">from</span> pathlib <span style="color: #0000FF;">import</span> Path
+
+<span style="color: #0000FF;">import</span> numpy <span style="color: #0000FF;">as</span> np
+<span style="color: #0000FF;">import</span> pandas <span style="color: #0000FF;">as</span> pd
+
+<span style="color: #0000FF;">import</span> matplotlib
+
+<span style="color: #006FE0;">reload</span>(matplotlib)
+<span style="color: #0000FF;">from</span> matplotlib <span style="color: #0000FF;">import</span> pylab <span style="color: #0000FF;">as</span> plt
+<span style="color: #0000FF;">import</span> seaborn <span style="color: #0000FF;">as</span> sbn
+
+<span style="color: #0000FF;">from</span> IPython.display <span style="color: #0000FF;">import</span> display
+
+<span style="color: #0000FF;">from</span> bluepy <span style="color: #0000FF;">import</span> Synapse, Cell, Circuit
+
+<span style="color: #BA36A5;">GOLDEN</span> = (<span style="color: #D0372D;">1</span>. + np.sqrt(<span style="color: #D0372D;">5</span>.))/<span style="color: #D0372D;">2</span>.
+<span style="color: #006FE0;">print</span>(<span style="color: #008000;">"We will plot golden aspect ratios: "</span>, GOLDEN)
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org4551fca" class="outline-3">
+<h3 id="org4551fca"><span class="section-number-3">1.1.</span> Workspaces</h3>
+<div class="outline-text-3" id="text-1-1">
+<p>
+We have run <code>connsense-CRAP</code> for the SSCx dissemination variant <i>Bio-M</i>, extracting data that we will use to compute the factology. Here is a list of workspaces we will need to generate factsheets.
+</p>
+<div class="org-src-container">
+<pre class="src src-jupyter-python" id="orgbde65f0"><span style="color: #BA36A5;">ROOTSPACE</span> = Path(<span style="color: #008000;">"/"</span>)
+<span style="color: #BA36A5;">PROJSPACE</span> = ROOTSPACE / <span style="color: #008000;">"gpfs/bbp.cscs.ch/project/proj83"</span>
+<span style="color: #BA36A5;">SOODSPACE</span> = PROJSPACE / <span style="color: #008000;">"home/sood"</span>
+<span style="color: #BA36A5;">CONNSPACE</span> = SOODSPACE / <span style="color: #008000;">"topological-analysis-subvolumes/test/v2"</span>
+<span style="color: #BA36A5;">DEVSPACE</span>  = CONNSPACE / <span style="color: #008000;">"test"</span> / <span style="color: #008000;">"develop"</span>
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-orgedc7f39" class="outline-3">
+<h3 id="orgedc7f39"><span class="section-number-3">1.2.</span> <code>connsense</code> Modules</h3>
+<div class="outline-text-3" id="text-1-2">
+<p>
+While test-developing it will be good to have direct access to the <code>connsense-TAP-store</code> we will use. We will use a module from <code>connsense</code> to load the HDFstore,
+</p>
+<div class="org-src-container">
+<pre class="src src-jupyter-python" id="orgea5deeb"><span style="color: #0000FF;">from</span> connsense.develop <span style="color: #0000FF;">import</span> topotap <span style="color: #0000FF;">as</span> cnstap
+<span style="color: #BA36A5;">tap</span> = cnstap.HDFStore(CONNSPACE/<span style="color: #008000;">"pipeline.yaml"</span>)
+<span style="color: #BA36A5;">circuit</span> = tap.get_circuit(<span style="color: #008000;">"Bio_M"</span>)
+<span style="color: #006FE0;">print</span>(<span style="color: #008000;">"Available analyses: "</span>)
+pprint(tap.analyses)
+circuit
+</pre>
+</div>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org576791d" class="outline-2">
+<h2 id="org576791d"><span class="section-number-2">2.</span> Long range connectivity between <code>flatmap-columns</code></h2>
+<div class="outline-text-2" id="text-2">
+<p>
+We want to summarize the <i>long-range</i> connectivity on top of <i>local-connectivity</i> of <code>flatmap-columns</code>. We can develop a concept of a <code>FlatmapColumn</code> as a <code>Python</code> class that can provide us with <i>long-range</i> sources and targets of a group of node ids in another <code>FlatmapColumn</code>,
+</p>
+<div class="org-src-container">
+<pre class="src src-jupyter-python" id="org9034319"><span style="color: #BA36A5;">CONNECTION_ID</span> = [<span style="color: #008000;">"source_node"</span>, <span style="color: #008000;">"target_node"</span>]
+<span style="color: #BA36A5;">SUBTARGET_ID</span> = [<span style="color: #008000;">"subtarget_id"</span>, <span style="color: #008000;">"circuit_id"</span>]
+<span style="color: #BA36A5;">NODE_ID</span> = [<span style="color: #008000;">"subtarget_id"</span>, <span style="color: #008000;">"circuit_id"</span>, <span style="color: #008000;">"node_id"</span>]
+
+<span style="color: #0000FF;">def</span> <span style="color: #006699;">sparse_csr</span>(connections):
+    <span style="color: #036A07;">"""..."""</span>
+    <span style="color: #0000FF;">from</span> scipy <span style="color: #0000FF;">import</span> sparse
+    <span style="color: #BA36A5;">connections_counted</span> = connections.value_counts().rename(<span style="color: #008000;">"count"</span>)
+    <span style="color: #0000FF;">return</span> sparse.csr_matrix(rows=connections.source_nodes.values,
+                             cols=connections.target_nodes.values)
+</pre>
+</div>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python" id="org4d6001e">
+<span style="color: #0000FF;">def</span> <span style="color: #006699;">find_afferent</span>(tap, flatmap_column, connectome):
+    <span style="color: #036A07;">"""..."""</span>
+    <span style="color: #BA36A5;">target_gids</span> = tap.nodes.dataset.loc[flatmap_column]().gid.rename(<span style="color: #008000;">"target_gid"</span>)
+    target_gids.index.rename(<span style="color: #008000;">"target_node"</span>, inplace=<span style="color: #D0372D;">True</span>)
+
+    incoming = target_gids.<span style="color: #006FE0;">apply</span>(connectome.afferent_gids).rename(<span style="color: #008000;">"source_gids"</span>)
+    subtargets = assign_subtargets(tap)
+    sources = incoming.<span style="color: #006FE0;">apply</span>(subtargets.reindex)
+
+    <span style="color: #0000FF;">return</span> (pd.concat(sources.values, keys=sources.index).fillna(-<span style="color: #D0372D;">1</span>).astype(np.<span style="color: #006FE0;">int</span>)
+            .droplevel(<span style="color: #008000;">"gid"</span>).reset_index().set_index(<span style="color: #008000;">"target_node"</span>))
+</pre>
+</div>
+
+<p>
+For efferent,
+</p>
+<div class="org-src-container">
+<pre class="src src-jupyter-python" id="org6940bd7"><span style="color: #0000FF;">def</span> <span style="color: #006699;">find_efferent</span>(tap, flatmap_column, circuit, connectome):
+    <span style="color: #036A07;">"""..."""</span>
+    <span style="color: #0000FF;">raise</span> <span style="color: #6434A3;">NotImplementedError</span>
+</pre>
+</div>
+
+<p>
+We may also want a filter of edges,
+</p>
+<div class="org-src-container">
+<pre class="src src-jupyter-python" id="orgf37e06e"><span style="color: #0000FF;">def</span> <span style="color: #006699;">filter_edges</span>(tapestry, flatmap_column, circuit, connectome, direction, and_apply=<span style="color: #D0372D;">None</span>):
+    <span style="color: #036A07;">"""Filter afferent or efferent edges of a flatmap-column in a circuit's connectome."""</span>
+    <span style="color: #0000FF;">assert</span> direction <span style="color: #0000FF;">in</span> (Direction.AFFERENT, Direction.EFFERENT),\
+        f<span style="color: #008000;">"Invalid direction </span>{direction}<span style="color: #008000;">"</span>
+
+    affends = (find_afferent(tapestry, flatmap_column, circuit, connectome)
+               .reset_index().groupby(NODE_ID).target_node.<span style="color: #006FE0;">apply</span>(<span style="color: #006FE0;">list</span>))
+
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">afferent</span>(nodes):
+        <span style="color: #036A07;">"""Filter edges incoming from nodes."""</span>
+        source_nodes = index_subtarget(nodes)
+        target_nodes = (source_nodes.<span style="color: #006FE0;">apply</span>(<span style="color: #0000FF;">lambda</span> n: <span style="color: #006FE0;">tuple</span>(n.values), axis=<span style="color: #D0372D;">1</span>)
+                        .<span style="color: #006FE0;">apply</span>(<span style="color: #0000FF;">lambda</span> s: affends.loc[s]))
+        <span style="color: #0000FF;">return</span> target_nodes <span style="color: #0000FF;">if</span> <span style="color: #0000FF;">not</span> and_apply <span style="color: #0000FF;">else</span> and_apply(target_nodes)
+
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">efferent</span>(nodes):
+        <span style="color: #036A07;">"""Filter edges outgoing to nodes."""</span>
+        <span style="color: #0000FF;">raise</span> <span style="color: #6434A3;">NotImplementedError</span>(<span style="color: #008000;">"Efferent takes special care."</span>)
+
+    <span style="color: #0000FF;">return</span> afferent <span style="color: #0000FF;">if</span> direction == Direction.AFFERENT <span style="color: #0000FF;">else</span> efferent
+</pre>
+</div>
+
+
+<p>
+We will need a subtarget assignment, a method that should be in tap.
+</p>
+<div class="org-src-container">
+<pre class="src src-jupyter-python" id="org701bdeb"><span style="color: #0000FF;">def</span> <span style="color: #006699;">assign_subtargets</span>(tap):
+    <span style="color: #036A07;">"""..."""</span>
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">series</span>(of_gids):
+        <span style="color: #0000FF;">return</span> pd.Series(of_gids, name=<span style="color: #008000;">"gid"</span>,
+                         index=pd.RangeIndex(<span style="color: #D0372D;">0</span>, <span style="color: #006FE0;">len</span>(of_gids), <span style="color: #D0372D;">1</span>, name=<span style="color: #008000;">"node_id"</span>))
+    <span style="color: #0000FF;">return</span> (pd.concat([series(gs) <span style="color: #0000FF;">for</span> gs <span style="color: #0000FF;">in</span> tap.subtarget_gids], axis=<span style="color: #D0372D;">0</span>,
+                      keys=tap.subtarget_gids.index)
+            .reset_index().set_index(<span style="color: #008000;">"gid"</span>))
+</pre>
+</div>
+</div>
+
+<div id="outline-container-orgeefa5d8" class="outline-3">
+<h3 id="orgeefa5d8"><span class="section-number-3">2.1.</span> Simplices</h3>
+<div class="outline-text-3" id="text-2-1">
+<p>
+A method to get them from <code>topology</code>,
+</p>
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #0000FF;">def</span> <span style="color: #006699;">get_simplices</span>(flatmap_column):
+    <span style="color: #BA36A5;">subtarget_id</span>, <span style="color: #BA36A5;">circuit_id</span> = flatmap_column
+    <span style="color: #BA36A5;">connectome_id</span> = <span style="color: #D0372D;">0</span>
+    <span style="color: #BA36A5;">adj</span> = tap.adjacency.dataset.loc[subtarget_id, circuit_id, connectome_id]()
+    <span style="color: #BA36A5;">nodeps</span> = tap.nodes.dataset.loc[subtarget_id, circuit_id]()
+    <span style="color: #0000FF;">return</span> pd.concat([topology.list_simplices_by_dimension(adj, nodeps)],
+                     keys=[(subtarget_id, circuit_id)], names=SUBTARGET_ID)
+
+
+<span style="color: #0000FF;">def</span> <span style="color: #006699;">index_subtarget</span>(tap, flatmap_column, nodes=<span style="color: #D0372D;">None</span>):
+    <span style="color: #036A07;">"""..."""</span>
+    subtarget_id, circuit_id = flatmap_column
+
+    <span style="color: #0000FF;">if</span> nodes <span style="color: #0000FF;">is</span> <span style="color: #D0372D;">None</span> <span style="color: #0000FF;">or</span> (<span style="color: #006FE0;">isinstance</span>(nodes, <span style="color: #006FE0;">str</span>) <span style="color: #0000FF;">and</span> nodes.lower() == <span style="color: #008000;">"all"</span>):
+        nodes = tap.nodes.dataset.loc[subtarget_id, circuit_id].index.values
+
+    <span style="color: #0000FF;">return</span> pd.DataFrame({<span style="color: #008000;">"subtarget_id"</span>: subtarget_id, <span style="color: #008000;">"circuit_id"</span>: circuit_id,
+                         <span style="color: #008000;">"node_id"</span>: nodes})
+
+</pre>
+</div>
+
+<p>
+We can compute simplex lists in a the <i>local-connectome</i> of <code>flatmap-columns</code>. We would like to know if there are <code>target-nodes</code> in a given <code>flatmap-column</code> that are <i>post-synaptic</i> to all the nodes in a <code>simplex</code>. We can call the number of simplices that <code>sink</code> at a <code>target-node</code> as the <code>target-node</code>&rsquo;s <code>sink-participation</code>. Analogously we can define a <code>source-node</code>&rsquo;s <code>source-participation</code> by computing the number of <code>simplices</code> that <code>source</code> at the <code>source-node</code>.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #0000FF;">def</span> <span style="color: #006699;">find_sinks</span>(tap, flatmap_column, circuit, connectome, affends=<span style="color: #D0372D;">None</span>):
+    <span style="color: #036A07;">"""Find simplices that sink at each node in a flatmap-column."""</span>
+
+    <span style="color: #0000FF;">if</span> affends <span style="color: #0000FF;">is</span> <span style="color: #D0372D;">None</span>:
+        affends = (find_afferent(tap, flatmap_column, circuit, connectome)
+                   .reset_index().groupby(NODE_ID).target_node.<span style="color: #006FE0;">apply</span>(<span style="color: #006FE0;">list</span>))
+
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">of_source</span>(flatmap_column, simplex_nodes):
+        sdim = <span style="color: #006FE0;">len</span>(simplex_nodes)
+        simplex = index_subtarget(tap, flatmap_column, simplex_nodes)
+        simplex.index.rename(<span style="color: #008000;">"spos"</span>, inplace=<span style="color: #D0372D;">True</span>)
+        simplex_pos = simplex.reset_index().set_index(NODE_ID)
+
+        target_lists = (pd.concat([simplex_pos, affends.reindex(simplex_pos.index)], axis=<span style="color: #D0372D;">1</span>)
+                        .set_index(<span style="color: #008000;">"spos"</span>).target_node).sort_index()
+        targets = pd.concat([pd.Series(ns, name=<span style="color: #008000;">"target_node"</span>) <span style="color: #0000FF;">for</span> ns <span style="color: #0000FF;">in</span> target_lists],
+                            keys=target_lists.index).droplevel(<span style="color: #D0372D;">None</span>)
+        counts = targets.value_counts()
+        <span style="color: #0000FF;">return</span> counts.index[counts == sdim].values
+
+    of_source.afferent_edges = affends
+    <span style="color: #0000FF;">return</span> of_source
+</pre>
+</div>
+
+<p>
+How does a node in a <i>target</i> <code>flatmap-column</code> connect to <code>simplices</code> in other <code>flatmap-columns</code>?
+How many <i>local-connnectome</i> simplices in a given <code>flatmap-column</code> does a node connect to?
+</p>
+
+<p>
+What about sources?
+</p>
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #0000FF;">def</span> <span style="color: #006699;">find_sources</span>(tap, flatmap_column, circuit, connectome, effends=<span style="color: #D0372D;">None</span>):
+    <span style="color: #036A07;">"""Find simplices that souce at each node in a flatmap-column."""</span>
+
+    <span style="color: #0000FF;">if</span> effends <span style="color: #0000FF;">is</span> <span style="color: #D0372D;">None</span>:
+        effends = (find_efferent(tap, flatmap_column, circuit, connectome)
+                   .reset_index().groupby(NODE_ID).target_node.<span style="color: #006FE0;">apply</span>(<span style="color: #006FE0;">list</span>))
+
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">of_source</span>(flatmap_column, simplex_nodes):
+        sdim = <span style="color: #006FE0;">len</span>(simplex_nodes)
+        simplex = index_subtarget(tap, flatmap_column, simplex_nodes)
+        simplex.index.rename(<span style="color: #008000;">"spos"</span>, inplace=<span style="color: #D0372D;">True</span>)
+        simplex_pos = simplex.reset_index().set_index(NODE_ID)
+
+        target_lists = (pd.concat([simplex_pos, affends.reindex(simplex_pos.index)], axis=<span style="color: #D0372D;">1</span>)
+                        .set_index(<span style="color: #008000;">"spos"</span>).target_node).sort_index()
+        targets = pd.concat([pd.Series(ns, name=<span style="color: #008000;">"target_node"</span>) <span style="color: #0000FF;">for</span> ns <span style="color: #0000FF;">in</span> target_lists],
+                            keys=target_lists.index).droplevel(<span style="color: #D0372D;">None</span>)
+        counts = targets.value_counts()
+        <span style="color: #0000FF;">return</span> counts.index[counts == sdim].values
+
+    of_source.afferent_edges = affends
+    <span style="color: #0000FF;">return</span> of_source
+</pre>
+</div>
+
+<p>
+We have not implemented <code>find_efferent</code>. We may not need it if we change our approach.
+</p>
+
+<p>
+Connectivity is between a group of source nodes and a group of target nodes.
+</p>
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #0000FF;">def</span> <span style="color: #006699;">is_subtarget</span>(reference):
+    <span style="color: #036A07;">"""..."""</span>
+    <span style="color: #BA36A5;">ints</span> = (<span style="color: #006FE0;">int</span>, np.uint8, np.uint16, np.uint32, np.uint64, np.int16, np.int32, np.int64)
+    <span style="color: #0000FF;">return</span> (<span style="color: #006FE0;">isinstance</span>(reference, <span style="color: #006FE0;">tuple</span>) <span style="color: #0000FF;">and</span> <span style="color: #006FE0;">len</span>(reference) == <span style="color: #D0372D;">2</span>
+            <span style="color: #0000FF;">and</span> <span style="color: #006FE0;">isinstance</span>(reference[<span style="color: #D0372D;">0</span>], ints) <span style="color: #0000FF;">and</span> <span style="color: #006FE0;">isinstance</span>(reference[<span style="color: #D0372D;">1</span>], ints))
+
+
+<span style="color: #0000FF;">def</span> <span style="color: #006699;">_resolve_subtarget</span>(tap, reference):
+    <span style="color: #036A07;">"""..."""</span>
+    <span style="color: #0000FF;">if</span> is_subtarget(reference):
+        <span style="color: #0000FF;">return</span> reference
+
+    <span style="color: #BA36A5;">s</span>, <span style="color: #BA36A5;">_</span> = reference
+    <span style="color: #0000FF;">if</span> <span style="color: #0000FF;">not</span> is_subtarget(reference=s):
+        <span style="color: #0000FF;">return</span> <span style="color: #D0372D;">None</span>
+
+    <span style="color: #0000FF;">return</span> s
+
+
+<span style="color: #0000FF;">def</span> <span style="color: #006699;">_resolve_nodes</span>(tap, reference, indexed=<span style="color: #D0372D;">True</span>):
+    <span style="color: #036A07;">"""..."""</span>
+    <span style="color: #0000FF;">if</span> is_subtarget(reference):
+        nodes = tap.nodes.dataset.loc[reference].index.values
+        <span style="color: #0000FF;">return</span> index_subtarget(tap, reference, nodes) <span style="color: #0000FF;">if</span> indexed <span style="color: #0000FF;">else</span> nodes
+
+    s, nodes = reference
+    <span style="color: #0000FF;">if</span> <span style="color: #0000FF;">not</span> is_subtarget(reference=s):
+        <span style="color: #0000FF;">return</span> <span style="color: #D0372D;">None</span>
+
+    <span style="color: #0000FF;">return</span> index_subtarget(tap, s, nodes)
+
+
+<span style="color: #0000FF;">def</span> <span style="color: #006699;">find_edges</span>(tap, sources=<span style="color: #D0372D;">None</span>, targets=<span style="color: #D0372D;">None</span>, *, connectome):
+    <span style="color: #036A07;">"""Find connectome edges from nodes among sources to nodes among targets."""</span>
+    source_nodes = _resolve_nodes(sources, indexed=<span style="color: #D0372D;">True</span>)
+    target_nodes = _resolve_nodes(targets, indexed=<span style="color: #D0372D;">False</span>)
+
+    afferent = (find_afferent(tap, _resolve_subtarget(targets), connectome)
+                .reset_index().groupby(NODE_ID).target_node.<span style="color: #006FE0;">apply</span>(<span style="color: #006FE0;">list</span>))
+
+
+
+</pre>
+</div>
+</div>
+</div>
+</div>
+
+<div id="outline-container-orgad3693a" class="outline-2">
+<h2 id="orgad3693a"><span class="section-number-2">3.</span> Incoming connections to a simplex</h2>
+<div class="outline-text-2" id="text-3">
+<p>
+A simplex is a fully directional one represented as a vector of integer node ids. We compute the simplices in <code>connsense-TAP</code> to be represented as local <code>node-ids</code> which we can translate to the <code>global-id</code> (<code>gid</code>) using the <code>subtarget</code>&rsquo;s <code>node-properties</code>. Then we can look up the <code>long-range</code> connetome&rsquo;s <code>afferent</code> gids, map them to the <code>flatmap-columns</code>, and compute a scalar or vector <code>weight</code> for them. Thus we will have a length <code>N</code> vector of <code>weights</code> for each <code>simplex</code> (of a given dimension) in a given <code>flatmap-column</code>. Over all the columns we have a matrix of weights that can be plotted as a <code>heatmap</code>. We can visualize individual rows or columns over a <code>flatmap-grid</code>.
+</p>
+
+<p>
+We can compute the weights based on filters. Let us develop these ideas further in code.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python" id="org81c5fe9"><span style="color: #0000FF;">def</span> <span style="color: #006699;">gather_inputs</span>(circuit, subtarget, simplex, *, tap):
+    <span style="color: #036A07;">"""..."""</span>
+    <span style="color: #BA36A5;">gids</span> = tap.
+
+</pre>
+</div>
+</div>
+</div>
+
+
+<div id="outline-container-org97cbf7c" class="outline-2">
+<h2 id="org97cbf7c"><span class="section-number-2">4.</span> Appendix</h2>
+<div class="outline-text-2" id="text-4">
+</div>
+<div id="outline-container-org16543af" class="outline-3">
+<h3 id="org16543af"><span class="section-number-3">4.1.</span> Setup computational environment</h3>
+</div>
+</div>
+</div>
+<div id="postamble" class="status">
+<p class="author">Author: Vishal Sood</p>
+<p class="date">Created: 2023-03-16 Thu 10:14</p>
+</div>
+</body>
+</html>

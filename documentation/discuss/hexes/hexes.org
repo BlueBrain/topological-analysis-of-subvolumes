@@ -1,5 +1,5 @@
-#+PROPERTY: header-args:jupyter-python :session ~/jupyter-run/active-ssh.json
-#+PROPERTY: header-args:jupyter :session ~/jupyter-run/active-ssh.json
+#+PROPERTY: header-args:jupyter-python :session ~/jupyter-run/active-1-ssh.json
+#+PROPERTY: header-args:jupyter :session ~/jupyter-run/active-1-ssh.json
 
 #+STARTUP: overview
 #+STARTUP: logdrawer
@@ -12,19 +12,136 @@ print("Welcome to EMACS Jupyter")
 
 #+RESULTS:
 : Welcome to EMACS Jupyter
-#+title: Connsense Topology Pipeline for SSCx
+#+title: Hexes: A different set of flatmap columns.
 
-We an provide a litte header for the pipeline
-#+header: :comments both :padline no :tangle ./pipeline.yaml
-#+begin_src yaml
-description: >-
-  Configure a connsense subTarget Analysis Pipeline to analyze your circuit.
-version: 0.1.0
-date: <2023-02-13 Mon>
+We have an extensive configuration of the ususal 240 ~flatmap-columns~ that span the entire SSCx. There is an alternate version that has been used for several simulations. It is expected to cover the central area of the SSCx ~flatmap~. Here we will develop a ~connsense-pipeline~ to compute the same analyses as the ~flatmap-topology~ pipeline. The only difference is the input flatmap columns, which are now (<2023-03-31 Fri>) available as a dataframe.
+
+To test the configuration, we will need to setup a ~Python~ environment,
+
+* Setup
+
+To get the notebook you will have to clone,
+#+BEGIN_SRC shell
+git clone https://bbpgitlab.epfl.ch/conn/structural/topological-analysis-of-subvolumes.git
+git checkout beta
+#+END_SRC
+
+In our discussion we will develop scientific concepts to measure the circuit, and implement Python functions to compute them. Here we setup a notebook template to test and explore, and the structure of a ~Python~ package for our methods.
+
+#+NAME: notebook-init
+#+BEGIN_SRC jupyter-python
+from importlib import reload
+from collections.abc import Mapping
+from collections import OrderedDict
+from pprint import pprint, pformat
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+import matplotlib
+
+reload(matplotlib)
+from matplotlib import pylab as plt
+import seaborn as sbn
+
+from IPython.display import display
+
+from bluepy import Synapse, Cell, Circuit
+
+GOLDEN = (1. + np.sqrt(5.))/2.
+print("We will plot golden aspect ratios: ", GOLDEN)
+#+END_SRC
+
+** Workspaces
+We have run ~connsense-CRAP~ for the SSCx dissemination variant /Bio-M/, extracting data that we will use to compute the factology. Here is a list of workspaces we will need to generate factsheets.
+#+NAME: notebook-workspaces
+#+BEGIN_SRC jupyter-python
+ROOTSPACE = Path("/")
+PROJSPACE = ROOTSPACE / "gpfs/bbp.cscs.ch/project/proj83"
+SOODSPACE = PROJSPACE / "home/sood"
+HEXTAP = SOODSPACE / "topological-analysis-subvolumes/test/v2/hexes"
+DEVSPACE  = HEXTAP / "test" / "develop"
+#+END_SRC
+
+** ~connsense~ Modules
+While test-developing it will be good to have direct access to the ~connsense-TAP-store~ we will use. We will use a module from ~connsense~ to load the HDFstore,
+#+NAME: notebook-connsense-tap
+#+BEGIN_SRC jupyter-python
+from connsense.develop import topotap as cnstap
+hextap = cnstap.HDFStore(HEXTAP/"pipeline.yaml")
+circuit = hextap.get_circuit("Bio_M")
+print("Available analyses in topology tap: ")
+pprint(hextap.analyses)
+circuit
+#+END_SRC
+
+** Emacs specific :noexport:
+We can get all figures displayed 95% so that we can work with them in front of us in an Emacs buffer. Here is a method that does that witb an example. This code is here only to see how much we use it. It should find a way to a place in our ~doom-config~.
+
+#+NAME: fit-display-defun
+#+BEGIN_SRC emacs-lisp
+(defun fit-display-of (figure width height)
+    (concat "#+attr_html: :width " width " :height " height (string ?\n) figure))
+#+END_SRC
+
+#+NAME: plot-display
+#+HEADER: :var figure="" :var width="95%" :var height="95%"
+#+BEGIN_SRC emacs-lisp
+(fit-display-of figure width height)
+#+END_SRC
+
+#+HEADER: :post plot-display(*this*)
+#+BEGIN_SRC jupyter-python :exports both :file ./test-fit-fig.png
+,#+BEGIN_SRC jupyter-python :post attr-wrap(data=*this*) :session return :exports both :file ./test-fit-fig.png
+import pandas as pd
+from matplotlib import pyplot as plt
+import seaborn as sbn
+
+csv_url = 'https://archive.ics.uci.edu/ml/machine-learning-databases/iris/iris.data'
+col_names = ['Sepal_Length','Sepal_Width','Petal_Length','Petal_Width','Class']
+irisies = pd.read_csv(csv_url, names=col_names)
+
+fig = plt.figure(figsize=(GOLDEN * 12, 12))
+ax = sbn.histplot(x="Petal_Length", hue="Class", data=irisies, ax=fig.add_subplot())
+#+END_SRC
+
+#+RESULTS:
+#+attr_html: :width 95% :height 95%
+
+#+NAME: fit-display
+#+HEADER: :var figure="" :var attr_value="95%" :var attr_name="#+attr_html: :width "
+#+BEGIN_SRC emacs-lisp
+(concat attr_name attr_ value (string ?\n) figure)
+#+END_SRC
+
+#+NAME: attr-wrap
+#+BEGIN_SRC sh :var figure="" :var width="95%" :results output
+echo "#+attr_html: :width $width"
+echo "$figure"
+#+END_SRC
+
+#+RESULTS: attr-wrap
+: #+attr_html: :width 95%
+:
+
+** Run the setup in EMACS :noexport:
+Here we use ~noweb~ to include the code written there.
+#+begin_src jupyter-python :noweb yes
+<<notebook-init>>
+
+<<notebook-workspaces>>
+
+<<notebook-workspaces-portal>>
+
+<<notebook-connsense-tap>>
+
+<<notebook-connsense-tap-portal>>
 #+end_src
 
 * paths
-We need to set paths to the artefacts that the pipeline will use. We set paths for the circuit to analyze, and the root space for the pipeline's HDF5 stores, and the HDF5 group for each of the pipeline steps.
+We need to set paths to the artefacts that the pipeline will use. We set paths for the circuit to analyze, and the root space for the pipeline's HDF5 stores, and the HDF5 group for each of the pipeline steps. The only change we need to make here, building on the config we alread have for ~flatmap-columns~, is to set the ~pipeline.root~,
+
 #+header: :comments both :padline no :tangle ./pipeline.yaml
 #+begin_src yaml
 paths:
@@ -38,7 +155,7 @@ paths:
     files:
       Bio_M: "Bio_M/20200805/CircuitConfig_TC_WM"
   pipeline:
-    root: "/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2"
+    root: "/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/hexes"
     input:
       store: "connsense.h5"
     output:
@@ -69,27 +186,37 @@ The pipeline will ~define~ the ~subtargets~, ~extract~ circuit artefacts for the
     definitions:
 #+end_src
 We define ~flatmap-columns~ which are prism like columns orientated along cortical layers, from white-matter to pia. The data is loaded from an ~NRRD~ that maps each circuit voxel to an ~id~ that corresponds to ~flatmap-column-subtarget~. We also need ~info~, a ~dataframe~ that provides information about these ~subtargets~ indexing them by the ~id~ from the ~NRRD~.
-*** flatmap-columns
+*** hexes
 #+header: :comments both :padline no :tangle ./pipeline.yaml
 #+begin_src yaml
-      flatmap-columns:
+      hexes:
         description: >-
-          Hexaongal prism like columns oriented along cortical layers,
-          from white-matter to pia.  The data is loaded from an NRRD file that maps each
-          circuit voxel to a subtarget ids corresponding to a flatmap column.The subtarget
-          ids should be mapped to the subtargets they refer to in a dataframe provided as
-          the input `info`.
+          Columns like the flatmap columns, based on hexagonal tiling.
         input:
           circuit:
           - "Bio_M"
         kwargs:
-          path: "/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/column_identities.nrrd"
-          info: "/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/voxel-based-hex-grid-info-with-conicality.h5"
+          path: "/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/hexes/hexes.csv"
         loader:
-          source: connsense.define_subtargets.flatmap
-          method: load_nrrd
+          source: "/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/hexes/topology/pandas.py"
+          method: "read_csv"
 #+end_src
 The ~input~ is set to a label that should appear among ~config-paths~. The ~loader~ method used is expected to take a ~bluepy.Circuit~ instance as an argument, which will be passed by ~connsense~.
+
+We need to implement the ~read_csv~ method to load the ~hexmap-columns~,
+#+begin_src jupyter-python :comments both :tangle ./topology/pandas.py
+def read_csv(path):
+    """..."""
+    import pandas as pd
+    subtargets_annotation = pd.read_csv(path)
+    subtarget_ids = subtargets_annotation.subtarget_id
+    subtargets = (pd.Index(subtarget_ids.unique(), name="subtarget_id").to_series()
+                  .apply("Hex{}".format))
+    circuit_gidses = subtargets_annotation.groupby("subtarget_id").gid.apply(list)
+    return (subtargets, None, circuit_gidses)
+#+end_src
+
+We have already setup the paths to load the ~Python~ code above from ~connsense-.
 
 ** create-index
 Within ~connsense~ we use an ~internal~ index for ~subtarget, circuit, connectome~. While we can infer this information from [[paths]] and [[define-subtargets]], we have not yet (<2023-02-13 Mon>) implemented this feature.
@@ -107,9 +234,12 @@ Within ~connsense~ we use an ~internal~ index for ~subtarget, circuit, connectom
         - "Thalamocortical_input_VPM"
         - "Thalamocortical_input_POM"
       subtarget:
-        dataset: ["define-subtargets", "flatmap-columns/name"]
+        dataset: ["define-subtargets", "hexes/name"]
 #+end_src
+
 ** extract-node-populations
+We will extract populations of nodes, naming them as we would like to in our analyses to follow.
+
 #+header: :comments both :padline no :tangle ./pipeline.yaml
 #+begin_src yaml
   extract-node-populations:
@@ -128,7 +258,7 @@ The population of /non-barrel/ SSCx biophysical nodes will be the node-populatio
           To extract the neurons we will use a `connsense` method that uses ~bluepy~.
         input:
           subtarget:
-            dataset:  ["define-subtargets", "flatmap-columns"]
+            dataset:  ["define-subtargets", "hexes"]
           circuit:
             - "Bio_M"
         kwargs:
@@ -149,6 +279,8 @@ The population of /non-barrel/ SSCx biophysical nodes will be the node-populatio
         output: "pandas.DataFrame"
 #+end_src
 ** extract-edge-populations
+Just as for ~node-populations~ we will extract ~edge-populations~. Notice that the paths we have set in the ~tap-HDFStore~ are motivated by equivalent terminology in SONATA.
+
 #+header: :comments both :padline no :tangle ./pipeline.yaml
 #+begin_src yaml
   extract-edge-populations:
@@ -166,7 +298,7 @@ The population of local connections resulting from axo-dendritic appositions,
       local:
         input:
           subtarget:
-            dataset:  ["define-subtargets", "flatmap-columns"]
+            dataset:  ["define-subtargets", "hexes"]
           circuit:
             - "Bio_M"
           connectome:
@@ -176,6 +308,8 @@ The population of local connections resulting from axo-dendritic appositions,
           method: extract_adj
         output: "sparse.spmatrix"
 #+end_src
+
+Normally extraction of edges will be a slow step.
 
 *** long-range
 We can extract /long-rage/ connectivity /between/ ~flatmap-columns~ by defining computations of pairs of ~flatmap-columns~.
@@ -202,48 +336,10 @@ def long_range_targets(flatmap_column, target_flatmap_column=None):
     return matrices if not target_flatmap_column else matrices.loc[target_flatmap_column]
 #+end_src
 
-The population ~long-range-sources~ will be of edges (represented as (CSR) directed adjacency matrices), one for each pair ~(X, Y)~ of ~flatmap-columns~. The ~edge-population~ for a ~flatmap-column~  ~X~ will have it's ~targets~ among nodes in ~X~, while the ~sources~ of the edges will be among another. The primary index in ~connsense~ will be the ~flatmap-column~ that is receiving the ~incoming~ conenctions. With ~circuit, connectome~ specified, we will have another ~input~, the ~sources~ that will specify a subset of ~flatmap-columns~ to be /crossed/ with each dataset in ~connsense-TAP~ that matches the specification of ~subtarget, circuit, connectome~ inputs,
-#+name: long-range-sources
-#+header: :comments both :padline no :tangle no
-#+begin_src yaml
-      long-range-sources:
-        input:
-          subtarget:
-            dataset: ["define-subtargets", "flatmap-columns"]
-          circuit:
-            - "Bio_M"
-          connectome:
-            - "intra_SSCX_midrange_wm"
-          sources:
-            dataset: ["define-subtargets", "flatmap-columns"]
-            subset: [100]
-            join: CROSS
-        kwargs:
-          direction: "incoming"
-        output: "sparse.spmatrix"
-#+end_src
-which pairs with ,
-#+name: long-range-targets
-#+header: :comments both :padline no :tangle no
-#+begin_src yaml
-      long-range-targets:
-        input:
-          subtarget:
-            dataset: ["define-subtargets", "flatmap-columns"]
-          circuit:
-            - "Bio_M"
-          connectome:
-            - "intra_SSCX_midrange_wm"
-          targets:
-            dataset: ["define-subtargets", "flatmap-columns"]
-            subset: [[100, 0]]
-            join: CROSS
-        kwargs:
-          direction: "incoming"
-        output: "sparse.spmatrix"
-#+end_src
+The population ~long-range-sources~ will be of edges (represented as (CSR) directed adjacency matrices), one for each pair ~(X, Y)~ of ~flatmap-columns~. The ~edge-population~ for a ~flatmap-column~  ~X~ will have it's ~targets~ among nodes in ~X~, while the ~sources~ of the edges will be among another. The primary index in ~connsense~ will be the ~flatmap-column~ that is receiving the ~incoming~ conenctions. With ~circuit, connectome~ specified, we will have another ~input~, the ~sources~ that will specify a subset of ~flatmap-columns~ to be /crossed/ with each dataset in ~connsense-TAP~ that matches the specification of ~subtarget, circuit, connectome~ inputs.
 
-experiment with,
+Well, finally we decided to keep things explicit, with a ~pre-~ and a ~post- specified as input arguments to the method that will extract the cross adjacency,
+
 #+name: long-range-sources
 #+header: :comments both :padline no :tangle ./pipeline.yaml
 #+begin_src yaml
@@ -251,184 +347,18 @@ experiment with,
         input:
           pre:
             dataset: ["define-subtargets", "flatmap-columns"]
-            subset: [[83, 0], [84, 0], [99, 0], [100, 0], [103, 0], [119, 0]]
-          circuit:
-            - "Bio_M"
-          connectome:
-            - "intra_SSCX_midrange_wm"
-          post:
-            dataset: ["define-subtargets", "flatmap-columns"]
-          join: CROSS
-        extractor:
-          source: micasa.connsense.develop.extract.edge_populations.extract_connectivity
-          method: extract_cross_adj
-        output: "sparse.spmatrix"
-#+end_src
-
-We can also have local cross adj,
-#+name: local-cross
-#+header: :comments both :padline no :tangle ./pipeline.yaml
-#+begin_src yaml
-      local-cross:
-        input:
-          pre:
-            dataset: ["define-subtargets", "flatmap-columns"]
-            subset: [[100, 0], [9, 0]]
+            subset: [[100, 0]]
           circuit:
             - "Bio_M"
           connectome:
             - "local"
           post:
-            dataset: ["define-subtargets", "flatmap-columns"]
+            dataset: ["define-subtargets", "hexes"]
           join: CROSS
-        extractor:
+        computation:
           source: micasa.connsense.develop.extract.edge_populations.extract_connectivity
           method: extract_cross_adj
         output: "sparse.spmatrix"
-#+end_src
-**** Other possibilities
-
-Using the concept of a ~datajoin~,
-#+header: :comments both :padline no :tangle no
-#+begin_src yaml
-      long-range-sources:
-          input:
-            subtarget_pair:
-              datajoin:
-                pre:
-                  dataset:  ["define-subtargets", "flatmap-columns"]
-                  subset: [100]
-                post:
-                  dataset:  ["define-subtargets", "flatmap-columns"]
-                how: "cross"
-            circuit:
-              - "Bio_M"
-            connectome:
-              - "intra_SSCX_midrange_wm"
-          extractor:
-            source: micasa.connsense.develop.extract.edge_populations.extract_connectivity
-            method: extract_cross_adj
-          output: "sparse.spmatrix"
-#+end_src
-
-This will require an ~extractor~ that takes ~mapping~ ~target~ and ~source~ ~flatmap-column~,
-#+header: :comments both :padline no :tangle no
-#+begin_src yaml
-      long-range-sources:
-        input:
-          target:
-            subtarget:
-              dataset: ["define-subtargets", "flatmap-columns"]
-            circuit:
-              - "Bio_M"
-            connectome:
-              - "intra_SSCX_midrange_wm"
-          source:
-            subtarget:
-              dataset: ["define-subtargets", "flatmap-columns"]
-              subset: [100]
-            circuit:
-              - "Bio_M"
-            connectome:
-              - "intra_SSCX_midrange_wm"
-          join: GRID2D
-        kwargs:
-          direction: "incoming"
-        output: "sparse.spmatrix"
-
-
-long-range-targets:
-        input:
-          source:
-            subtarget:
-              dataset: ["define-subtargets", "flatmap-columns"]
-            circuit:
-              - "Bio_M"
-            connectome:
-              - "intra_SSCX_midrange_wm"
-          target:
-            subtarget:
-              dataset: ["define-subtargets", "flatmap-columns"]
-              subset: [100]
-            circuit:
-              - "Bio_M"
-            connectome:
-              - "intra_SSCX_midrange_wm"
-          join: GRID2D
-        kwargs:
-          direction: "incoming"
-        output: "sparse.spmatrix"
-
-#+end_src
-
-OR
-#+header: :comments both :padline no :tangle no
-#+begin_src yaml
-      long-range-sources:
-        input:
-          subtarget:
-            post:
-              dataset:  ["define-subtargets", "flatmap-columns"]
-            pre:
-              dataset:  ["define-subtargets", "flatmap-columns"]
-              subset: [100]
-            join: "cross"
-          circuit:
-            - "Bio_M"
-          connectome:
-            - "intra_SSCX_midrange_wm"
-          join: "left"
-        extractor:
-          source: micasa.connsense.develop.extract.edge_populations.extract_connectivity
-          method: extract_cross_adj
-        output: "sparse.spmatrix"
-#+end_src
-
-It may be simpler to book keep data in ~connsense-TAP~ if we extracted ~cross-connectivity~ symmetrically.  Instead of an ~integer~ valued ~subtarget~, for these computation we will have ~subtarget_pair~ which will be a ~pair-tuple~.
-#+header: :comments both :padline no :tangle no
-#+begin_src yaml
-      long-range:
-        input:
-          subtarget_pair:
-            dataprod:
-              - dataset: ["define-subtargets", "flatmap-columns"]
-                subset: null
-              - dataset: ["define-subtargets", "flatmap-columns"]
-                subset: [1, 100, 31]
-          circuit:
-            - "Bio_M"
-          connectome:
-            - "intra_SSCX_midrange_wm"
-        extractor:
-          source: micasa.connsense.develop.extract.edge_populations.extract_connectivity
-          method: extract_xadj
-        output: "SeriesofSparseMatrices"
-#+end_src
-The main problem with this ~config~ is that the result will have subtargets in a ~pair-tuple~.
-
-***** grid-2d
-What about implementing ~connsense-inputs~ that are loaded as a ~frame~, instead of ~series~?
-#+header: :comments both :padline no :tangle no
-#+begin_src yaml
-      long-range-outgoing
-        input:
-          grid2d:
-            rows:
-              subtarget:
-                dataset: ["define-subtargets", "flatmap-columns"]
-                subset: [100]
-              circuit:
-                - "Bio_M"
-              connectome:
-                - "intra_SSCX_midrange_wm"
-            cols:
-              subtarget:
-                dataset: ["define-subtargets", "flatmap-columns"]
-        extractor:
-          source: micasa.connsense.develop.extract.edge_populations.extract_connectivity
-          method: extract_cross_adj_outgoing
-        output: scipy.sparse.spmatrix
-
 #+end_src
 
 ** analyze-connectivity
@@ -645,9 +575,8 @@ Finally, we need to specify the method to use to compute ~simplex-counts~ for ea
 #+end_src
 
 *** cross-col-k-indegree
-#+header: :comments both :padline no :tangle ./pipeline.yaml
+#+header: :comments both :padline no :tangle no
 #+begin_src yaml
-      cross-col-k-indegree:
         description: >-
           Compute generalized in-degree of nodes in adj_target from nodes in adj_source.
           The k-in-degree of a node v is the number of k-simplices in adj_source with all its nodes mapping to v
@@ -655,19 +584,164 @@ Finally, we need to specify the method to use to compute ~simplex-counts~ for ea
         input:
           adj_cross:
             dataset: ["extract-edge-populations", "long-range-cross"]
-          adj_source:
+          adj_pre:
             dataset: ["extract-edge-populations", "local"]
             join_index:
               subtarget_id: pre_subtarget_id
               circuit_id: circuit_id
               connectome_id: DROP
-        computation:
-          source: "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py"
-          method: "cross_col_k_in_degree"
-        output: "pandas.DataFrame"
 #+end_src
 
-* Scratch
-#+header: :comments both :padline no :tangle ./pipeline.yaml
-#+begin_src yaml
+* tap environment
+With ~connsense~ we get the ~tap~ command line interface command that we can use to setup and run a pipeline. For example, we can change directory to the working space for ~hexes~ topology we are developing here. We place the pipeline configuration develop above, along with the ~runtime~ config there, and
+#+begin_src shell
+tap init
 #+end_src
+To formally setup a ~workspace~. We can now start running the pipeline step by step.
+** define-subtargets
+Before running any analyses we need to define the circuit's subtargets that we want to apply our analyses to. We have already configured the ~hexes~ as our ~subtargets~ above in [[parameters]]. We can get ~connsense~ to define them in the ~tap-store~ from CLI,
+#+begin_src shell
+tap init define-subtargets hexes
+#+end_src
+Once initialized, we can directly run this step. We expect definition of ~subtargets~ to a light-weight computation, and ~connsense~ does not parallelize --- as the quantity to parallelize over is defined in this step. To run the step,
+#+begin_src shell
+tap run define-subtargets hexes
+#+end_src
+Now we will have the subtargets in ~hextap~,
+#+begin_src jupyter-python
+hextap.subtarget_gids
+#+end_src
+
+#+RESULTS:
+#+begin_example
+subtarget_id
+0     [301, 335, 381, 555, 855, 994, 1178, 1209, 156...
+1     [225, 458, 757, 889, 966, 967, 1529, 1570, 160...
+2     [323, 474, 492, 918, 1294, 2079, 2127, 2258, 2...
+3     [159, 420, 613, 1228, 1288, 1406, 1487, 1634, ...
+4     [23, 449, 531, 780, 1159, 1271, 1273, 1319, 14...
+                            ...
+73    [79, 210, 410, 431, 549, 620, 674, 907, 1561, ...
+74    [143, 234, 403, 664, 748, 859, 925, 1107, 1578...
+75    [86, 241, 383, 605, 630, 673, 705, 916, 979, 1...
+76    [187, 194, 292, 326, 371, 599, 1013, 1266, 129...
+77    [35, 164, 689, 1341, 1602, 1607, 1791, 1920, 2...
+Name: gid, Length: 78, dtype: object
+#+end_example
+
+We have also /named/ the subtargets,
+#+begin_src jupyter-python
+hextap.subtargets
+#+end_src
+
+#+RESULTS:
+#+begin_example
+subtarget_id
+0      Hex0
+1      Hex1
+2      Hex2
+3      Hex3
+4      Hex4
+      ...
+73    Hex73
+74    Hex74
+75    Hex75
+76    Hex76
+77    Hex77
+Name: subtarget_id, Length: 78, dtype: object
+#+end_example
+
+** extract-node-populations
+For a pipeline step that will be parallelized, we need to setup it's execution,
+#+begin_src shell
+tap setup extract-node-popuations default
+#+end_src
+
+To run we will have to launch the launchscript. We need to change to the directory where the computation has been setup. Assuming that the current working directory is our ~hexes~ workspace,
+#+begin_src shell
+pushd run/extract-node-popuations/default
+source launchscript.sh
+#+end_src
+
+We will provide a direct ~tap-command~ to launch the jobs from CLI. Once all the individual compute-nodes are done running, we can collect the results,
+#+begin_src shell
+popd
+tap collect extract-node-populations default
+#+end_src
+
+The result,
+#+begin_src jupyter-python
+hextap.nodes.frame
+#+end_src
+
+#+RESULTS:
+#+begin_example
+subtarget  circuit
+Hex0       Bio_M      <connsense.develop.parallelization.DataCall ob...
+Hex1       Bio_M      <connsense.develop.parallelization.DataCall ob...
+Hex2       Bio_M      <connsense.develop.parallelization.DataCall ob...
+Hex3       Bio_M      <connsense.develop.parallelization.DataCall ob...
+Hex4       Bio_M      <connsense.develop.parallelization.DataCall ob...
+                                            ...
+Hex73      Bio_M      <connsense.develop.parallelization.DataCall ob...
+Hex74      Bio_M      <connsense.develop.parallelization.DataCall ob...
+Hex75      Bio_M      <connsense.develop.parallelization.DataCall ob...
+Hex76      Bio_M      <connsense.develop.parallelization.DataCall ob...
+Hex77      Bio_M      <connsense.develop.parallelization.DataCall ob...
+Length: 78, dtype: object
+#+end_example
+
+where each entry contains a dataframe of node-properties (as configured in [[parameters]]),
+#+begin_src jupyter-python
+hextap.nodes.frame.iloc[0]()
+#+end_src
+
+#+RESULTS:
+#+begin_example
+             gid region  layer            x            y            z  \
+node_id
+0            301   S1FL      1  4497.177400 -1404.791079 -1710.819955
+1            335   S1FL      1  4529.640691 -1224.749812 -1673.584629
+2            381   S1FL      1  4424.035627 -1420.609607 -1623.004889
+3            555   S1FL      1  4575.487255 -1256.955290 -1680.329358
+4            855   S1FL      1  4414.041170 -1311.749811 -1591.684960
+...          ...    ...    ...          ...          ...          ...
+30185    4233691   S1FL      5  3858.396388 -1170.875301 -2300.017195
+30186    4234066   S1FL      5  3917.853448 -1405.597989 -2489.396629
+30187    4234649   S1FL      5  3883.928377 -1363.961085 -2391.425630
+30188    4234716   S1FL      5  3678.588099 -1260.291591 -2620.444411
+30189    4234804   S1FL      5  4002.636889 -1382.419711 -2641.743271
+
+        synapse_class   mtype   etype  \
+node_id
+0                 INH  L1_DAC    cNAC
+1                 INH  L1_DAC    cNAC
+2                 INH  L1_DAC    cNAC
+3                 INH  L1_DAC    bNAC
+4                 INH  L1_DAC    cNAC
+...               ...     ...     ...
+30185             INH   L5_BP    bNAC
+30186             INH   L5_BP  cACint
+30187             INH   L5_BP    bNAC
+30188             INH   L5_BP     bIR
+30189             INH   L5_BP   dSTUT
+
+                                                morphology        depth
+node_id
+0                                         sm090918b1-3_idB    53.713563
+1            sm080930a1-5_idC_-_Scale_x1.000_y1.050_z1.000    57.538361
+2                                         sm100513a1-3_idC    41.286367
+3        sm120429_2photon_a1-3_idA_-_Scale_x1.000_y1.02...     0.095088
+4            sm080930a1-5_idC_-_Scale_x1.000_y0.950_z1.000    52.138572
+...                                                    ...          ...
+30185     C240300C1_-_Scale_x1.000_y0.975_z1.000_-_Clone_0   944.835920
+30186    rp110127_L5-2_idC_-_Scale_x1.000_y0.950_z1.000...  1061.802685
+30187     C240300C1_-_Scale_x1.000_y0.950_z1.000_-_Clone_0   976.129286
+30188    rp110127_L5-2_idC_-_Scale_x1.000_y1.025_z1.000...  1310.484541
+30189                                  C240300C1_-_Clone_0  1134.050681
+
+[30190 rows x 11 columns]
+#+end_example
+
+
+We will be using ~setup, launch, collect~ for each of the computations that we have configured.

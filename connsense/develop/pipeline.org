@@ -289,10 +289,11 @@ Against which we can define,
 #+begin_src racket
 (define (node-properties p)
   (extract (node-population p)
-           (cell-properties ("x" "y" "z" "depth"
-                                 "synapse-class" "mtype" "morphology" "etype", "emodel")
+           (cell-properties ("x" "y" "z" "depth" "layer" "region"
+                                 "synapse-class" "mtype" "etype"
+                                 "morphology" "emodel"))
            (computation #:source "path-to-source.code"
-                        #:method "to-extract-node-properties"))))
+                        #:method "to-extract-node-properties")))
 
 (define (adjacency p)
   (extract (edge-population p)
@@ -304,6 +305,8 @@ Against which we can define,
   (hash 'adjacency (adjacency connectome)
         'node-properties (node-properties cells))
 #+end_src
+
+These last definitions are expressive and clear.
 
 * Of types and populations
 

@@ -355,14 +355,19 @@ def extract_subtargets(definition, in_config, tap):
     kwargs = defparams.get("kwargs", {})
 
     if not members:
-        from .flatmap import read_subtargets, load_nrrd
-        subtargets_with_info = read_subtargets(kwargs["info"])
-        subtargets = subtargets_with_info["subtarget"]
-        subtarget_info = subtargets_with_info.drop(columns="subtarget")
-        circuit_gidses = (pd.concat([load(circuit=c, path=kwargs["path"]).reindex(subtargets.index, fill_value=[])
-                                     for c in circuits], axis=0,
-                                    keys=circuits.index.values, names=circuits.index.names)
-                          .reorder_levels(["subtarget_id", "circuit_id"]))
+        assert "path" in kwargs, "Missing argument value for path -- needed to load the subtarget group members."
+        if "info" in kwargs:
+            from .flatmap import read_subtargets, load_nrrd
+            subtargets_with_info = read_subtargets(kwargs["info"])
+            subtargets = subtargets_with_info["subtarget"]
+            subtarget_info = subtargets_with_info.drop(columns="subtarget")
+            circuit_gidses = (pd.concat([load(circuit=c, path=kwargs["path"]).reindex(subtargets.index, fill_value=[])
+                                        for c in circuits], axis=0,
+                                        keys=circuits.index.values, names=circuits.index.names)
+                              .reorder_levels(["subtarget_id", "circuit_id"]))
+        else:
+            subtargets, subtarget_info, circuit_gidses = load(kwargs["path"])
+
     elif isinstance(members, list):
         subtargets = index_subtarget(members)
         subtarget_info = None
