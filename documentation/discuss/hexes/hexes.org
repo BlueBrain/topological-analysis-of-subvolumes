@@ -608,7 +608,7 @@ Once initialized, we can directly run this step. We expect definition of ~subtar
 tap run define-subtargets hexes
 #+end_src
 Now we will have the subtargets in ~hextap~,
-#+begin_src jupyter-python
+#+begin_src jupyter-python :exports both
 hextap.subtarget_gids
 #+end_src
 
@@ -630,7 +630,7 @@ Name: gid, Length: 78, dtype: object
 #+end_example
 
 We have also /named/ the subtargets,
-#+begin_src jupyter-python
+#+begin_src jupyter-python :exports both
 hextap.subtargets
 #+end_src
 
@@ -670,7 +670,7 @@ tap collect extract-node-populations default
 #+end_src
 
 The result,
-#+begin_src jupyter-python
+#+begin_src jupyter-python :exports both
 hextap.nodes.frame
 #+end_src
 
