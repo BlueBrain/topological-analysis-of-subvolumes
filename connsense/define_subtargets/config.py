@@ -96,6 +96,7 @@ class SubtargetsConfig:
             return circuit
 
         flat_and_depths = supersampled_neuron_locations(circuit, flatmap, orient, include_depth=True)
+        circuit.cells._impl._node_population._data["depth"] = flat_and_depths["depth"]
         circuit.cells._depths = flat_and_depths[["depth"]]
         LOG.info("DONE neuron depths extractions")
 
@@ -113,7 +114,7 @@ class SubtargetsConfig:
             return circuit.cells.depths
         except AttributeError:
             circuit = SubtargetsConfig.attribute_depths(circuit)
-        return circuit.cells.paths
+        return circuit.cells._depths
 
     @lazy
     def input_circuit(self):

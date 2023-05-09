@@ -1,5 +1,5 @@
-#+PROPERTY: header-args:jupyter-python :session ~/jupyter-run/active-1-ssh.json
-#+PROPERTY: header-args:jupyter :session ~/jupyter-run/active-1-ssh.json
+#+PROPERTY: header-args:jupyter-python :session ~/jupyter-run/active-ssh.json
+#+PROPERTY: header-args:jupyter :session ~/jupyter-run/active-ssh.json
 
 #+STARTUP: overview
 #+STARTUP: logdrawer
@@ -37,14 +37,6 @@ Using this method we find,
 pprint("Number of synapses in the circuit's connectomes:")
 pprint(overview_connectivity(circuit))
 #+end_src
-
-#+RESULTS:
-: "Number of synapses in the circuit's connectomes:"
-: {'Thalamocortical_input_POM': 380469331,
-:  'Thalamocortical_input_VPM': 582893048,
-:  'axo-dendritic': 9138314390,
-:  'intra_SSCX_midrange_wm': 4075356328}
-
 
 The modeled synaptic connectivity has a highly nonrandom topology with substantial structural differences but also synerge between local and long-range connectivity. Long-range connections features a more divergent structure with a comparitively small group of neurons serving as hubs to distribute excitation to distant locations. Instead of distinct networks, we find the local and interregional connectivities to exist on a spectrum of scales.
 
@@ -106,7 +98,6 @@ MOSAICTAP = FACTSPACE / "analyses/connsense" / "redefine-subtargets/create-index
 LABOSPACE = FACTSPACE / "laboratory"
 #+END_SRC
 
-
 ** ~connsense~ Modules
 While test-developing it will be good to have direct access to the ~connsense-TAP-store~ we will use. We will use a module from ~connsense~ to load the HDFstore,
 #+NAME: notebook-connsense-tap
@@ -146,6 +137,37 @@ pprint(mosaictap.analyses)
 : {'connectivity': {'convergence': <connsense.develop.topotap.TapDataset object at 0x7ffecd1b4730>,
 :                   'divergence': <connsense.develop.topotap.TapDataset object at 0x7ffecd1b4220>}}
 
+** Run the setup in EMACS :noexport:
+Here we use ~noweb~ to include the code written there.
+#+begin_src jupyter-python :noweb yes
+<<notebook-init>>
+
+<<notebook-workspaces>>
+
+<<notebook-workspaces-portal>>
+
+<<notebook-connsense-tap>>
+
+<<notebook-connsense-tap-portal>>
+#+end_src
+
+#+RESULTS:
+#+begin_example
+We will plot golden aspect ratios:  1.618033988749895
+ 2023-04-20 16:50:48,846: Load circuit Bio_M
+ 2023-04-20 16:50:48,942: Load circuit Bio_M
+Available analyses in topology tap:
+{'connectivity': {'cross-col-k-indegree': <connsense.develop.topotap.TapDataset object at 0x7fff145350d0>,
+                  'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7fff14535190>,
+                  'node-participation': <connsense.develop.topotap.TapDataset object at 0x7fff14535550>,
+                  'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7fff14535400>,
+                  'thalamic-innervation': <connsense.develop.topotap.TapDataset object at 0x7fff145354c0>,
+                  'wm-innervation': <connsense.develop.topotap.TapDataset object at 0x7fff14535580>}}
+Available analyses in mosaic tap:
+{'connectivity': {'convergence': <connsense.develop.topotap.TapDataset object at 0x7fff144d7310>,
+                  'divergence': <connsense.develop.topotap.TapDataset object at 0x7fff144d7580>}}
+#+end_example
+
 ** Emacs specific :noexport:
 We can get all figures displayed 95% so that we can work with them in front of us in an Emacs buffer. Here is a method that does that witb an example. This code is here only to see how much we use it. It should find a way to a place in our ~doom-config~.
 
@@ -178,12 +200,11 @@ ax = sbn.histplot(x="Petal_Length", hue="Class", data=irisies, ax=fig.add_subplo
 
 #+RESULTS:
 #+attr_html: :width 95% :height 95%
-[[file:./test-fit-fig.png]]
 
 #+NAME: fit-display
 #+HEADER: :var figure="" :var attr_value="95%" :var attr_name="#+attr_html: :width "
 #+BEGIN_SRC emacs-lisp
-(concat attr_name attr_ value (string ?\n) figure)
+(concat attr_name attr_value (string ?\n) figure)
 #+END_SRC
 
 #+NAME: attr-wrap
@@ -191,39 +212,6 @@ ax = sbn.histplot(x="Petal_Length", hue="Class", data=irisies, ax=fig.add_subplo
 echo "#+attr_html: :width $width"
 echo "$figure"
 #+END_SRC
-
-#+RESULTS: attr-wrap
-: #+attr_html: :width 95%
-:
-
-** Run the setup in EMACS :noexport:
-Here we use ~noweb~ to include the code written there.
-#+begin_src jupyter-python :noweb yes
-<<notebook-init>>
-
-<<notebook-workspaces>>
-
-<<notebook-workspaces-portal>>
-
-<<notebook-connsense-tap>>
-
-<<notebook-connsense-tap-portal>>
-#+end_src
-
-#+RESULTS:
-#+begin_example
-We will plot golden aspect ratios:  1.618033988749895
- 2023-04-02 18:32:52,173: Load circuit Bio_M
- 2023-04-02 18:32:52,200: Load circuit Bio_M
-Available analyses in topology tap:
-{'connectivity': {'cross-col-k-indegree': <connsense.develop.topotap.TapDataset object at 0x7fff5c24e310>,
-                  'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7fff5c24e2e0>,
-                  'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7fff5c24e370>,
-                  'thalamic-innervation': <connsense.develop.topotap.TapDataset object at 0x7fff5c24e220>}}
-Available analyses in mosaic tap:
-{'connectivity': {'convergence': <connsense.develop.topotap.TapDataset object at 0x7fff5c25b040>,
-                  'divergence': <connsense.develop.topotap.TapDataset object at 0x7fff5c25b5b0>}}
-#+end_example
 
 * Long range connectivity between ~flatmap-columns~
 
@@ -264,8 +252,11 @@ def assign_subtargets(tap):
                          index=pd.RangeIndex(0, len(of_gids), 1, name="node_id"))
     return (pd.concat([series(gs) for gs in tap.subtarget_gids], axis=0,
                       keys=tap.subtarget_gids.index)
-            .reset_index().set_index("gid"))
+            .reset_index().set_index(["circuit_id", "gid"]))
 #+END_SRC
+
+#+RESULTS: flatmap-column-assignment
+
 ** Python script to run slow extractor
 We have experienced extracton of white-matter connectivity to be too slow for interactive development. We can run a Python script and put the results to disc to test them.
 #+header: :comments none :padline yes
@@ -538,6 +529,8 @@ def gather_inputs(circuit, subtarget, simplex, *, tap):
 
 #+END_SRC
 
+* Projected Innervation
+In addition to the local (/axo-dendritic/) connections, we have modeled the white-matter projections to SSCx cells from sources that are among SSCx cells but are distant at a /long-range/, as well as two thalamo-cortical projections. In order to characterize local activation /versus/ activity that arises from projections we can use a measurement of a ~projection~'s ~innervation~ of cells in a ~flatmap-column~.
 * Appendix
 
 ** Setup computational environment

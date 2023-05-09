@@ -513,7 +513,7 @@ class TriTille:
                 .reset_index().set_index("subtarget"))
 
     def plot_hextiles(self, positions, bins=None, graphic=None,
-                      annotate=True, with_grid=True,
+                      annotate=True, with_grid=True, grid_point_size=80,
                       pointcolor=None, pointmarker=".", pointmarkersize=0.05):
         """
         TODO: Annotate trigrid.
@@ -542,14 +542,12 @@ class TriTille:
         else:
             colors = pointcolor
 
+        if with_grid:
+            grid = self.locate_grid(tiles)
+            axes.scatter(grid["x"], grid["y"], c="black", s=grid_point_size, alpha=0.5)
+
         axes.scatter(positions["x"], positions["y"],
                      c=colors, marker=pointmarker, s=pointmarkersize)
-
-        if with_grid:
-
-            grid = self.locate_grid(tiles)
-
-            plt.scatter(grid["x"], grid["y"], c="black", s=80)
 
         if annotate:
 

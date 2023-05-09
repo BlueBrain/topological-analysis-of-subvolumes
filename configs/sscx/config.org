@@ -251,7 +251,6 @@ experiment with,
         input:
           pre:
             dataset: ["define-subtargets", "flatmap-columns"]
-            subset: [[83, 0], [84, 0], [99, 0], [100, 0], [103, 0], [119, 0]]
           circuit:
             - "Bio_M"
           connectome:
@@ -591,7 +590,6 @@ We will compute the number of afferent-synapses on each neuron in a ~subtarget~ 
         description: >-
           Number of thalamo-cortical synapses at each cell in a subtarget.
 #+end_src
-
 **** vpm:
 ***** input
 We will compute ~simplex-counts~ for each of the ~flatmap-columns~, using ~adjacency~ matrices that we extract as dataset ~("extract-edge-populations", "local")~. We will also use ~node_properties~ that we extract as ~node-population~ ~default~.
@@ -644,6 +642,45 @@ Finally, we need to specify the method to use to compute ~simplex-counts~ for ea
           output: "pandas.Series"
 #+end_src
 
+*** white-matter innervation
+We will compute the /amount/ of innervation of cells of each SSCx ~flatmap-column~ from sources in each other ~flatmap-column~, grouped by their ~mtype~ and ~layer~. To accompalish this, in our computation for a single (~post-synaptic~) ~flatmap-column~'s white-matter innervation we will also need the ~flatmap-column~ assigned to each (source) cell in the circuit, in addition to the source cell's properties ~mtype~ and ~layer~.
+
+To get the cell properties we introduce the ~tap-dataset~ called ~(circuit-node-populations, default)~. This ~dataset~ is of the same nature as ~(extract-node-populations, default)~ /i.e./ a ~dataframe~ of cell-properties indexed by ~node-id~ in the ~flatmap-column~, except that instead of a number of /subtargets/ a ~circuit-node-populations~ will contain only one ~dataframe~ of ~cell-properties~ indexed by ~cell-global-id~ (a.k.a ~gid~).
+**** description
+#+header: :comments both :padline no :tangle ./pipeline.yaml
+#+begin_src yaml
+      wm-innervation:
+        description: >-
+          Number of thalamo-cortical synapses at each cell in a subtarget.
+#+end_src
+
+For ~flatmap-column~ assigned to each cell we expect that we have a ~flatmap-columns/annotation~ assigned to the ~subtargets~.
+***** input
+#+header: :comments both :padline no :tangle ./pipeline.yaml
+#+begin_src yaml
+        input:
+          subtarget:
+            dataset: ["define-subtargets", "flatmap-columns"]
+          source_nodes:
+            dataset: ["circuit-node-populations", "default"]
+          circuit:
+            - "Bio_M"
+          connectome:
+            - "intra_SSCX_midrange_wm"
+        kwargs:
+          summarize_source: ["subtarget"]
+#+end_src
+
+***** computation
+Finally, we need to specify the method to use to compute ~simplex-counts~ for each ~subtarget~, and the data-type of it's output.
+#+header: :comments both :padline no :tangle ./pipeline.yaml
+#+begin_src yaml
+        computation:
+          source: micasa.connsense.develop.analyze.composition.projections.projections
+          method: "innervate_cells"
+        output: "pandas.DataFrame"
+#+end_src
+
 *** cross-col-k-indegree
 #+header: :comments both :padline no :tangle ./pipeline.yaml
 #+begin_src yaml
@@ -664,6 +701,21 @@ Finally, we need to specify the method to use to compute ~simplex-counts~ for ea
         computation:
           source: "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py"
           method: "cross_col_k_in_degree"
+        output: "pandas.DataFrame"
+#+end_src
+
+** node-participation
+#+header: :comments both :padline no :tangle ./pipeline.yaml
+#+begin_src yaml
+      node-participation:
+        description: >-
+          How many simplices does a node participate in?
+        input:
+          adj:
+            dataset: ["extract-edge-populations", "local"]
+        computation:
+          source: "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py"
+          method: "node_participation"
         output: "pandas.DataFrame"
 #+end_src
 

@@ -180,7 +180,6 @@ parameters:
         input:
           pre:
             dataset: ["define-subtargets", "flatmap-columns"]
-            subset: [[83, 0], [84, 0], [99, 0], [100, 0], [103, 0], [119, 0]]
           circuit:
             - "Bio_M"
           connectome:
@@ -399,6 +398,40 @@ parameters:
 
 # #+header: :comments both :padline no :tangle ./pipeline.yaml
 
+# [[file:config.org::*description][description:1]]
+      wm-innervation:
+        description: >-
+          Number of thalamo-cortical synapses at each cell in a subtarget.
+# description:1 ends here
+
+# #+header: :comments both :padline no :tangle ./pipeline.yaml
+
+# [[file:config.org::*input][input:1]]
+        input:
+          subtarget:
+            dataset: ["define-subtargets", "flatmap-columns"]
+          source_nodes:
+            dataset: ["circuit-node-populations", "default"]
+          circuit:
+            - "Bio_M"
+          connectome:
+            - "intra_SSCX_midrange_wm"
+        kwargs:
+          summarize_source: ["subtarget"]
+# input:1 ends here
+
+# Finally, we need to specify the method to use to compute ~simplex-counts~ for each ~subtarget~, and the data-type of it's output.
+# #+header: :comments both :padline no :tangle ./pipeline.yaml
+
+# [[file:config.org::*computation][computation:1]]
+        computation:
+          source: micasa.connsense.develop.analyze.composition.projections.projections
+          method: "innervate_cells"
+        output: "pandas.DataFrame"
+# computation:1 ends here
+
+# #+header: :comments both :padline no :tangle ./pipeline.yaml
+
 # [[file:config.org::*cross-col-k-indegree][cross-col-k-indegree:1]]
       cross-col-k-indegree:
         description: >-
@@ -419,6 +452,21 @@ parameters:
           method: "cross_col_k_in_degree"
         output: "pandas.DataFrame"
 # cross-col-k-indegree:1 ends here
+
+# #+header: :comments both :padline no :tangle ./pipeline.yaml
+
+# [[file:config.org::*node-participation][node-participation:1]]
+      node-participation:
+        description: >-
+          How many simplices does a node participate in?
+        input:
+          adj:
+            dataset: ["extract-edge-populations", "local"]
+        computation:
+          source: "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/topology.py"
+          method: "node_participation"
+        output: "pandas.DataFrame"
+# node-participation:1 ends here
 
 # #+header: :comments both :padline no :tangle ./pipeline.yaml
 

@@ -566,9 +566,10 @@ def filter_datasets(described):
     """..."""
     return {var: val for var, val in described.items()
             if (var not in ("circuit", "connectome") and isinstance(val, Mapping)
-                and ("dataset" in val or "datacall" in val or "datajoin" in val or "dataprod" in val))}
-
+                and any(dataterm in val
+                        for dataterm in ("dataset", "datacall", "datajoin", "dataprod")))}
 #+end_src
+
 We can load a ~dataset~ from ~connsense-TAP~, and subject it to any configured transformations. There may be too many datasets (one per ~computation-subtarget~), and thus not feasible to load them all to memory. So we load only one at at time.
 #+name: develop-parallelization-inputs-dataset-lazy-load
 #+begin_src python
@@ -580,9 +581,15 @@ def lazily(to_evaluate):
     return evaluate_subtarget
 
 #+end_src
-So instead of a dataset with all it's members loaded, we will return methods ready to do so when needed.
-#+name: develop-parallelization-inputs-variable-load-dataset
-#+begin_src python
+o instead of a dataset with all it's members loaded, we will return methods ready to do so when needed.
+
+** An algebra to combine ~connsense~ datasets
+
+We cannot register input data for every single computation. For an analysis that takes multiple inputs, we will have to combine the individual datasets into a single frame of inputs, with each row representing a ~connsense-unit-computation~. Here we develop an algebra of methods to combine ~connsense-datasets~, that we will use to load input-datasets for ~connsense-computations~.
+
+We can deduce the ~connsense-datatype~ for named description read from a ~connsense-config~,
+#+name: develop-parallelization-inputs-variable-load-dataset-0
+#+begin_src python :noweb-ref load-dataset
 def load_dataset(tap, variable, values):
     """...Load a configured `computation-variable` from `connsense-TAP`
        values: as configured
@@ -613,21 +620,29 @@ def load_dataset(tap, variable, values):
                 try:
                     to_prod = values["dataprod"]
                 except KeyError:
-                    raise ValueError("values need to define either dataset, datacall, datajoin, or dataprod")
+                    raise ValueError("values need to define either"
+                                     " dataset, datacall, datajoin, or dataprod")
                 else:
                     dataset = cross_datasets(tap, variable, to_prod)
             else:
-                dataset = mix_datasets(tap, variable, to_join)
+                dataset = mix_datasets(tap, variable, recipe=to_join)
         else:
             dataset = brew_dataset(tap, variable, to_call)
     else:
         LOG.info("Pour %s dataset: \n%s", variable, dset)
+        #columns = values.get("columns", None)
         dataset = tap.pour_dataset(*dset).apply(lazily(to_evaluate=unpack_value))
 
     if isinstance(dataset, pd.DataFrame):
-        return pd.Series([r for _, r in dataset.iterrows()], index=dataset.index).apply(DataCall)
+        return (pd.Series([r for _, r in dataset.iterrows()], index=dataset.index)
+                .apply(DataCall))
 
-    dataset = dataset if "reindex" not in values else reindex(tap, dataset, values["reindex"])
+    try:
+        values_reindex = values["reindex"]
+    except KeyError:
+        pass
+    else:
+        dataset = reindex(tap, dataset, values_reindex)
 
     try:
         subset = values["subset"]
@@ -651,7 +666,120 @@ def bind_lazy(call, **kwargs):
     def datacall(in_store):
         return DataCall(in_store, transform=(call, kwargs))
     return datacall
+#+end_src
 
+where we see four ~connsense-datatypes~, ~dataset~, ~datacall~, ~datajoin~, and ~dataprod~. These ~connsense-datatypes~ or ~datacombinators~ will be used to mix individual ~connsense-datasets~ argued to these ~datacombinators~. However, for some computations we may need data for the entire circuit, but not the circuit. For example we have to make summaries over all source cells in the circuit to compute a ~flatmap-column~'s cell's white-matter innervation. In such cases we can have a special ~connsense-datatype~ that implies data for the whole circuit, with an appropriate index.
+
+*** circuit
+We can get circuit data from the circuit object directly. This can be useful when we want to measure a quantity for each ~circuit-subtarget~ that is defined in reference to the whole circuit. For example, to measure the white-matter innervation of cortical cells in a ~flatmap-column~ we will need input cells from entire circuit. We can
+#+begin_src yaml
+summarize_sources:
+  dataset: ["circuit-node-populations", "default"]
+  columns: ["layer", "mtype"]
+#+end_src
+
+This will delegate the responsibility of interpreting the reference ~(circuit-node-populations, default)~ as a dataset to ~connsense-tap~. For the scientist, the reference should make sense in the context of the extract ~connsense-dataset~ of ~(extract-node-populations, default)~. The two datasets contain the same format of the data, except that the extraction ~dataset~ is per ~subtarget~ while the circuit's ~dataset~ for the whole circuit. We will implement the obvious thing in ~tap~. The result should be indexed by ~circuit-id~, either a series or frame depending if a single or more ~properties~ configured.
+
+There are other possibilities. One would be to define a ~connsense-datatype~ to tag datasets that are defined for the whole circuit. This data will be outside the control of ~connsense~, /i.e./ ~connsense~ will not be responsbile for storing and indexing this data. So in a config,
+#+begin_src yaml
+summarize_sources:
+  circuit:
+    nodes:
+      population: "default"
+      group: null
+      properties: ["layer", "mtype"]
+#+end_src
+
+will tell ~connsense~ to load the SONATA like config. The data implied by the config above is a reference to circuit's nodes. However we may have more than one circuits in ~connsense~ -- thus the implied dataset should be indexed by ~circuit-id~.
+
+#+name: circuit-datasets
+#+begin_src jupyter-python :noweb-ref load-dataset
+def check_circuit_dataset(tap, spec):
+    """Check if a configured dataset is to be retrieved from a circuit."""
+    try:
+        circuit_dataset = spec["circuit"]
+    except KeyError:
+        return None
+    return load_circuit_dataset(tap, spec)
+
+
+def load_circuit_dataset(tap, spec):
+    """Load a dataset from the circuit's in connsense-config."""
+    nodes = (load_circuit_nodes(tap, **spec) if (p:=spec.get("nodes", None))
+             else None)
+    edges = (load_circuit_edges(tap, population=p) if (p:=spec.get("edges", None))
+             else None)
+    circuit = {"nodes": nodes, "edges": edges}
+    return {arte: fact for arte,fact in circuit.items() if fact is not None}
+
+
+def load_circuit_nodes(tap, *, population="", group="default",
+                       circuit_type=bluepy.Circuit):
+    """Load a population of nodes from each circuit on connsense-config."""
+    if issubclass(circuit_type, bluepy.Circuit):
+        return (tap.create_index("circuit")
+                .apply(lambda c: input_circuit(c, tap._config)))
+
+    varpaths = tap._config["path"]["circuit"]
+    variants = tap.create_index("circuit").apply(lambda c: varpaths[c])
+    return variants.apply(lambda variant:
+                          circuit_type(Path(variant), population, group))
+
+
+def load_circuit_edges(*args, **kwargs):
+    """...Warn that this method may never be implemented."""
+    raise NotImplementedError("Edges of a circuit may be too many to use a dataframe.")
+#+end_src
+
+
+We should also notice another possibilitu that ~connsense~ already allows. We can configure a ~datacall~ that will be run;. A ~connsense-datacall~ is basically ~connsense-computation~ which is the building block of connsense.
+#+begin_src yaml
+summarize_sources:
+  datacall:
+    input:
+      subtarget:
+        dataset: ["define-subtargets", "Flatmap_column"]
+      circuit:
+        - "Bio_M"
+    recipe:
+      source: "path-to-python-file"
+      method: "that_provides_a_dataframe_of_annotations_to_summarize_sources.py"
+#+end_src
+which will allow us to provide special methods to customize inputs to our analyses beyond what the ~connsense-index~ allows us to do. However, the details are hidden away in the method called. If properly documented ~connsense-doc~ can even load the ~docstrings~ of the reported methods and build a long description of the pipeline.
+
+
+*** dataset
+A ~connsense-dataset~ must be in the ~TapStore~,
+
+#+name: connsense-dataset
+#+begin_src jupyter-python
+def check_dataset(tap, reference):
+    """Check if reference are a dataset in tap."""
+    try:
+        dset = reference["dataset"]
+    except KeyError:
+        return None
+    return tap.pour_dataset(*dset)
+#+end_src
+
+*** datacall
+A ~connsense-datacall~ will create a ~dataset~ on a method-call,
+#+name: connsense-datacall
+#+begin_src jupyter-python
+def check_datacall(tap, reference):
+    """Check if reference are a datacall in tap."""
+    try:
+        dcall = reference["datacall"]
+    except KeyError:
+        return None
+    return brew_dataset(tap, variable, values)
+
+
+#+end_src
+
+#+name: develop-parallelization-inputs-variable-load-dataset
+#+begin_src jupyter-python :noweb yes
+<<develop-parallelization-inputs-variable-load-dataset-0>>
 
 def brew_dataset(tap, variable, call):
     """..."""
@@ -662,13 +790,14 @@ def brew_dataset(tap, variable, call):
 def mix_datasets(tap, variable, recipe):
     """..."""
     how = recipe.get("how", "cross")
-    dsets = [(variable, load_dataset(tap, variable, values)) for variable, values in recipe.items()
-             if variable != "how"]
+    dsets = [(var, load_dataset(tap, var, values)) for var, values in recipe.items()
+             if var!= "how"]
 
     assert len(dsets) > 0
     assert isinstance(dsets[0][1], pd.Series)
     if len(dsets) == 1:
-        to_include_varname = {varid: dsets[0][0] + '_' + varid for varid in dsets[0][1].index.names
+        to_include_varname = {varid: dsets[0][0] + '_' + varid
+                              for varid in dsets[0][1].index.names
                               if varid not in ("circuit_id", "connectome_id")}
         dataset = dsets[0][1].copy()
         dataset.index.rename(to_include_varname, inplace=True)
@@ -930,24 +1059,16 @@ def pour(tap, datasets):
         leading = merge_with(leading, dset, data)
     return leading.apply(lambda row: row.to_dict(), axis=1).reorder_levels(common_index)
 
-    def merge(dset, data):
-        reindexed = rename_index(dset, data)
-        return (pd.merge(primary, reindexed, left_index=True, right_index=True)
-                [data.name])
+    # def reindex (dset):
+    #     in_dset = dset[1].index.names
+    #     not_in_dset = [n for n in primary.index.names if n not in in_dset]
+    #     return (rename_index(*dset)
+    #             .reindex(primary.reorder_levels(in_dset + not_in_dset).index)
+    #             .reorder_levels(primary.index.names))
 
-    return pd.concat([primary] + [merge(dset, data) for dset, data in dsets[1:]], axis=1,
-                     keys=[dset for dset,_ in dsets], names=["dataset"])
-
-    def reindex (dset):
-        in_dset = dset[1].index.names
-        not_in_dset = [n for n in primary.index.names if n not in in_dset]
-        return (rename_index(*dset)
-                .reindex(primary.reorder_levels(in_dset + not_in_dset).index)
-                .reorder_levels(primary.index.names))
-
-    return (pd.concat([reindex(dset) for dset in dsets], axis=1,
-                      keys=[name for name, _ in dsets])
-            .apply(lambda row: row.to_dict(), axis=1))
+    # return (pd.concat([reindex(dset) for dset in dsets], axis=1,
+    #                   keys=[name for name, _ in dsets])
+    #         .apply(lambda row: row.to_dict(), axis=1))
 
 #+end_src
 
@@ -2644,6 +2765,9 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
     inputs = generate_inputs(of_computation, in_config, slicing, circuit_args,
                              ,**circuit_kwargs)
 
+    if not isinstance(inputs.index, pd.MultiIndex):
+        inputs.index = pd.MultiIndex.from_arrays([inputs.index.values,], names=[inputs.index.name])
+
     collector = (plugins.import_module(parameters["collector"]) if "collector" in parameters
                  else None)
 
@@ -2793,17 +2917,10 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
     return collected
 #+end_src
 
-#+RESULTS: develop-parallelization-single-node-multiprocess
-: None
-
 ** Circuit and connectome
-We may need a circuit to run on. The current ~connsense-TAP~ can be configured with multiple circuits,
-which we could support later. However for now we enforce that only one circuit is configured, and that
-all the extractors provided work on single circuits as well.
+We may need a circuit to run on. The current ~connsense-TAP~ can be configured with multiple circuits, which we could support later. However for now we enforce that only one circuit is configured, and that all the extractors provided work on single circuits as well.
 
-The solution will be to specify the circuit at CLI. and update the pipeline's config that is passed to
-the parallelization methods developed here. This will allow configuration of more than one circuit,
-but each run will be for only one circuit that must be entered in the configuration.
+The solution will be to specify the circuit at CLI. and update the pipeline's config that is passed to the parallelization methods developed here. This will allow configuration of more than one circuit, but each run will be for only one circuit that must be entered in the configuration.
 
 Another is to require inputs for each computation in it's config:
 #+name: develop-parallelization-single-node-multiprocess-circuit
@@ -2913,14 +3030,18 @@ To load the key-word arguments
 
 def load_kwargs(parameters, to_tap, on_compute_node=None, consider_input=False):
     """..."""
-    def load_dataset(value):
+    def load_if_dataset(variable, value):
         """..."""
-        return (to_tap.pour_dataset(*value["dataset"], subset=value.get("subset", None))
-                if isinstance(value, Mapping) and "dataset" in value
-                else value)
+        if not isinstance(value, Mapping):
+            return value
+
+        if "dataset" in value:
+            return to_tap.pour_dataset(*value["dataset"], subset=value.get("subset", None))
+            #return load_dataset(to_tap, variable, value)
+        return value
 
     kwargs = parameters.get("kwargs", {})
-    kwargs.update({var: load_dataset(value) for var, value in kwargs.items()
+    kwargs.update({var: load_if_dataset(var, value) for var, value in kwargs.items()
                    if var not in COMPKEYS})
 
     if consider_input:
@@ -3282,7 +3403,9 @@ def run_cleanup(on_compute_node):
 We can now list the code that can configure a multinode computation. which we do to keep the output Python code clean.
 We will output into locations under the package ~connsense.pipeline.paralelization~.
 
-#+begin_src python :tangle "../pipeline/parallelization/__init__.py" :noweb yes :comments no :padline true
+#+header: :noweb yes :comments no :padline true
+#+begin_src python  :tangle no
+#+begin_src python :tangle ../pipeline/parallelization/__init__.py
 """Parallelize connsense-CRAP subtargets
 """
 from .import parallelization
@@ -3291,7 +3414,7 @@ from .import parallelization
 Within ~connsense.pipeline.parallelization~ we will have ~.parallelize_multinode~,
 
 #+begin_src python :tangle no :noweb yes :comments org :padline true
-#+begin_src python :tangle "../pipeline/parallelization/parallelization.py" :noweb yes :comments org :padline true
+,#+begin_src python :tangle "../pipeline/parallelization/parallelization.py" :noweb yes :comments org :padline true
 from collections.abc import Mapping
 from copy import deepcopy
 import shutil
@@ -3305,6 +3428,8 @@ from multiprocessing import Process, Manager
 
 import numpy as np
 import pandas as pd
+
+import bluepy
 
 from connsense import extract_nodes,  plugins
 from connsense.extract_connectivity import read_results

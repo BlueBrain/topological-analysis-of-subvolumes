@@ -348,8 +348,8 @@ def filter_datasets(described):
     """..."""
     return {var: val for var, val in described.items()
             if (var not in ("circuit", "connectome") and isinstance(val, Mapping)
-                and ("dataset" in val or "datacall" in val or "datajoin" in val or "dataprod" in val))}
-
+                and any(dataterm in val
+                        for dataterm in ("dataset", "datacall", "datajoin", "dataprod")))}
 
 def lazily(to_evaluate):
     """..."""
@@ -389,21 +389,29 @@ def load_dataset(tap, variable, values):
                 try:
                     to_prod = values["dataprod"]
                 except KeyError:
-                    raise ValueError("values need to define either dataset, datacall, datajoin, or dataprod")
+                    raise ValueError("values need to define either"
+                                     " dataset, datacall, datajoin, or dataprod")
                 else:
                     dataset = cross_datasets(tap, variable, to_prod)
             else:
-                dataset = mix_datasets(tap, variable, to_join)
+                dataset = mix_datasets(tap, variable, recipe=to_join)
         else:
             dataset = brew_dataset(tap, variable, to_call)
     else:
         LOG.info("Pour %s dataset: \n%s", variable, dset)
+        #columns = values.get("columns", None)
         dataset = tap.pour_dataset(*dset).apply(lazily(to_evaluate=unpack_value))
 
     if isinstance(dataset, pd.DataFrame):
-        return pd.Series([r for _, r in dataset.iterrows()], index=dataset.index).apply(DataCall)
+        return (pd.Series([r for _, r in dataset.iterrows()], index=dataset.index)
+                .apply(DataCall))
 
-    dataset = dataset if "reindex" not in values else reindex(tap, dataset, values["reindex"])
+    try:
+        values_reindex = values["reindex"]
+    except KeyError:
+        pass
+    else:
+        dataset = reindex(tap, dataset, values_reindex)
 
     try:
         subset = values["subset"]
@@ -428,7 +436,6 @@ def bind_lazy(call, **kwargs):
         return DataCall(in_store, transform=(call, kwargs))
     return datacall
 
-
 def brew_dataset(tap, variable, call):
     """..."""
     in_store = pour(tap, call["input"]).apply(lazy_keyword).apply(DataCall)
@@ -438,13 +445,14 @@ def brew_dataset(tap, variable, call):
 def mix_datasets(tap, variable, recipe):
     """..."""
     how = recipe.get("how", "cross")
-    dsets = [(variable, load_dataset(tap, variable, values)) for variable, values in recipe.items()
-             if variable != "how"]
+    dsets = [(var, load_dataset(tap, var, values)) for var, values in recipe.items()
+             if var!= "how"]
 
     assert len(dsets) > 0
     assert isinstance(dsets[0][1], pd.Series)
     if len(dsets) == 1:
-        to_include_varname = {varid: dsets[0][0] + '_' + varid for varid in dsets[0][1].index.names
+        to_include_varname = {varid: dsets[0][0] + '_' + varid
+                              for varid in dsets[0][1].index.names
                               if varid not in ("circuit_id", "connectome_id")}
         dataset = dsets[0][1].copy()
         dataset.index.rename(to_include_varname, inplace=True)
@@ -683,24 +691,16 @@ def pour(tap, datasets):
         leading = merge_with(leading, dset, data)
     return leading.apply(lambda row: row.to_dict(), axis=1).reorder_levels(common_index)
 
-    def merge(dset, data):
-        reindexed = rename_index(dset, data)
-        return (pd.merge(primary, reindexed, left_index=True, right_index=True)
-                [data.name])
+    # def reindex (dset):
+    #     in_dset = dset[1].index.names
+    #     not_in_dset = [n for n in primary.index.names if n not in in_dset]
+    #     return (rename_index(*dset)
+    #             .reindex(primary.reorder_levels(in_dset + not_in_dset).index)
+    #             .reorder_levels(primary.index.names))
 
-    return pd.concat([primary] + [merge(dset, data) for dset, data in dsets[1:]], axis=1,
-                     keys=[dset for dset,_ in dsets], names=["dataset"])
-
-    def reindex (dset):
-        in_dset = dset[1].index.names
-        not_in_dset = [n for n in primary.index.names if n not in in_dset]
-        return (rename_index(*dset)
-                .reindex(primary.reorder_levels(in_dset + not_in_dset).index)
-                .reorder_levels(primary.index.names))
-
-    return (pd.concat([reindex(dset) for dset in dsets], axis=1,
-                      keys=[name for name, _ in dsets])
-            .apply(lambda row: row.to_dict(), axis=1))
+    # return (pd.concat([reindex(dset) for dset in dsets], axis=1,
+    #                   keys=[name for name, _ in dsets])
+    #         .apply(lambda row: row.to_dict(), axis=1))
 
 
 def get_workspace(for_computation, in_config, in_mode=None):
@@ -1603,6 +1603,9 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
     inputs = generate_inputs(of_computation, in_config, slicing, circuit_args,
                              **circuit_kwargs)
 
+    if not isinstance(inputs.index, pd.MultiIndex):
+        inputs.index = pd.MultiIndex.from_arrays([inputs.index.values,], names=[inputs.index.name])
+
     collector = (plugins.import_module(parameters["collector"]) if "collector" in parameters
                  else None)
 
@@ -1842,14 +1845,18 @@ def load_input_batches(on_compute_node, inputs=None, n_parallel_tasks=None):
 
 def load_kwargs(parameters, to_tap, on_compute_node=None, consider_input=False):
     """..."""
-    def load_dataset(value):
+    def load_if_dataset(variable, value):
         """..."""
-        return (to_tap.pour_dataset(*value["dataset"], subset=value.get("subset", None))
-                if isinstance(value, Mapping) and "dataset" in value
-                else value)
+        if not isinstance(value, Mapping):
+            return value
+
+        if "dataset" in value:
+            return to_tap.pour_dataset(*value["dataset"], subset=value.get("subset", None))
+            #return load_dataset(to_tap, variable, value)
+        return value
 
     kwargs = parameters.get("kwargs", {})
-    kwargs.update({var: load_dataset(value) for var, value in kwargs.items()
+    kwargs.update({var: load_if_dataset(var, value) for var, value in kwargs.items()
                    if var not in COMPKEYS})
 
     if consider_input:

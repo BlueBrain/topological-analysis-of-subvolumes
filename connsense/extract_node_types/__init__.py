@@ -57,6 +57,7 @@ def extract_component(variable, component, from_tap, to_output):
     LOG.info("Extract node types %s from circuit %s to output %s", variable, from_circuit.variant, to_output)
 
     data = extract(from_circuit, **component.get("kwargs", {}))
+    if not to_output: return data
 
     connsense_h5, modeltypes = to_output
 
@@ -65,6 +66,7 @@ def extract_component(variable, component, from_tap, to_output):
         return '/'.join(akey)
 
     varkey = forge(modeltypes, variable)
+
 
     if isinstance(data, (pd.Series, pd.DataFrame)):
         data.to_hdf(connsense_h5, key=forge(modeltypes, variable))
@@ -100,17 +102,16 @@ def run(config, substep=None, output=None, **kwargs):
     LOG.warning("Extract node-types %s  inside the circuit %s", substep, input_paths)
 
     from_tap = TapStore(config)
-    to_output = output_specified_in(output_paths, substep, and_argued_to_be=output)
 
     try:
         modeltype, variable = substep.split('/')
     except ValueError:
-        pass
+        to_output = output_specified_in(output_paths, substep, and_argued_to_be=output)
     else:
+        to_output =  output_specified_in(output_paths, modeltype, and_argued_to_be=output)
         among_components_for = read_components(config, modeltype)
         component = among_components_for[variable]
         return extract_component(variable, component, from_tap, to_output)
-
 
     among_components = read_components(config, modeltype=substep)
     find_extracted = {variable: extract_component(variable, component, from_tap, to_output)

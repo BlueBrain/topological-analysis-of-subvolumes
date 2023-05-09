@@ -13,7 +13,10 @@ from lazy import lazy
 from pathlib import Path
 import h5py
 
+import numpy as np
 import pandas as pd
+
+from bluepy import Direction, Synapse, Cell
 
 from connsense import plugins
 from connsense.define_subtargets.config import SubtargetsConfig
@@ -698,6 +701,13 @@ class HDFStore:
             """..."""
             return dataset.loc[subset] if subset is not None else dataset
     
+        if (circuit_dataset:=tap.check_circuit_dataset(computation_type, of_quantity)):
+            LOG.info("Circuit dataset %s: %s",
+                     (computation_type, of_quantity), circuit_dataset[0])
+            assert slicing is None,\
+                "We do not apply slicing to circuit datasets, only analyses"
+            return slice_subset(circuit_dataset[0])
+    
         cnsh5, hdf_group = tap.get_path(computation_type)
         dataset = '/'.join([hdf_group, of_quantity] if not slicing
                            else [hdf_group, of_quantity, slicing])
@@ -707,10 +717,14 @@ class HDFStore:
                 dataset = '/'.join([dataset, "data"])
     
         if computation_type == "extract-node-populations":
-            return slice_subset(matrices.get_store(cnsh5, dataset, pd.DataFrame, in_mode='r')
-                                .toc)
+            assert slicing is None,\
+                "We do not apply slicing to extracted node populations, only analyses"
+            return slice_subset(matrices
+                                .get_store(cnsh5, dataset, pd.DataFrame, in_mode='r').toc)
     
         if computation_type == "extract-edge-populations":
+            assert slicing is None,\
+                "We do not apply slicing to extracted edge populations, only analyses"
             return slice_subset(read_toc_plus_payload((cnsh5, dataset),
                                                       "extract-edge-populations"))
     
@@ -725,6 +739,58 @@ class HDFStore:
         """
         return tap.pour_dataset(*dataset)
     
+    
+    def assign_subtargets(tap, to_report_ids=False):
+        """..."""
+        def assign_subtargets_for_circuit(_id):
+            def series(of_gids):
+                return pd.Series(of_gids, name="gid",
+                                 index=pd.RangeIndex(0, len(of_gids), 1, name="node_id"))
+    
+            circuit_subtarget_gids = tap.subtarget_gids.xs(_id, level="circuit_id")
+            assignment = (pd.concat([series(gids) for gids in circuit_subtarget_gids],
+                                    keys=circuit_subtarget_gids.index)
+                          .reset_index().set_index("gid"))
+            if to_report_ids: return assignment
+    
+            subtargets = tap.subtargets.subtarget.loc[assignment.subtarget_id.values].values
+            return pd.Series(subtargets, name="subtarget", index=assignment.index)
+    
+        circuit_ids = tap.subtarget_gids.index.get_level_values("circuit_id").unique()
+    
+        return pd.Series([assign_subtargets_for_circuit(c) for c in circuit_ids],
+                         name="subtargets", index=circuit_ids)
+    
+    
+    def check_circuit_dataset(tap, computation_type, of_quantity):
+        """..."""
+        if not computation_type.startswith("circuit-"):
+            return False
+    
+        if computation_type == "circuit-node-populations":
+            from connsense.develop import parallelization
+            circuits = (tap.create_index("circuit")
+                        .apply(lambda c: parallelization.input_circuit(c, tap._config)))
+            try:
+                extraction = tap.describe("extract-node-populations", of_quantity)
+            except KeyError as kerr:
+                raise KeyError("No extraction for node population %s was defined."
+                               "Circuit datasets may be defined for corresponding "
+                               "extractions"%(of_quantity,))
+    
+            of_cells = extraction.get("kwargs", {}).get("properties", None)
+            def get_cells(circuit):
+                cells = circuit.cells.get(properties=of_cells)
+                cells.index.rename(Cell.ID, inplace=True)
+                return cells
+            circuit_nodes = circuits.apply(get_cells).rename("cell_properties")
+            subtargets = tap.assign_subtargets()
+            dataset = (pd.merge(circuit_nodes, subtargets,
+                                left_index=True, right_index=True)
+                       .apply(lambda c: c.cell_properties.join(c.subtargets), axis=1))
+            return (dataset,)
+    
+        raise NotImplementedError(f"Circuit data {computation_type}")
 
     
     def decompose(self, computation_type, of_quantity):
