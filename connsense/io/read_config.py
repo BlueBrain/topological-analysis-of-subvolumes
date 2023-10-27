@@ -62,7 +62,7 @@ def locate_relpaths(cfg):
     output_hdf = basedir/pipeline["output"]["store"] if "output" in pipeline else None
     output_steps = append_groups(output_hdf) if output_hdf else input_steps
 
-    pipeline_paths = {"root": pipeline["root"],
+    pipeline_paths = {"root": basedir,
                       "input": {"store": input_hdf, "steps": input_steps},
                       "output": {"store": output_hdf, "steps": output_steps}}
     paths.update(pipeline_paths)
@@ -73,7 +73,7 @@ def locate_relpaths(cfg):
 
 
 def read(fn, raw=False):
-    """Read JSON format config, converting a relative path specification to absolute.
+    """Read JSON or YAML format config, converting a relative path specification to absolute.
     """
     try:
         path = Path(fn)

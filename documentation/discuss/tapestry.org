@@ -16,33 +16,7 @@ print("Welcome to EMACS Jupyter")
 
 #+title: Connectivity across the ~flatmap~.
 
-We will characterize the structure of activity across flatmap columns. For this we will need to look into the ~long-range~ connectivity /between/ pairs of ~flatmap-columns~.
-
-The 4.2 million cells in the SSCx are connected bby 13.2 billion synapses determined by /axo-dendritic/ overlap, comprising local-connectivity and long-range-connectivity defined by topographic mappings between subregions and laminar axonal projection profiles, both parametrized by whole brain data sets. We also incorported /core-/ and /matrix-type/ thalamocortical projection systems, associated with sensory and higher-order extrinsic inputs respectively.
-
-To find the number of edges in a circuit's connectome we will look directly in the SONATA edges file, and implement a method that gives us the sizes of each of the connectomes in the circuit,
-#+name: overview-connectivity
-#+begin_src jupyter-python
-def overview_connectivity(circuit):
-    """..."""
-    from libsonata import EdgePopulation
-    edgepops = {projected: EdgePopulation(path, "", "default")
-                for projected, path in circuit.config["projections"].items()}
-    edgepops["axo-dendritic"] = EdgePopulation(circuit.config["connectome"], "", "default")
-    return pd.Series({connectome: len(edges) for connectome, edges in edgepops.items()})
-#+end_src
-
-Using this method we find,
-#+begin_src jupyter-python :tangle no
-pprint("Number of synapses in the circuit's connectomes:")
-pprint(overview_connectivity(circuit))
-#+end_src
-
-The modeled synaptic connectivity has a highly nonrandom topology with substantial structural differences but also synerge between local and long-range connectivity. Long-range connections features a more divergent structure with a comparitively small group of neurons serving as hubs to distribute excitation to distant locations. Instead of distinct networks, we find the local and interregional connectivities to exist on a spectrum of scales.
-
-We use thalamocortical projections to predict from anatomical grounds the assemblies of neurons that are likely to fire together, based on their common innvervation by thalamo-cortical afferents. Anatomical factors of laminar profiles of innervation, neuronal morphologies and their placement provide an initial constraint on the emergence of neuronal assemblies in all layers in terms of their scale, and their spatial separation.
 * Setup
-
 To get the notebook you will have to clone,
 #+BEGIN_SRC shell
 git clone https://bbpgitlab.epfl.ch/conn/structural/topological-analysis-of-subvolumes.git
@@ -50,7 +24,6 @@ git checkout beta
 #+END_SRC
 
 In our discussion we will develop scientific concepts to measure the circuit, and implement Python functions to compute them. Here we setup a notebook template to test and explore, and the structure of a ~Python~ package for our methods.
-
 #+NAME: notebook-init
 #+BEGIN_SRC jupyter-python
 from importlib import reload
@@ -76,6 +49,9 @@ GOLDEN = (1. + np.sqrt(5.))/2.
 print("We will plot golden aspect ratios: ", GOLDEN)
 #+END_SRC
 
+#+RESULTS: notebook-init
+: We will plot golden aspect ratios:  1.618033988749895
+
 ** Workspaces
 We have run ~connsense-CRAP~ for the SSCx dissemination variant /Bio-M/, extracting data that we will use to compute the factology. Here is a list of workspaces we will need to generate factsheets.
 #+NAME: notebook-workspaces
@@ -98,6 +74,8 @@ MOSAICTAP = FACTSPACE / "analyses/connsense" / "redefine-subtargets/create-index
 LABOSPACE = FACTSPACE / "laboratory"
 #+END_SRC
 
+#+RESULTS: notebook-workspaces-portal
+
 ** ~connsense~ Modules
 While test-developing it will be good to have direct access to the ~connsense-TAP-store~ we will use. We will use a module from ~connsense~ to load the HDFstore,
 #+NAME: notebook-connsense-tap
@@ -112,12 +90,15 @@ circuit
 
 #+RESULTS: notebook-connsense-tap
 :RESULTS:
-:  2023-03-22 14:45:59,937: Load circuit Bio_M
+:  2023-07-14 11:01:29,949: Load circuit Bio_M
 : Available analyses in topology tap:
-: {'connectivity': {'long-range-simplex-sources': <connsense.develop.topotap.TapDataset object at 0x7ffeccb415e0>,
-:                   'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7ffeccb410a0>,
-:                   'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7ffeccb415b0>}}
-: <bluepy.circuit.Circuit at 0x7fff44863730>
+: {'connectivity': {'cross-col-k-indegree': <connsense.develop.topotap.TapDataset object at 0x7fff15404460>,
+:                   'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7fff15404160>,
+:                   'node-participation': <connsense.develop.topotap.TapDataset object at 0x7fff15404520>,
+:                   'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7fffbb6fbb80>,
+:                   'thalamic-innervation': <connsense.develop.topotap.TapDataset object at 0x7fff15404130>,
+:                   'wm-innervation': <connsense.develop.topotap.TapDataset object at 0x7fff15404040>}}
+: <bluepy.circuit.Circuit at 0x7fffbb6fb370>
 :END:
 
 And we can also load the mosaic tap,
@@ -132,10 +113,10 @@ pprint(mosaictap.analyses)
 #+END_SRC
 
 #+RESULTS: notebook-connsense-tap-portal
-:  2023-03-22 14:46:41,772: Load circuit Bio_M
+:  2023-07-14 11:01:33,500: Load circuit Bio_M
 : Available analyses in mosaic tap:
-: {'connectivity': {'convergence': <connsense.develop.topotap.TapDataset object at 0x7ffecd1b4730>,
-:                   'divergence': <connsense.develop.topotap.TapDataset object at 0x7ffecd1b4220>}}
+: {'connectivity': {'convergence': <connsense.develop.topotap.TapDataset object at 0x7fff5c9091c0>,
+:                   'divergence': <connsense.develop.topotap.TapDataset object at 0x7fff153ab340>}}
 
 ** Run the setup in EMACS :noexport:
 Here we use ~noweb~ to include the code written there.
@@ -153,39 +134,43 @@ Here we use ~noweb~ to include the code written there.
 
 #+RESULTS:
 #+begin_example
+ 2023-07-14 11:01:42,414: Load circuit Bio_M
+ 2023-07-14 11:01:42,439: Load circuit Bio_M
 We will plot golden aspect ratios:  1.618033988749895
- 2023-04-20 16:50:48,846: Load circuit Bio_M
- 2023-04-20 16:50:48,942: Load circuit Bio_M
 Available analyses in topology tap:
-{'connectivity': {'cross-col-k-indegree': <connsense.develop.topotap.TapDataset object at 0x7fff145350d0>,
-                  'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7fff14535190>,
-                  'node-participation': <connsense.develop.topotap.TapDataset object at 0x7fff14535550>,
-                  'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7fff14535400>,
-                  'thalamic-innervation': <connsense.develop.topotap.TapDataset object at 0x7fff145354c0>,
-                  'wm-innervation': <connsense.develop.topotap.TapDataset object at 0x7fff14535580>}}
+{'connectivity': {'cross-col-k-indegree': <connsense.develop.topotap.TapDataset object at 0x7fff153b2580>,
+                  'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7fff153b2fd0>,
+                  'node-participation': <connsense.develop.topotap.TapDataset object at 0x7fff153b2f70>,
+                  'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7fff153b2b80>,
+                  'thalamic-innervation': <connsense.develop.topotap.TapDataset object at 0x7fff153b2070>,
+                  'wm-innervation': <connsense.develop.topotap.TapDataset object at 0x7fff153b2c40>}}
 Available analyses in mosaic tap:
-{'connectivity': {'convergence': <connsense.develop.topotap.TapDataset object at 0x7fff144d7310>,
-                  'divergence': <connsense.develop.topotap.TapDataset object at 0x7fff144d7580>}}
+{'connectivity': {'convergence': <connsense.develop.topotap.TapDataset object at 0x7fffbb6cc250>,
+                  'divergence': <connsense.develop.topotap.TapDataset object at 0x7fff15404c70>}}
 #+end_example
+
 
 ** Emacs specific :noexport:
 We can get all figures displayed 95% so that we can work with them in front of us in an Emacs buffer. Here is a method that does that witb an example. This code is here only to see how much we use it. It should find a way to a place in our ~doom-config~.
 
 #+NAME: fit-display-defun
-#+BEGIN_SRC emacs-lisp
+#+BEGIN_SRC emacs-lisp :results silent
 (defun fit-display-of (figure width height)
-    (concat "#+attr_html: :width " width " :height " height (string ?\n) figure))
+    (concat "#+attr_org: :width " width " :height " height (string ?\n) figure))
 #+END_SRC
 
 #+NAME: plot-display
-#+HEADER: :var figure="" :var width="95%" :var height="95%"
-#+BEGIN_SRC emacs-lisp
+#+HEADER: :var figure="this-should-be-path.png" :var width="95%" :var height="95%"
+#+BEGIN_SRC emacs-lisp :results silent
 (fit-display-of figure width height)
 #+END_SRC
 
-#+HEADER: :post plot-display(*this*)
-#+BEGIN_SRC jupyter-python :exports both :file ./test-fit-fig.png
-,#+BEGIN_SRC jupyter-python :post attr-wrap(data=*this*) :session return :exports both :file ./test-fit-fig.png
+That we can use with ~:post~,
+#+name: test-plot-display
+#+HEADER: :results value file :file ./test-fit-fig.png
+#+HEADER: :exports both :session return
+#+HEADER: :post plot-display(figure=*this*)
+#+BEGIN_SRC jupyter-python :post plot-display(figure=*this*)
 import pandas as pd
 from matplotlib import pyplot as plt
 import seaborn as sbn
@@ -194,12 +179,53 @@ csv_url = 'https://archive.ics.uci.edu/ml/machine-learning-databases/iris/iris.d
 col_names = ['Sepal_Length','Sepal_Width','Petal_Length','Petal_Width','Class']
 irisies = pd.read_csv(csv_url, names=col_names)
 
-fig = plt.figure(figsize=(GOLDEN * 12, 12))
+fig = plt.figure(figsize=(15, 12))
 ax = sbn.histplot(x="Petal_Length", hue="Class", data=irisies, ax=fig.add_subplot())
 #+END_SRC
 
-#+RESULTS:
-#+attr_html: :width 95% :height 95%
+#+RESULTS: test-plot-display
+#+attr_org: :width 95% :height 95%
+[[file:./test-fit-fig.png]]
+
+We can also ~wrap~ with a function,
+#+BEGIN_SRC emacs-lisp :results silent
+(defun display-fig (&optional label caption attributes)
+  "A wrap function for src blocks."
+  (concat
+   "ORG\n"
+   "#+attr_org: :width 95%\n"
+   (when caption
+     (format "#+CAPTION: %s\n" caption))
+   (when label
+     (format "#+NAME: %s" label))
+   (when caption
+     (format "#+caption: %s" caption))))
+#+END_SRC
+
+and use it with ~:wrap~,
+#+HEADER: :wrap (display-fig "fig-sin" "A sin wave.")
+#+name: figure-sin-wave
+#+BEGIN_SRC jupyter-python :session return
+import numpy as np
+import matplotlib.pyplot as plt
+from pathlib import Path
+
+x = np.linspace(0, 4 * np.pi, 1000)
+y = np.sin(x)
+
+fig = plt.figure(figsize=(15, 12))
+axes = plt.plot(x, y)
+p = Path.home() / 'work/workspaces/scratch/sin.png'
+#plt.savefig(p)
+#+END_SRC
+
+#+RESULTS: figure-sin-wave
+#+begin_ORG
+#+attr_org: :width 95%
+#+CAPTION: A sin wave.
+#+NAME: fig-sin#+caption: A sin wave.
+[[file:./.ob-jupyter/37a491009ff10b8f7c166bd48b8b9c748f68a9bf.png]]
+#+end_ORG
 
 #+NAME: fit-display
 #+HEADER: :var figure="" :var attr_value="95%" :var attr_name="#+attr_html: :width "
@@ -207,11 +233,47 @@ ax = sbn.histplot(x="Petal_Length", hue="Class", data=irisies, ax=fig.add_subplo
 (concat attr_name attr_value (string ?\n) figure)
 #+END_SRC
 
+#+RESULTS: fit-display
+: #+attr_html: :width 95%
+
 #+NAME: attr-wrap
 #+BEGIN_SRC sh :var figure="" :var width="95%" :results output
 echo "#+attr_html: :width $width"
 echo "$figure"
 #+END_SRC
+
+#+RESULTS: attr-wrap
+: #+attr_html: :width 95%
+:
+
+* Introduction
+We will characterize the structure of activity across flatmap columns. For this we will need to look into the ~long-range~ connectivity /between/ pairs of ~flatmap-columns~.
+
+The 4.2 million cells in the SSCx are connected bby 13.2 billion synapses determined by /axo-dendritic/ overlap, comprising local-connectivity and long-range-connectivity defined by topographic mappings between subregions and laminar axonal projection profiles, both parametrized by whole brain data sets. We also incorported /core-/ and /matrix-type/ thalamocortical projection systems, associated with sensory and higher-order extrinsic inputs respectively.
+
+To find the number of edges in a circuit's connectome we will look directly in the SONATA edges file, and implement a method that gives us the sizes of each of the connectomes in the circuit,
+#+name: overview-connectivity
+#+begin_src jupyter-python
+def overview_connectivity(circuit):
+    """..."""
+    from libsonata import EdgePopulation
+    edgepops = {projected: EdgePopulation(path, "", "default")
+                for projected, path in circuit.config["projections"].items()}
+    edgepops["axo-dendritic"] = EdgePopulation(circuit.config["connectome"], "", "default")
+    return pd.Series({connectome: len(edges) for connectome, edges in edgepops.items()})
+#+end_src
+
+#+RESULTS: overview-connectivity
+
+Using this method we find,
+#+begin_src jupyter-python :tangle no
+pprint("Number of synapses in the circuit's connectomes:")
+pprint(overview_connectivity(circuit))
+#+end_src
+
+The modeled synaptic connectivity has a highly nonrandom topology with substantial structural differences but also synerge between local and long-range connectivity. Long-range connections features a more divergent structure with a comparitively small group of neurons serving as hubs to distribute excitation to distant locations. Instead of distinct networks, we find the local and interregional connectivities to exist on a spectrum of scales.
+
+We use thalamocortical projections to predict from anatomical grounds the assemblies of neurons that are likely to fire together, based on their common innvervation by thalamo-cortical afferents. Anatomical factors of laminar profiles of innervation, neuronal morphologies and their placement provide an initial constraint on the emergence of neuronal assemblies in all layers in terms of their scale, and their spatial separation.
 
 * Long range connectivity between ~flatmap-columns~
 
@@ -334,7 +396,6 @@ We can use the ~Python-script~ above in a ~slurm-script~.
 source /gpfs/bbp.cscs.ch/home/sood/work/workspaces/venvs/load-py39.sh
 python ./extract_connectivity.py "$@"
 #+end_src
-
 
 ** Simplices
 We can get simplices from ~topology~,
@@ -515,7 +576,6 @@ def find_edges(tap, sources=None, targets=None, *, connectome):
 #+end_src
 
 * Incoming connections to a simplex
-
 A simplex is a fully directional one represented as a vector of integer node ids. We compute the simplices in ~connsense-TAP~ to be represented as local ~node-ids~ which we can translate to the ~global-id~ (~gid~) using the ~subtarget~'s ~node-properties~. Then we can look up the ~long-range~ connetome's ~afferent~ gids, map them to the ~flatmap-columns~, and compute a scalar or vector ~weight~ for them. Thus we will have a length ~N~ vector of ~weights~ for each ~simplex~ (of a given dimension) in a given ~flatmap-column~. Over all the columns we have a matrix of weights that can be plotted as a ~heatmap~. We can visualize individual rows or columns over a ~flatmap-grid~.
 
 We can compute the weights based on filters. Let us develop these ideas further in code.
@@ -531,7 +591,155 @@ def gather_inputs(circuit, subtarget, simplex, *, tap):
 
 * Projected Innervation
 In addition to the local (/axo-dendritic/) connections, we have modeled the white-matter projections to SSCx cells from sources that are among SSCx cells but are distant at a /long-range/, as well as two thalamo-cortical projections. In order to characterize local activation /versus/ activity that arises from projections we can use a measurement of a ~projection~'s ~innervation~ of cells in a ~flatmap-column~.
+* Coarse graining
+Connectome measurements are made at several scales of resolution. Here we develop methods that illustrate how such measurements can produce drastically different measurements at different scales.
+
+When measurement is made at a given ~scale~ $s$ of resolution, we coarse-grain all the detail at resolutions less than $s$ into a mean value. If we were measuring cell densities, after coarse-graining to double the linear dimension of a /box/ we would count cells in the larger box and divide by the larger volume. In fractal distributions such cell density is expected to scale with box size scale, with a more interesting exponent than 1 that we will find for cell densities in our model. However, when we turn to connectivity in and between the boxes there are more questions that we can ask.
+
+We will not coarse-grain the circuit in 3D physical /voxel/ space, but the 2D ~flatmap~ /pixel/ space. Cells have physical positions in the circuit, which we map to the ~flatmap-space~. We distribute these ~flat-positions~ into a grid. Each tile of this grid defines a physical space ~subvolume~ of the atlas, while the cells that map to this tile are a ~subtarget~ of the circuit. We can ~coarse-grain~ a ~grid~ by increasing it's size by a factor.
+
+
+
+#+begin_src jupyter-python
+#+end_src
+
+
+
+For our example we need cells with a position in ~flatspace~. Let us make a simple model of cell distribution over the ~flatmap~.  We will assume that cells are distributed randomly over a 2D space,
+#+begin_src  jupyter-python :results silent
+number_cells = 1000
+xymin = 0.; xymax = 1000.0
+random_positions = lambda: np.random.uniform(xymin, xymax, number_cells)
+cells = pd.DataFrame({"x": random_positions(), "y": random_positions()},
+                     index=pd.RangeIndex(0, number_cells, name="gid"))
+#+end_src
+Let us consider a simple grid, the rectilinear one. A ~square-grid~ will have a size equal to the length of a side of the square that forms it's ~unit-tile~. We can convert the flat ~x, y~ corrdinates to the ~i, j~ coordinates of the tiles, thus obtaining a frame that is indexed by the cell ~gids~. A simple coars-graining will be to scale the coordinates,
+#+begin_src jupyter-python :results silent
+def coarse_grain(cell_grid):
+    """Coarsen the 2D square grid coordinates in `cell_grid` to a grid with twise the size.
+    """
+    return cell_grid.apply(lambda indices: indices.apply(lambda i: i // 2), axis=1)
+#+end_src
+
+We start our analysis with a square grid of the smallest tile size that we want to investigate, and assign the tile coordinates to each cell. We will use the smallest tiles of size 1, and progressively double the tile size.
+
+#+begin_src jupyter-python :results silent
+from collections import namedtuple
+XY = ["x", "y"]
+Grid = namedtuple("Grid", ["size", "origin"], defaults=[1., 0.])
+
+def distribute(grid, cells):
+    """Distribute cells (with positions) in a grid."""
+    in_grid = (((cells[["x", "y"]] - grid.origin) / grid.size).astype(int)
+               .rename(columns={"x": "i", "y": "j"})
+               .reset_index().set_index(["i", "j"]))
+    return in_grid.groupby(["i", "j"]).gid.apply(list).rename("gids")
+#+end_src
+
+We can also have a method that assigns a ~grid-node~ to each ~cell~,
+#+begin_src jupyter-python :results silent
+def assign_nodes(grid, cells, as_positions=False):
+    """..."""
+    indices = ((cells[["x", "y"]] - grid.origin) / grid.size).astype(int)
+    return (grid.size * indices + grid.origin if as_positions else
+            indices.apply(tuple, axis=1).rename("nodes"))
+#+end_src
+
+This will give as an assignment of nodes for each cell, a node represented as a tuple. If we have nodes as tuples, we can convert them to a XY grid,
+#+begin_src jupyter-python :results silent
+def position_nodes(grid, assignment, counts=False):
+    """..."""
+    nodes = pd.MultiIndex.from_tuples(assignment.unique(), names=["i", "j"])
+
+    indices = nodes.to_frame()
+    positions = pd.DataFrame({"x": grid.origin +  grid.size * indices["i"],
+                              "y": grid.origin + grid.size * indices["j"]})
+    return positions.assign(ncells=assignment.value_counts()) if counts else positions
+#+end_src
+
+Let us also connect the cells. We will use a distance dependent connectivity model, with a connection probability that decays exponential,
+#+begin_src jupyter-python :results silent
+def connection_probability(rho, lambda_):
+    def _between(sources, targets=None):
+        if targets is None: targets = sources
+        def distance_from_sources(t):
+            dis = np.linalg.norm(sources[XY] - t[XY], axis=1)
+            return pd.Series(rho * np.exp(-dis / lambda_), name="connprob",
+                             index=pd.MultiIndex.from_tuples([(s, t.name) for s in sources.index],
+                                                             names=["source", "target"]))
+        return pd.concat([distance_from_sources(t) for _, t in targets.iterrows()])
+    return _between
+#+end_src
+
+Using the connection probabilities we can link up the cells
+#+begin_src jupyter-python :results silent
+cp = connection_probability(0.1, 100.)(cells)
+cnxns = (cp.index[np.random.uniform(0, 1, len(cp)) < cp].to_frame().apply(lambda _: True, axis=1)
+         .reorder_levels([1,0]))
+
+unique_targets = cnxns.index.get_level_values("target").unique()
+self_cnxns = pd.Series(len(unique_targets) * [True],
+                       index=pd.MultiIndex.from_tuples([(t,t) for t in unique_targets], names=["target", "source"]))
+cnxns = pd.concat([cnxns, self_cnxns]).sort_index()
+
+cnxns = cnxns.groupby(cnxns.index.names).sum()
+#+end_src
+
+We will compare the number of connections that fall within a tile, and the number of connections between tiles. For this we will need to construct an adjacency matrix between the grid nodes. Let us do that for each individual ~target~ node,
+#+begin_src jupyter-python :results silent
+from scipy import sparse
+
+def get_adjmat(connections):
+    rows = connections.index.get_level_values("source")
+    cols = connections.index.get_level_values("target")
+    data = connections.values
+    return sparse.csr_matrix((data, (rows, cols)))
+
+def cross_connect_grid(nodes, connections):
+    conmat = get_adjmat(connections)
+    sources = targets = nodes.index.values
+    counts = np.array([np.array([conmat[nodes.loc[s],:][:, nodes.loc[t]].sum()
+                                 for t in targets])
+                       for s in sources])
+    return pd.DataFrame(counts, columns=targets, index=sources)
+    def count_afferent(at_targets):
+        return nodes.apply(lambda from_sources: conmat[:, at_targets][from_sources,:].sum())
+    return nodes.apply(count_afferent)
+#+end_src
+
+We will consider 9 neighbors of each tile,
+#+begin_src jupyter-python :results silent
+def neighbors(node):
+    """..."""
+    x, y = node
+    return [(x+1, y), (x+1, y+1), (x, y+1), (x-1, y+1), (x-1, y), (x-1, y-1), (x, y-1), (x+1, y-1)]
+#+end_src
+
+We can count /intrinsic and extrinsic/ connections in each ~subtarget~ tile,
+#+begin_src jupyter-python :results silent
+def count_intrinsic(adjacency):
+    """..."""
+    return adjacency.diagonal()
+
+def count_extrinsic(adjacency):
+    return adjacency.sum(axis=0) - adjacency.diagonal()
+
+def measure_intrinsic_fraction(adjacency):
+    """..."""
+    matrix = adjacency.values if isinstance(adjacency, pd.DataFrame) else adjacency
+    intrinsic = matrix.diagonal() / matrix.sum(axis=0)
+
+    return (pd.Series(intrinsic, name="intrinsic", index=adjacency.columns).fillna(0.)
+            if isinstance(adjacency, pd.DataFrame) else intrinsic)
+#+end_src
+
+From the circuit we will do differently,
+#+begin_src jupyter-python
+def measure_intrinsic_afferent(tap, circuit, subtarget):
+    target_nodes = tap.subtarget_gids.droplevel("circuit_id").loc[subtarget]
+    afferent = np.concatenate([circuit.connectome.afferent_gids(n) for n in target_nodes])
+    return np.in1d(afferent, target_nodes).mean()
+#+end_src
 * Appendix
 
 ** Setup computational environment
-

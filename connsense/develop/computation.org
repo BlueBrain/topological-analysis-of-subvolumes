@@ -1,0 +1,522 @@
+#+PROPERTY: header-args:jupyter-python :session ~/jupyter-run/active-local.json
+#+PROPERTY: header-args:jupyter :session ~/jupyter-run/active-local.json
+
+#+STARTUP: overview
+#+STARTUP: logdrawer
+#+STARTUP: hideblocks
+
+Let us setup an interactive ~Python~ session where we can run the code developed here.
+#+BEGIN_SRC jupyter
+print("Welcome to EMACS Jupyter")
+#+END_SRC
+
+#+RESULTS:
+: Welcome to EMACS Jupyter
+
+#+title: Computation
+
+A ~connsense-TAP~ wraps a ~computation-method~ with metadata that it can use to load inputs and run on a cluster, save the results, and provide them on query. The ~HDFStore~ will need values for the ~hdf-group~ and name of the ~dataset~ to store results of a ~computation~. Considering a computation of a quantity that measures a phenomenon, we can define
+
+A computational study could produce several outputs, analyze them in a ~lab~, the results culminating in a ~portal~, /i.e./ a resource that indexes the result of the study along with the inputs and other metadata.
+
+Let us develop the concept of ~connsense-computation~  from different points of view.
+
+We want to help the scientist develop scan analyses over ~subtargets~ of several /circuit-phenomena/, with each ~phenomenon~ described by one or more ~quantity~.
+
+We should be able to provide the scientist a report describing a ~connsense-config~. Consider the following interaction. The scientist starts to configure a study, by entering the phenomena to study. After entering, they can ask the text to be converted into a full blown config with whatever ~connsense-TAP~ knows at that stage of development. The scientist can then fill up the resulting config file as a form, filling up the missing fields. Let us see what we may need to build such a feature in ~connsense-TAP~, by experimenting, and not necessarily in ~Python~ alone.
+
+We can describe a ~computation~ in ~Python~,
+#+name: describe-computation-py
+#+header: :comments both :padline yes
+#+begin_src jupyter-python :tangle ./computation.py
+from descripy.config import (field, field_of_type, lazyfield, parameter,
+                              section, Struct, Config, NA, MustBeProvidedAtInitialization)
+
+from connsense.io import logging
+LOG = logging.get_logger("connsense-Computation")
+
+class Computation(Config):
+    """Configure a computation of the measurement of a (phenomenon, quantity)."""
+
+    @parameter
+    def phenomenon(self):
+        """Phenomenon that will be measured by this computation."""
+        raise MustBeProvidedAtInitialization(Computation.phenomenon)
+
+    @parameter
+    def quantity(self):
+        """Quantity that will be measured by this computation."""
+        raise MustBeProvidedAtInitialization(Computation.quantity)
+
+    @lazyfield
+    def reference(self):
+        """A tuple that names this computation."""
+        return (self.phenomenon, self.quantity)
+
+    @parameter
+    def inputs(self):
+        """Inputs from connsense-TAP that must be loaded and provided to the
+        computation method as arguments."""
+        raise MustBeProvidedAtInitialization(Computation.inputs)
+
+    @lazyfield
+    def args(self):
+        """The arguments to the computation."""
+        return self.inputs
+
+    @parameter
+    def kwargs(self):
+        """The keyword arguments to the computation."""
+        return NA
+
+    @parameter
+    def computation(self):
+        """Python source/module and function as a mapping."""
+        return {"source": NA, "method": NA, "output": NA}
+
+    @parameter
+    def transform(self):
+        """A method that can be applied to the results of running self.computation."""
+        return NA
+
+    @parameter
+    def aggregate(self):
+        """A method or string reference to one that can aggregate the result
+        of running self.computation."""
+        return NA
+
+    @parameter
+    def output(self):
+        """The final output type of this Computation."""
+        raise MustBeProvidedAtInitialization
+
+    def __init__(self, phenomenon, quantity, **kwargs):
+        """..."""
+        kwargs["phenomenon"] = phenomenon
+        kwargs["quantity"] = quantity
+        super().__init__(**kwargs)
+
+#+end_src
+
+We can have a ~computation.tap~ a ~flow~,
+#+name: computation-tap
+#+begin_src jupyter-python
+def tap(computation, flow):
+    """Tap a dataset from a connsense-flow..."""
+    try:
+        dataset = flow.pour_dataset(computation.reference)
+    except KeyError:
+        LOG.error("Flow at %s does not contain a dataset %s", computation.reference)
+        LOG.info("Here is a config that you can use to run ~connsense~ for %s: \n%s",
+                 computation.reference, pformat(computation.config))
+        return computation.config
+    return dataset
+
+#+end_src
+
+So we can use a computation, coupled with a ~connsense-tap~ to find if that computation has already been computed. If it does not, we will know what configuration to add to ~connense-pipeline~ to get the data. If we cannot find a dataset in a ~connsense-flow~, we can ~setup~ a ~brewery~ to run a ~computation~,
+#+name: computation-brewery
+#+begin_src jupyter-python
+def configure(computation, in_pipeline, *, update=False):
+    """..."""
+    from copy import deepcopy
+    from connsense.develop import topotap as cnstap, parallelization as cnsprl
+    from connsense.pipelime import NotConfiguredError
+    try:
+        params = cnsprl.parameterize(computation.reference, in_pipeline._config)
+    except NotConfiguedError as not_configured:
+        LOG.error("%s not configured in \n%s", computation.reference, in_pipeline._config)
+        return ((edit_config(in_pipeline).append(computation.config), computation.config)
+                if update else computation.config)
+    return params
+
+def configure_runtime(computation, in_pipeline, *, update=False):
+    """..."""
+    from copy import deepcopy
+    from connsense.develop import topotap as cnstap, parallelization as cnsprl
+    from connsense.pipelime import NotConfiguredError
+    try:
+        params = cnsprl.parameterize(computation.reference, in_pipeline._config)
+    except NotConfiguedError as not_configured:
+        LOG.error("%s not configured in \n%s", computation.reference, in_pipeline._config)
+        return ((edit_config(in_pipeline).append(computation.config), computation.config)
+                if update else computation.config)
+    return params
+
+
+
+def setup(computation, in_pipeline):
+    """Setup this computation in a pipeline."""
+    from connsense.develop import parallelization as cnsprl
+    parameterization = configure(computation, in_pipeine, update=True)
+    on_cluster = configure_runtime(computation, in_pipeline, update=True)
+    return cnsprl.setup_multinode(process=cnsprl.setup_compute_node,
+                                  of_computation=computation.reference,
+                                  in_config=parameterization, using_runtime=on_cluster,
+                                  in_mode="develop")
+
+#+end_src
+
+Once we have a setup, we should be able to run individual unit-computations,
+#+begin_src jupyter-python
+def brew(computation, in_flow, unit_computation, out_flow=None):
+    """..."""
+    def loc
+#+end_src
+
+With a concept of a ~Computation~ above, we can play with a hard problem. We want to characterize the topology of /outgoing-connections/ from ~flatmap-columns~ in the ~Rat-SSCx~ that are highly inverated by thalamic connections. There is more than one problem here to solve.
+
+* Example 1: Thalamic innervation
+We can define an analysis to measure thalamic innervation of each ~flatmap-column~. We can do this directly with a ~computation~ that takes ~subtargets~ as inputs.
+#+name: compute-thalamic-innervation
+#+begin_src jupyter-python
+import numpy as np
+import scipy
+from connsense.develop import computation as cnscomp
+from micasa.connsense.develop.extract.edge_populations import extract_connectivity
+
+flatmap_columns = {"dataset": ("define-subtargets", "flatmap-columns")}
+in_micasa_extractions = {"source": extract_connectivity,
+                         "method": "extract_extrinsic_edges",
+                         "output": scipy.sparse.spmatrix}
+groupby_source = (lambda cnxns: cnxns.groupby("source").sum())
+thvpm_innervation = cnscomp.Computation("thalamic-connectivity", "innervation",
+                                        inputs={"subtarget": flatmap_columns,
+                                                "circuit": "Bio_M",
+                                                "connectome": "Thalamocortical_input_VPM"},
+                                        computation=in_micasa_extractions,
+                                        aggregate=groupby_source,
+                                        output=np.float)
+#+end_src
+
+#+RESULTS: compute-thalamic-innervation
+#+begin_example
+Validate and set <connsense.develop.computation.Computation object at 0x7fff5cf81190> field _aggregate from value <function <lambda> at 0x7fff5cf44700>
+Validate and set <connsense.develop.computation.Computation object at 0x7fff5cf81190> field _computation from value {'method': 'extract_extrinsic_edges',
+ 'output': <class 'scipy.sparse.base.spmatrix'>,
+ 'source': <module 'micasa.connsense.develop.extract.edge_populations.extract_connectivity' from '/gpfs/bbp.cscs.ch/home/sood/rsynced/work/micasapy/micasa/connsense/develop/extract/edge_populations/extract_connectivity.py'>}
+Validate and set <connsense.develop.computation.Computation object at 0x7fff5cf81190> field _inputs from value {'circuit': 'Bio_M',
+ 'connectome': 'Thalamocortical_input_VPM',
+ 'subtarget': {'dataset': ('define-subtargets', 'flatmap-columns')}}
+Validate and set <connsense.develop.computation.Computation object at 0x7fff5cf81190> field _kwargs from value <<Not Available>>
+Validate and set <connsense.develop.computation.Computation object at 0x7fff5cf81190> field _label from value 'Computation'
+Validate and set <connsense.develop.computation.Computation object at 0x7fff5cf81190> field _output from value <class 'float'>
+Validate and set <connsense.develop.computation.Computation object at 0x7fff5cf81190> field _phenomenon from value 'thalamic-connectivity'
+Validate and set <connsense.develop.computation.Computation object at 0x7fff5cf81190> field _quantity from value 'innervation'
+Validate and set <connsense.develop.computation.Computation object at 0x7fff5cf81190> field _status from value <<Not Available>>
+Validate and set <connsense.develop.computation.Computation object at 0x7fff5cf81190> field _transform from value <<Not Available>>
+#+end_example
+
+* Random thoughts
+We can get ~emacs~ to process the text in a buffer, to produce a ~config-form~.
+
+#+name: define-computation-elisp
+#+begin_src elisp
+(defun computation (step phenomenon quantity method)
+  "A pipeline computation step that uses a method to measure quantity of a phenomenon.")
+#+end_src
+
+In clojure we should be able to actually run the computations,
+#+name: define-computation-clojure
+#+begin_src clojure
+(defn computation [step phenomenon quantity method]
+  "Pipeline step computation of a runnable method that measures the value
+   of a circuit phenomemon quantity."
+  {:step step :phenomenon phenomenon :quantity quantity :runnable method})
+#+end_src
+
+A ~connsense-TAP-study~ constitutes of a collection of a ~computations~,
+
+#+name: define-study-clojure
+#+begin_src clojure
+(defn study [system topical phenomena]
+  "Configure a scientific investigation of a system by studying phenomena that arise in it."
+  {:topic topical :computations (map computation phenomena)})
+#+end_src
+
+How do we list the phenomena to study? Let us try ~YAML~,
+
+#+name: define-study-yaml
+#+begin_src yaml
+study:
+  parameters:
+    - step: "analyze"
+        quantity: "simplex-counts"
+        phenomenon: "connectivity"
+        computation:
+          source: "/path/to/analyses.py"
+          method: "count_simplices"
+    - step: "extract"
+        quantity: "adjacency"
+        phenomenon: "connectivity"
+        computation:
+          source: "/path/to/extractions.py"
+          method: "extract_adjacency"
+#+end_src
+
+That is an easy to read config. The simplicity comes at the price of having to infer the input datasets and output types from the method themselves.
+
+Consider that we implement ~count_simplices~ as,
+
+#+name: example-count-simplices-python
+#+begin_src python
+def count_simplices(adjacency: scipy.sparse.matrix, max_dim: int=10) -> pd.Series:
+    """Count the number if simplices in an a
+    """
+    return pd.Series(-1 * np.ones(max_dim), name="simplex_counts",
+                     index=pd.Index(range(max_dim), name="dim))
+#+end_src
+
+~connsense-TAP~ can read the type signature, and infer the inputs if the name of the argument ~adjacency~ matches an entry in the ~config~.
+
+** In EMACS
+
+#+begin_src elisp
+(defun study (config)
+  "Define a study as a collection of computations provided as a collection
+   Name the phenomenon, quantity, source path to a method, and label of the pipeline step to associate."
+  (map (computation (step phenomenon quantity method)) phenomena))
+#+end_src
+
+* Campaign
+We can map a  /unit/ ~connsense-computation~ to prepare a ~connsense-campaign~ to scan analyses over the circuit's ~subtargets~. We can prepare an index of inputs from the information provided in a ~Computation~, and assign them to a batches of parallel runs on multiple compute nodes. Thus we will need to assign a ~compute-node~ and a ~parallel-batch~ to each ~unit-computation~.
+
+In a ~cmportonnsense-campaign~ we will run a ~computation~ for each configured ~subtarget~,
+#+name: campaign-run
+#+begin_src jupyter-python
+@parameter
+def run(self):
+    """The unit-computation to run for each subtarget of this campaign."""
+    raise MustBeProvidedAtInitialization(Campaign.run)
+
+@run.validation
+def run(self, value):
+    """Validate the configuration of Campaign.run by loading it."""
+    return Computation(value)
+#+end_src
+
+distributing the ~unit-computations~ that is describ3ed by,
+#+name: campaign-distribute
+#+begin_src jupyter-python
+class Distribute(Config):
+    """Configure a computation campaign over circuit's subtargets."""
+    @parameter
+    def strategy(self):
+        """A strategy to distribute the unit-computations over compute-nodes and
+        parallel-batches. This can be set to a callable as,
+        Mapping {source: path-to-source, method: name}
+        that computes the compute-nodes and parallel-batches as a dataframe indexed by
+        the index of a Campaign.run.
+
+        The default strategy will use the computation input's sizes.
+        """
+        return NA
+
+#+end_src
+
+
+#+begin_src jupyter-python
+class Campaign(Config):
+    """Configure a computation campaign over circuit's subtargets."""
+    @parameter
+    def computation(self):
+
+#+end_src
+* Setup
+In our discussion we will develop scientific concepts to measure the circuit, and implement Python functions to compute them. Here we setup a notebook template to test and explore, and the structure of a ~Python~ package for our methods.
+
+#+NAME: notebook-init
+#+BEGIN_SRC jupyter-python
+from importlib import reload
+from collections.abc import Mapping
+from collections import OrderedDict
+from pprint import pprint, pformat
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+import matplotlib
+
+reload(matplotlib)
+from matplotlib import pylab as plt
+import seaborn as sbn
+
+from IPython.display import display
+
+from bluepy import Synapse, Cell, Circuit
+
+GOLDEN = (1. + np.sqrt(5.))/2.
+print("We will plot golden aspect ratios: ", GOLDEN)
+#+END_SRC
+
+** Workspaces
+We have run ~connsense-CRAP~ for the SSCx dissemination variant /Bio-M/, extracting data that we will use to compute the factology. Here is a list of workspaces we will need to generate factsheets.
+#+NAME: notebook-workspaces
+#+BEGIN_SRC jupyter-python
+ROOTSPACE = Path("/")
+PROJSPACE = ROOTSPACE / "gpfs/bbp.cscs.ch/project/proj83"
+SOODSPACE = PROJSPACE / "home/sood"
+CONNSPACE = SOODSPACE / "topological-analysis-subvolumes/test/v2"
+DEVSPACE  = CONNSPACE / "test" / "develop"
+#+END_SRC
+
+#+RESULTS: notebook-workspaces
+
+** ~connsense~ Modules
+While test-developing it will be good to have direct access to the ~connsense-TAP-store~ we will use. We will use a module from ~connsense~ to load the HDFstore,
+#+NAME: notebook-connsense-tap
+#+BEGIN_SRC jupyter-python
+from connsense.develop import topotap as cnstap
+tap = cnstap.HDFStore(CONNSPACE/"pipeline.yaml")
+circuit = tap.get_circuit("Bio_M")
+print("Available analyses: ")
+pprint(tap.analyses)
+circuit
+#+END_SRC
+
+#+RESULTS: notebook-connsense-tap
+:RESULTS:
+:  2023-03-16 09:14:21,574: Load circuit Bio_M
+: Available analyses:
+: {'connectivity': {'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7fff5c2bc2e0>,
+:                   'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7fff5c2bc3d0>}}
+: <bluepy.circuit.Circuit at 0x7fffbb69ba00>
+:END:
+
+** Emacs specific :noexport:
+We can get all figures displayed 95% so that we can work with them in front of us in an Emacs buffer. Here is a method that does that witb an example. This code is here only to see how much we use it. It should find a way to a place in our ~doom-config~.
+
+#+NAME: fit-display-defun
+#+BEGIN_SRC emacs-lisp
+(defun fit-display-of (figure width height)
+    (concat "#+attr_html: :width " width " :height " height (string ?\n) figure))
+#+END_SRC
+
+#+RESULTS: fit-display-defun
+: fit-display-of
+
+#+NAME: plot-display
+#+HEADER: :var figure="" :var width="95%" :var height="95%"
+#+BEGIN_SRC emacs-lisp
+(fit-display-of figure width height)
+#+END_SRC
+
+#+HEADER: :post plot-display(*this*) :session return
+#+BEGIN_SRC jupyter-python :exports both :file ./test-fit-fig.png
+#+BEGIN_SRC jupyter-python :post attr-wrap(data=*this*) :session return :exports both :file ./test-fit-fig.png
+import pandas as pd
+from matplotlib import pyplot as plt
+import seaborn as sbn
+
+csv_url = 'https://archive.ics.uci.edu/ml/machine-learning-databases/iris/iris.data'
+col_names = ['Sepal_Length','Sepal_Width','Petal_Length','Petal_Width','Class']
+irisies = pd.read_csv(csv_url, names=col_names)
+
+fig = plt.figure(figsize=(15, 12))
+ax = sbn.histplot(x="Petal_Length", hue="Class", data=irisies, ax=fig.add_subplot())
+#+END_SRC
+
+#+RESULTS:
+#+attr_html: :width 95% :height 95%
+[[file:./test-fit-fig.png]]
+
+#+NAME: fit-display
+#+HEADER: :var figure="" :var attr_value="95%" :var attr_name="#+attr_html: :width "
+#+BEGIN_SRC emacs-lisp
+(concat attr_name attr_value (string ?\n) figure)
+#+END_SRC
+
+#+NAME: attr-wrap
+#+BEGIN_SRC sh :var figure="" :var width="95%" :results output
+echo "#+attr_html: :width $width"
+echo "$figure"
+#+END_SRC
+
+** Run the setup in EMACS :noexport:
+Here we use ~noweb~ to include the code written there.
+#+begin_src jupyter-python :noweb yes
+<<notebook-init>>
+
+<<notebook-workspaces>>
+
+<<notebook-connsense-tap>>
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+: We will plot golden aspect ratios:  1.618033988749895
+:  2023-03-27 12:35:34,964: Load circuit Bio_M
+: Available analyses:
+: {'connectivity': {'long-range-simplex-sources': <connsense.develop.topotap.TapDataset object at 0x7fff5c1df250>,
+:                   'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7fff5c1df3d0>,
+:                   'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7fff5c1df340>,
+:                   'thalamic-innervation': <connsense.develop.topotap.TapDataset object at 0x7fff5c1df490>}}
+: <bluepy.circuit.Circuit at 0x7fff8920e280>
+:END:
+
+* Appendix
+** Interaction with the shell in EMACS
+
+#+begin_src sh :results output
+echo PID: "$$"
+#+end_src
+
+#+RESULTS:
+: PID: 49908
+
+Shared variables
+#+begin_src sh :results output :session shared
+echo PID: "$$"
+X=1
+#+end_src
+
+#+RESULTS:
+: PID: 49979
+
+#+begin_src sh :results output :session shared
+echo PID: "$$"
+echo X was set to "$X"
+#+end_src
+
+#+RESULTS:
+: PID: 49979
+: X was set to 1
+This is a literate script file.  The script we'll make can be used to ask
+someone what operating system they're using.  First, we define a reference.
+
+#+name: their-os
+Linux
+
+The reference is then passed as stdin into a script which gets executed as a
+command according to the shebang (within a shell specified by the block
+language).  We get a different response depending on who we ask.
+
+Let's test it by asking RMS:
+
+#+header  :results output :shebang #!/usr/bin/env bash :stdin their-os :cmdline RMS
+#+begin_src bash :tangle ask_for_os.sh
+
+  # call as ./ask_for_os.sh NAME, where NAME is who to ask
+
+  if [ -z "$1" ]; then
+      asked="$USER"
+  else
+      asked="$1"
+  fi
+
+  echo Hi, "$asked"! What operating system are you using?
+  read my_os
+
+  if [ "$asked" = "RMS" ]; then
+      echo You\'re using GNU/"$my_os"!
+  elif [ "$asked" = "Linus" ]; then
+      echo You\'re using "$my_os"!
+  else
+      echo You\'re using `uname -o`!
+  fi
+#+end_src
+
+#+RESULTS:
+| Hi,    | vishalsoodmuchu! | What    | operating | system | are | you | using? |
+| You're | using            | Darwin! |           |        |     |     |        |

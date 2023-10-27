@@ -1,0 +1,12 @@
+paths:
+  description: >-
+    Several taps will be run, one for each of the grid resolution values.
+    These will be run in their own directories, under a root.
+  root: "/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/coarse-graining"
+
+parameters:
+  grid:
+    tiling: "hexagon"
+    base-resolution: 230.0
+    scaling-factors: [0.125, 0.250, 0.500, 1.000, 2.000, 4.000, 8.000]
+    regions: ["S1DZO", "S1DZ", "S1FL", "S1HL", "S1J", "S1Sh", "S1Tr", "S1ULp"]

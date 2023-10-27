@@ -15,6 +15,7 @@ from pprint import pformat
 import json
 import yaml
 
+import multiprocessing
 from multiprocessing import Process, Manager
 
 import numpy as np
@@ -115,23 +116,23 @@ def parameterize(computation_type, of_quantity, in_config):
 
 def batch_multinode(computation, of_inputs, in_config, at_dirpath, using_parallelization,
                     single_submission=500,  with_weights=True, unit_weight=None,
-                    njobs_to_estimate_load=None):
+                    njobs_to_estimate_load=None, max_parallel_jobs=None):
     """...Just read the method definition above,
         and code below
     """
     from tqdm import tqdm; tqdm.pandas()
 
-    n_compute_nodes, n_parallel_jobs = using_parallelization
-    n_parallel_jobs_per_node_biggest_subtarget = int(n_parallel_jobs / n_compute_nodes)
+    n_compute_nodes, n_parallel_jobs, order_complexity = using_parallelization
+    n_parallel_biggest = int(n_parallel_jobs / n_compute_nodes)
 
     LOG.info("Assign compute-nodes to %s inputs", len(of_inputs))
     toc_index = of_inputs.index
 
     weights = (
         #of_inputs.progress_apply(lambda l: estimate_load(to_compute=None)(l())).dropna()
-        of_inputs.progress_apply(estimate_load(to_compute=None)).dropna()
+        of_inputs.progress_apply(estimate_load(order_complexity)).dropna()
         if not njobs_to_estimate_load
-        else multiprocess_load_estimate(of_inputs, njobs_to_estimate_load))
+        else multiprocess_load_estimate(order_complexity, of_inputs, njobs_to_estimate_load))
     weights = (
         weights[~np.isclose(weights, 0.)].groupby(toc_index.names).max()
         .sort_values(ascending=True)).rename("weight")
@@ -148,12 +149,16 @@ def batch_multinode(computation, of_inputs, in_config, at_dirpath, using_paralle
     def batch(compute_node):
         """..."""
         cn_weights = weigh_one(compute_node)
-        n_parallel = min(
-            int(n_parallel_jobs_per_node_biggest_subtarget * unit_weight / cn_weights.max()),
-            len(cn_weights)
-        )
-        return pd.Series(np.linspace(0, n_parallel - 1.e-6, len(cn_weights), dtype=int),
-                         name="batch",  index=cn_weights.index)
+        n_parallel = int(min(max_parallel_jobs or multiprocessing.cpu_count(), #/2
+                             min(int(n_parallel_biggest * unit_weight / cn_weights.max()),
+                                 len(cn_weights))))
+        #batches = np.random.choice(np.arange(n_parallel), size=len(cn_weights), replace=True)
+        n_comp = len(cn_weights)
+        batch_values = list(range(n_parallel))
+        batches = ((int(n_comp / n_parallel) + 1) * batch_values)[0:n_comp]
+        return pd.Series(batches, name="batch", index=cn_weights.index)
+        #return  pd.Series(np.linspace(0, n_parallel - 1.e-6, len(cn_weights), dtype=int),
+        #                  name="batch",  index=cn_weights.index)
 
     batches = ((pd.concat([batch(compute_nodes)], keys=[compute_nodes.unique()[0]], names=["compute_node"])
                 if compute_nodes.nunique() == 1
@@ -213,40 +218,70 @@ def batch_parallel_groups(of_inputs, upto_number, to_compute=None, return_load=F
     return (batches if not return_load
             else pd.concat([batches, weights/weights.sum()], axis=1))
 
-def estimate_load(to_compute):
+def estimate_load(order_complexity, to_compute=None):
     def of_input_data(d):
         """What would it take to compute input data d?
         """
         LOG.info("Estimate load to compute a %s", type(d))
-        if d is None: return None
+        if d is None:
+            return None
 
         try:
-            shape = d.shape
+            S = d.shape
         except AttributeError:
             pass
         else:
-            return np.prod(shape)
+            if order_complexity == -1:
+                return np.prod(S)
 
-        if callable(d): return of_input_data(d())
+            assert order_complexity >= 0
+
+            return (np.nan if np.isnan(S[0]) else
+                    0 if np.isclose(S[0], 0.0) else S[0] ** order_complexity)
+
+        if callable(d):
+            try:
+                dload = d(to_get="shape")
+            except TypeError:
+                dload = d()
+            return of_input_data(dload)
 
         if isinstance(d, Mapping):
-            if not d: return 1.
+            if not d: return 1
             first = next(v for v in d.values())
             return of_input_data(first)
 
-        if isinstance(d, pd.Series): return d.apply(of_input_data).sum()
+        if isinstance(d, pd.Series):
+            return d.apply(of_input_data).sum()
 
         try:
-            return len(d)
-        except TypeError:
-            pass
+            N = len(d)
+        except TypeError as terror:
+            try:
+                S = d.shape
+            except AttributeError as aerror:
+                LOG.error("Neither length, nor shape for input \n%s\n%s\n%s",
+                          d, terror, aerror)
+                return 1
+            else:
+                N = S[0]
 
-        return 1.
+        if N == 0:
+            return 0
+
+        if order_complexity == -1:
+            try:
+                S = d.shape
+            except AttributeError:
+                return N
+            return np.prod(S)
+
+        return N ** order_complexity
 
     return of_input_data
 
 
-def multiprocess_load_estimate(inputs, njobs):
+def multiprocess_load_estimate(order_complexity, inputs, njobs):
     """..."""
     from tqdm import tqdm; tqdm.pandas()
     assert njobs > 1, f"njobs={njobs} does not need multi-process."
@@ -825,7 +860,7 @@ def read_runtime_config(for_parallelization, *, of_pipeline=None, return_path=Fa
         try:
             quantities_to_configure = cfg_computation_type[paramkey]
         except KeyError:
-            LOG.warning("No quantities %s: \n%s", computation, cfg_computation_type)
+            LOG.warning("No quantities %s: \n%s", computation_type, cfg_computation_type)
             return None
         else:
             LOG.info("Configure runtime for %s %s", computation_type, quantities_to_configure)
@@ -894,7 +929,10 @@ def prepare_parallelization(of_computation, in_config, using_runtime):
     LOG.info("Prepare parallelization %s using runtime \n%s", of_computation, pformat(from_runtime))
     configured = from_runtime["pipeline"].get(computation_type, {})
     LOG.info("\t Configure \n%s", pformat(configured))
-    return read_njobs(to_parallelize=configured, computation_of=quantity)
+    n_compute_nodes, n_parallel_batches =  read_njobs(to_parallelize=configured,
+                                                      computation_of=quantity)
+    order_complexity = configured[quantity].get("order_complexity", -1)
+    return (n_compute_nodes, n_parallel_batches, order_complexity)
 
 
 def read_njobs(to_parallelize, computation_of):
@@ -988,18 +1026,40 @@ class DataCall:
         value = self(to_get="shape")
 
         if isinstance(value, Mapping):
-            return next(v for v in value.values()).shape
+            value = next(v for v in value.values())
+
         try:
             return value.shape
         except AttributeError:
             pass
 
         try:
-            return len(value)
+            length = len(value)
         except TypeError:
-            pass
+            length = 1
 
-        return 1
+        return (length, )
+
+    def transform(self, original=None):
+        """..."""
+        assert self._transform is not None
+
+        if original is None:
+            original = self._cache["original"]
+
+        try:
+            transform, kwargs = self._transform
+        except TypeError as not_tuple_error:
+            try:
+                return self._transform(original)
+            except TypeError as not_callable_error:
+                LOG.error("self._transform should be a callable or tuple of (callable, kwargs)"
+                          "not %s\nErrors:\n%s\n%s",
+                          type(self._transform), not_tuple_error, not_callable_error)
+                raise TypeError("self._transform type %s inadmissible."
+                                " Plesase use a (callable, kwargs) or callable"%
+                                (type(self._transform),))
+            return transform(original, **kwargs)
 
     def __call__(self, to_get=None):
         """Call Me."""
@@ -1028,14 +1088,10 @@ class DataCall:
         if not self._transform:
             return original
 
-        if callable(self._transform):
-            if to_get=="shape":
-                return self._transform(original) if not self._preserves_shape else original
-            return self._transform(original)
+        if to_get and to_get.lower() == "shape":
+            return original if self._preserves_shape else self.transform(original)
 
-        transform, kwargs = self._transform
-        return transform(original, **kwargs)
-
+        return self.transform(original)
 
 def generate_inputs(of_computation, in_config, slicing=None, circuit_args=None,
                      datacalls_for_slices=False, **circuit_kwargs):
@@ -1198,13 +1254,13 @@ def configure_slurm(computation, in_config, using_runtime):
     return configured
 
 
-def setup_compute_node(c, of_computation, with_inputs, using_configs, at_dirpath, in_mode=None,
-                       slicing=None):
+def setup_compute_node(c, of_computation, with_inputs, using_configs, at_dirpath,
+                       in_mode=None, slicing=None):
     """..."""
     assert not in_mode or in_mode in ("prod", "develop")
 
     from connsense.apps import APPS
-    LOG.info("Configure chunk %s with %s inputs to compute %s slicing %s, using configs \n%s",
+    LOG.info("Configure compute-node %s (%s inputs) to %s slicing %s, with configs \n%s",
              c, len(with_inputs), of_computation, slicing or "none", using_configs)
 
     computation_type, of_quantity = describe(of_computation)
@@ -1226,14 +1282,15 @@ def setup_compute_node(c, of_computation, with_inputs, using_configs, at_dirpath
         launchscript = at_dirpath / "launchscript.sh"
     else:
         submission = with_inputs.submission.unique()
-        assert len(submission) == 1, f"A single compute node's inputs must be submitted together"
+        assert len(submission) == 1,\
+            f"A single compute node's inputs must be submitted together"
         launchscript = at_dirpath / f"launchscript-{submission[0]}.sh"
-
 
     run_mode = in_mode or "prod"
     command_lines = ["#!/bin/bash",
                      (f"########################## LAUNCH {computation_type} for chunk {c}"
-                      f" of {len(with_inputs)} _inputs. #######################################"),
+                      f" of {len(with_inputs)} _inputs."
+                     "#######################################"),
                      f"pushd {for_compute_node}",
                      f"sbatch {of_executable.name} run {computation_type} {of_quantity} \\",
                      "--configure=pipeline.yaml --parallelize=runtime.yaml \\",
@@ -1330,8 +1387,8 @@ def setup_multinode(process, of_computation, in_config, using_runtime, *,
     from tqdm import tqdm; tqdm.pandas()
     from connsense.develop.topotap import HDFStore
 
-    n_compute_nodes, n_parallel_jobs = prepare_parallelization(of_computation,
-                                                               in_config, using_runtime)
+    n_compute_nodes, n_parallel_jobs, o_complexity =\
+        prepare_parallelization(of_computation, in_config, using_runtime)
 
     def prepare_compute_nodes(inputs, at_dirpath, slicing, output_type, unit_weight=None):
         """..."""
@@ -1339,15 +1396,21 @@ def setup_multinode(process, of_computation, in_config, using_runtime, *,
         using_configs = configure_multinode(process, of_computation, in_config, at_dirpath)
 
         if process == setup_compute_node:
-            batched = batch_multinode(of_computation, inputs, in_config, at_dirpath,
-                                      unit_weight=unit_weight,
-                                      using_parallelization=(n_compute_nodes, n_parallel_jobs),
-                                      njobs_to_estimate_load=njobs_to_estimate_load)
-            using_configs["slurm_params"] = (configure_slurm(of_computation, in_config, using_runtime)
-                                             .get("sbatch", None))
-            compute_nodes = {c: setup_compute_node(c, of_computation, inputs, using_configs, at_dirpath,
-                                                   in_mode=in_mode, slicing=slicing)
-                             for c, inputs in batched.groupby("compute_node")}
+            batched = batch_multinode(
+                of_computation, inputs, in_config, at_dirpath,
+                unit_weight=unit_weight,
+                using_parallelization=(n_compute_nodes, n_parallel_jobs, o_complexity),
+                njobs_to_estimate_load=njobs_to_estimate_load
+            )
+            using_configs["slurm_params"] = (
+                configure_slurm(of_computation, in_config, using_runtime)
+                .get("sbatch", None)
+            )
+            compute_nodes = {
+                c: setup_compute_node(c, of_computation, inputs, using_configs, at_dirpath,
+                                      in_mode=in_mode, slicing=slicing)
+                for c, inputs in batched.groupby("compute_node")
+            }
             return {"configs": using_configs,
                     "number_compute_nodes": n_compute_nodes,
                     "number_total_jobs": n_parallel_jobs,
@@ -1381,9 +1444,9 @@ def setup_multinode(process, of_computation, in_config, using_runtime, *,
     if process == setup_compute_node:
         full_weights = (
             #full.progress_apply(lambda l: estimate_load(to_compute=None)(l())).dropna()
-            full.progress_apply(estimate_load(to_compute=None)).dropna()
+            full.progress_apply(estimate_load(o_complexity)).dropna()
             if not njobs_to_estimate_load
-            else multiprocess_load_estimate(full, njobs_to_estimate_load))
+            else multiprocess_load_estimate(o_complexity, full, njobs_to_estimate_load))
 
         have_zero_weight = np.isclose(full_weights.values, 0.)
         LOG.info("Inputs with zero weight %s: \n%s",
@@ -1619,11 +1682,11 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
 
     def execute_one(lazy_subtarget, bowl=None, index=None):
         """..."""
-        s = lazy_subtarget()
+        subtarget_inputs = lazy_subtarget()
         LOG.info("Execute circuit args %s lazy subtarget %s, kwargs %s",
-                 circuit_args_values, s.keys(), kwargs.keys())
-        #result = execute(*circuit_args_values, **lazy_subtarget())
-        result = execute(circuit_kwargs, lazy_subtarget())
+                 circuit_args_values, subtarget_inputs.keys(), kwargs.keys())
+        #result = execute(*circuit_args_values, **subtarget_inputs)
+        result = execute(circuit_kwargs, subtarget_inputs)
         if bowl:
             assert index
             bowl[index] = result
@@ -1678,8 +1741,8 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
             in_bowl[index] = result
         return result
 
-    n_compute_nodes,  n_total_jobs = prepare_parallelization(of_computation,
-                                                             in_config, using_runtime)
+    n_compute_nodes,  n_total_jobs, _  = prepare_parallelization(of_computation,
+                                                                 in_config, using_runtime)
 
     batches = load_input_batches(on_compute_node)
     n_batches = batches.batch.max() - batches.batch.min() + 1
@@ -2185,6 +2248,7 @@ def load_control(transformations, lazily=True):
         try:
             to_tap = description["tap_datasets"]
         except KeyError:
+            LOG.info("No tap datasets for control: \n%s", description)
             to_tap = None
 
         kwargs = description.get("kwargs", {})

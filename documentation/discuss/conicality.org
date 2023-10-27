@@ -1,0 +1,831 @@
+#+PROPERTY: header-args:jupyter-python :session ~/jupyter-run/active-ssh.json
+#+PROPERTY: header-args:jupyter :session ~/jupyter-run/active-ssh.json
+
+#+STARTUP: overview
+#+STARTUP: logdrawer
+#+STARTUP: hideblocks
+
+Let us setup an interactive ~Python~ session where we can run the code developed here.
+#+BEGIN_SRC jupyter
+print("Welcome to EMACS Jupyter")
+#+END_SRC
+
+#+RESULTS:
+: Welcome to EMACS Jupyter
+
+#+title: Shape of a cortical column
+
+* Setup
+In our discussion we will develop scientific concepts to measure the circuit, and implement Python functions to compute them. Here we setup a notebook template to test and explore, and the structure of a ~Python~ package for our methods.
+
+To get the notebook you will have to clone,
+#+BEGIN_SRC shell
+git clone https://bbpgitlab.epfl.ch/conn/structural/topological-analysis-of-subvolumes.git
+git checkout beta
+#+END_SRC
+
+#+RESULTS:
+| M | configs/sscx/config.org                   |
+| M | configs/sscx/pipeline.yaml                |
+| M | connsense/develop/parallelization.org     |
+| M | connsense/develop/parallelization.py      |
+| M | connsense/develop/topotap.org             |
+| M | connsense/develop/topotap.py              |
+| M | documentation/discuss/figures/flatmap.png |
+| M | documentation/discuss/test-fit-fig.png    |
+| M | documentation/discuss/topotap.org         |
+
+#+NAME: notebook-init
+#+BEGIN_SRC jupyter-python
+from importlib import reload
+from collections.abc import Mapping
+from collections import OrderedDict
+from pprint import pprint, pformat
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+import matplotlib
+
+reload(matplotlib)
+from matplotlib import pylab as plt
+import seaborn as sbn
+
+from IPython.display import display
+
+from bluepy import Synapse, Cell, Circuit
+
+GOLDEN = (1. + np.sqrt(5.))/2.
+print("We will plot golden aspect ratios: ", GOLDEN)
+
+SMALL_SIZE = 16
+MEDIUM_SIZE = 24
+BIGGER_SIZE = 48
+
+plt.style.use("ggplot")
+plt.rc('font', size=SMALL_SIZE)          # controls default text sizes
+plt.rc('axes', titlesize=SMALL_SIZE)     # fontsize of the axes title
+plt.rc('axes', labelsize=MEDIUM_SIZE)    # fontsize of the x and y labels
+plt.rc('xtick', labelsize=SMALL_SIZE)    # fontsize of the tick labels
+plt.rc('ytick', labelsize=SMALL_SIZE)    # fontsize of the tick labels
+plt.rc('legend', fontsize=SMALL_SIZE)    # legend fontsize
+plt.rc('figure', titlesize=BIGGER_SIZE)
+#+END_SRC
+
+#+RESULTS: notebook-init
+: We will plot golden aspect ratios:  1.618033988749895
+
+** Workspaces
+We have run ~connsense-CRAP~ for the SSCx dissemination variant /Bio-M/, extracting data that we will use to compute the factology. Here is a list of workspaces we will need to generate factsheets.
+#+NAME: notebook-workspaces
+#+BEGIN_SRC jupyter-python
+ROOTSPACE = Path("/")
+PROJSPACE = ROOTSPACE / "gpfs/bbp.cscs.ch/project/proj83"
+SOODSPACE = PROJSPACE / "home/sood"
+CONNSPACE = SOODSPACE / "topological-analysis-subvolumes/test/v2"
+DEVSPACE  = CONNSPACE / "test" / "develop"
+#+END_SRC
+
+#+RESULTS: notebook-workspaces
+
+** ~connsense~ Modules
+While test-developing it will be good to have direct access to the ~connsense-TAP-store~ we will use. We will use a module from ~connsense~ to load the HDFstore,
+#+NAME: notebook-connsense-tap
+#+BEGIN_SRC jupyter-python
+from connsense.develop import topotap as cnstap
+tap = cnstap.HDFStore(CONNSPACE/"pipeline.yaml")
+circuit = tap.get_circuit("Bio_M")
+print("Available analyses: ")
+pprint(tap.analyses)
+circuit
+#+END_SRC
+
+#+RESULTS: notebook-connsense-tap
+:RESULTS:
+:  2023-07-04 17:55:15,613: Load circuit Bio_M
+: Available analyses:
+: {'connectivity': {'cross-col-k-indegree': <connsense.develop.topotap.TapDataset object at 0x7fff1540a370>,
+:                   'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7fff1540a400>,
+:                   'node-participation': <connsense.develop.topotap.TapDataset object at 0x7fff1540a3a0>,
+:                   'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7fff2ca1b430>,
+:                   'thalamic-innervation': <connsense.develop.topotap.TapDataset object at 0x7fff1540a670>,
+:                   'wm-innervation': <connsense.develop.topotap.TapDataset object at 0x7fff1540a520>}}
+: <bluepy.circuit.Circuit at 0x7fffbb6b93d0>
+:END:
+
+** Emacs specific :noexport:
+We can get all figures displayed 95% so that we can work with them in front of us in an Emacs buffer. Here is a method that does that witb an example. This code is here only to see how much we use it. It should find a way to a place in our ~doom-config~.
+
+#+NAME: fit-display-defun
+#+BEGIN_SRC emacs-lisp :results silent
+(defun fit-display-of (figure width height)
+    (concat "#+attr_org: :width " width " :height " height (string ?\n) figure))
+#+END_SRC
+
+#+NAME: plot-display
+#+HEADER: :var figure="this-should-be-path.png" :var width="95%" :var height="95%"
+#+BEGIN_SRC emacs-lisp :results silent
+(fit-display-of figure width height)
+#+END_SRC
+
+That we can use with ~:post~,
+#+name: test-plot-display
+#+HEADER: :results value file :file ./test-fit-fig.png
+#+HEADER: :exports both :session return
+#+HEADER: :post plot-display(figure=*this*)
+#+BEGIN_SRC jupyter-python :post plot-display(figure=*this*)
+import pandas as pd
+from matplotlib import pyplot as plt
+import seaborn as sbn
+
+csv_url = 'https://archive.ics.uci.edu/ml/machine-learning-databases/iris/iris.data'
+col_names = ['Sepal_Length','Sepal_Width','Petal_Length','Petal_Width','Class']
+irisies = pd.read_csv(csv_url, names=col_names)
+
+fig = plt.figure(figsize=(15, 12))
+ax = sbn.histplot(x="Petal_Length", hue="Class", data=irisies, ax=fig.add_subplot())
+#+END_SRC
+
+#+RESULTS: test-plot-display
+#+attr_org: :width 95% :height 95%
+[[file:./test-fit-fig.png]]
+#+attr_org: :width 95% :height 95%
+[[file:./test-fit-fig.png]]
+
+We can also ~wrap~ with a function,
+#+BEGIN_SRC emacs-lisp :results silent
+(defun display-fig (&optional label caption)
+  "A wrap function for src blocks."
+  (concat
+   "ORG\n"
+   "#+attr_org: :width 95%\n"
+   (when label
+     (format "#+NAME: %s\n" label))
+   (when caption
+     (format "#+CAPTION: %s" caption))))
+#+END_SRC
+
+and use it with ~:wrap~,
+#+HEADER: :wrap (display-fig "fig-sin" "A sin wave.")
+#+name: figure-sin-wave
+#+BEGIN_SRC jupyter-python :session return
+import numpy as np
+import matplotlib.pyplot as plt
+from pathlib import Path
+
+x = np.linspace(0, 4 * np.pi, 1000)
+y = np.sin(x)
+
+fig = plt.figure(figsize=(15, 12))
+axes = plt.plot(x, y)
+p = Path.home() / 'work/workspaces/scratch/sin.png'
+#plt.savefig(p)
+#+END_SRC
+
+#+RESULTS: figure-sin-wave
+#+begin_ORG
+#+attr_org: :width 95%
+#+CAPTION: A sin wave.
+#+NAME: fig-sin#+caption: A sin wave.
+[[file:./.ob-jupyter/37a491009ff10b8f7c166bd48b8b9c748f68a9bf.png]]
+#+end_ORG
+
+#+NAME: fit-display
+#+HEADER: :var figure="" :var attr_value="95%" :var attr_name="#+attr_html: :width "
+#+BEGIN_SRC emacs-lisp
+(concat attr_name attr_value (string ?\n) figure)
+#+END_SRC
+
+#+RESULTS: fit-display
+: #+attr_html: :width 95%
+
+#+NAME: attr-wrap
+#+BEGIN_SRC sh :var figure="" :var width="95%" :results output
+echo "#+attr_html: :width $width"
+echo "$figure"
+#+END_SRC
+
+#+RESULTS: attr-wrap
+: #+attr_html: :width 95%
+:
+
+
+* Introduction
+We have defined ~flatmap~ columns in the SSCx circuit, which we may consider as cortical columns. Here we study how the shape of a cortical column affects the column's composition and connectivity. We can /model/ a cortical column as a cylinderical-cone, with a base, a ~height~, and a /conicality/ which represents the ratio of the bottom surface (below L6, where white-matter enters the cortex) of the cone to to that of the top surface (at top of pia). We have ~conicality~ and ~height~ for each ~column~, but not a measure of ~width~. A column's ~width~ would be hard to define as we should not expect a /flatmap/ column to be have an even width along it's cortical depth in /real-space/. The ~height~ of a ~subtarget~ measures it's cortical thickness along a central /streamline/. We have measured ~subtarget volume~, which is just the sum of its ~voxels~.
+
+#+begin_src jupyter-python
+print("available subtarget info:\n", pformat(list(tap.subtargets.columns)))
+#+end_src
+
+#+RESULTS:
+#+begin_example
+ 2023-07-04 17:56:02,185: Load dataset ('define-subtargets', 'flatmap-columns'):
+('Hexaongal prism like columns oriented along cortical layers, from '
+ 'white-matter to pia.  The data is loaded from an NRRD file that maps each '
+ 'circuit voxel to a subtarget ids corresponding to a flatmap column.The '
+ 'subtarget ids should be mapped to the subtargets they refer to in a '
+ 'dataframe provided as the input `info`.')
+available subtarget info:
+ ['subtarget',
+ 'flat_i',
+ 'flat_j',
+ 'flat_x',
+ 'flat_y',
+ 'conicality',
+ 'volume',
+ 'height']
+#+end_example
+
+* Shape
+Before we delve into the composition of cells and synapses in cortical columns, we will look at columnar geometry. Of the 240 ~flatmap~ columns, we excluded the geometry of about 90.  We could not compute the geometry of each of the columns for serveral reasons, and will have to drop them for our analysis.
+#+begin_src jupyter-python
+subtargets = tap.subtargets.dropna()
+print("Out of %s subtargets we have geometries for %s"%(tap.subtargets.shape[0], subtargets.shape[0]))
+#+end_src
+
+#+RESULTS:
+: Out of 240 subtargets we have geometries for 150
+
+We have computed ~height~, ~volume~, and ~conicality~ for a ~subtarget~, and can define ~width~ in terms of ~volume~ and ~height~. Notice that this will not be an exact value of a column's width, but should be proportional to it.
+#+begin_src jupyter-python
+col_conicalities = subtargets.conicality
+col_heights = subtargets.height
+col_volumes = subtargets.volume
+col_widths = (col_volumes / col_heights).rename("width")
+col_shapes = pd.concat([col_conicalities, col_heights, col_widths, col_volumes], axis=1)
+display(col_shapes.head())
+#+end_src
+
+#+RESULTS:
+:               conicality       height          width        volume
+: subtarget_id
+: 3              -0.001376  1640.357801  124924.505030  2.049209e+08
+: 7              -0.002969  1654.790286  176234.776449  2.916316e+08
+: 10              0.000560  1939.269959  127306.376116  2.468814e+08
+: 12             -0.000723  1782.088185  132077.776813  2.353742e+08
+: 13             -0.002199  1955.534082  137065.396519  2.680361e+08
+
+The ~volume~ should depend on ~height~,
+#+name: plot-col-geometry-volume-height
+#+header: :results value :file ./conicality/geometry_volume_height.png
+#+header: :exports both
+#+header: :wrap (display-fig "Column volume vs height" "Volume of a column should be proportional to it's height.")
+#+begin_src jupyter-python
+fig = plt.figure(figsize=(10 * GOLDEN, 10))
+ax = fig.add_subplot()
+
+sbn.scatterplot(x="height", y="volume", ax=ax, data=col_shapes.reset_index(drop=True))
+#+end_src
+
+#+RESULTS: plot-col-geometry-volume-height
+#+begin_ORG
+#+attr_org: :width 95%
+#+CAPTION: Volume of a column should be proportional to it's height.
+#+NAME: Column volume vs height#+caption: Volume of a column should be proportional to it's height.
+:RESULTS:
+: <AxesSubplot:xlabel='height', ylabel='volume'>
+[[file:./conicality/geometry_volume_height.png]]
+:END:
+#+end_ORG
+
+
+There is a lot of variation, upto a factor of 3 for comparable heights. A column's volume should be roughly it's height times it's width. We don't have ready access to the values computed from a column's voxels. However, we may assume that the physical 3D width is related to the size of the ~flatmap~ hexagon that the columns are based on, and should not display as much variation as we see in the volumes plotted above. The variation in volumes can be accounted for by ~conicality~,
+
+#+name: plot-col-geometry-volume-conicality
+#+header: :results value :file ./conicality/geometry_volume_conicality.png
+#+header: :exports both
+#+header: :wrap (display-fig "Column volume vs conicality" "Volume of a column depends it's conicality.")
+#+begin_src jupyter-python
+fig = plt.figure(figsize=(10 * GOLDEN, 10))
+ax = fig.add_subplot()
+
+sbn.scatterplot(x="conicality", y="volume", ax=ax, data=col_shapes.reset_index(drop=True))
+#+End_src
+
+#+RESULTS: plot-col-geometry-volume-conicality
+#+begin_ORG
+#+attr_org: :width 95%
+#+NAME: Column volume vs conicality
+#+CAPTION: Volume of a column depends it's conicality.
+:RESULTS:
+: <AxesSubplot:xlabel='conicality', ylabel='volume'>
+[[file:./conicality/geometry_volume_conicality.png]]
+:END:
+#+end_ORG
+
+
+Is there a correlation between ~conicality~ and ~height~?
+#+name: plot-col-geometry-height-conicality
+#+header: :results value :file ./conicality/geometry_height_conicality.png
+#+header: :exports both
+#+header: :wrap (display-fig "Column height vs conicality" "Volume of a column depends it's conicality.")
+#+begin_src jupyter-python
+fig = plt.figure(figsize=(10 * GOLDEN, 10))
+ax = fig.add_subplot()
+
+sbn.scatterplot(x="conicality", y="height", ax=ax, data=col_shapes.reset_index(drop=True))
+#+End_src
+
+#+RESULTS: plot-col-geometry-height-conicality
+#+begin_ORG
+#+attr_org: :width 95%
+#+CAPTION: Volume of a column depends it's conicality.
+#+NAME: Column height vs conicality#+caption: Volume of a column depends it's conicality.
+:RESULTS:
+: <AxesSubplot:xlabel='conicality', ylabel='height'>
+[[file:./conicality/geometry_height_conicality.png]]
+:END:
+#+end_ORG
+Other than the most negative ~conicality~ ~subtargets~, the height is independent of ~conicality~.
+
+We don't see any clear depenence of the subtarget ~volume~ on it's ~height~ or ~conicality~. We could extend our analysis of ~subtarget~ geometry with a closer look at the local structure of the SSCx atlas. However, that requires us to write somewhat involved code. Before we do that, we can look at a ~subtarget~'s anatomy by counting the cells contained in it.
+
+
+* Composition
+
+** Cells
+The number of nodes in a column show depend on it's volume, that we can use to see how the number of nodes depends on the shape,
+#+name: plot-col-nodes-volumes
+#+header: :results value :file ./conicality/composition_nodes_volumes.png
+#+header: :exports both
+#+header: :wrap (display-fig "Column composition: cell count and volume" "Cell count of a column depends it's volume.")
+#+begin_src jupyter-python
+col_nodes = tap.subtarget_gids.apply(len).droplevel("circuit_id").loc[col_shapes.index]
+col_composition = col_shapes.assign(nodes=col_nodes)
+
+fig = plt.figure(figsize=(GOLDEN*10, 10))
+ax = fig.add_subplot()
+sbn.scatterplot(x="volume", y="nodes", ax=ax, data=col_composition.reset_index(drop=True))
+#+end_src
+
+which is a clear linear relation-ship with slope that should be related to the the cell-density of a column. The variation in number of nodes in subtargets of a given volume could be expected from how cells are placed per voxel. We expect this to be a small contribution, with the major variation arising from differences between the relative sizes of the layers. We could compute the physical volumes of the layers in each ~subtarget~. Instead of writing ~atlas~ based code, we can develop on the observation of ~nodes~ proportional to ~volume~ to look at how the number of nodes per layer depends on the geometry of a ~subtarget~. We will consider measures of the whole ~subtarget~ such as ~volume~, ~height~, and ~conicality~, and not the slice belonging to a layer.
+
+We can count the number of nodes in each layer, with results in the columns of a frame,
+#+begin_src jupyter-python
+col_layer_nodes = (tap.nodes.dataset.loc[col_shapes.index].apply(lambda l: l().layer.value_counts())
+                   .droplevel("circuit_id").rename(columns="L{}".format))
+#+end_src
+
+which we can then combine with columnar shapes to plot some relationships,
+#+name: plot-col-nodes_per_layer-volumes
+#+header: :results value :file ./conicality/composition-nodes_per_layer-volume.png
+#+header: :exports both
+#+header: :wrap (display-fig "Column composition: cell count and volume" "Cell count of a column depends it's volume.")
+#+begin_src jupyter-python
+col_composition_layers = (col_shapes.join(pd.concat([n for _,n in col_layer_nodes.iteritems()],
+                                                    keys=col_layer_nodes.columns, names=["layer"])
+                                          .reorder_levels([1,0]).rename("nodes"))
+                          .reset_index().set_index("subtarget_id"))
+
+fig = plt.figure(figsize=(GOLDEN * 10, 10))
+ax = fig.add_subplot()
+ax = sbn.scatterplot(x="volume", y="nodes", hue="layer", ax=ax, data=col_composition_layers.reset_index(drop=True))
+#+end_src
+
+#+RESULTS: plot-col-nodes_per_layer-volumes
+#+begin_ORG
+#+attr_org: :width 95%
+#+CAPTION: Cell count of a column depends it's volume.
+#+NAME: Column composition: cell count and volume#+caption: Cell count of a column depends it's volume.
+[[file:./conicality/composition-nodes_per_layer-volume.png]]
+#+end_ORG
+
+We see different slopes for the layers, and largest variation in ~L6~, which is expected given that it is the largest layer.
+#+header: :wrap (display-fig "Cells per layer in the circuit" "Layer six has more than a third of the circuit's cells.")
+#+begin_src jupyter-python
+cells_per_layer = circuit.cells.get(properties="layer").value_counts().rename("nodes")
+cell_fracs_per_layer = pd.Series(cells_per_layer.values / cells_per_layer.sum(), name="nodes",
+                                 index=pd.Index([f"L{l}" for l in cells_per_layer.index], name="layer"))
+
+fig = plt.figure(figsize=(10 * GOLDEN, 10))
+ax = sbn.barplot(x="layer", y="nodes", ax=fig.add_subplot(), data=cell_fracs_per_layer.reset_index())
+#+end_src
+
+#+RESULTS:
+#+begin_ORG
+#+attr_org: :width 95%
+#+NAME: Cells per layer in the circuit
+#+CAPTION: Layer six has more than a third of the circuit's cells.
+[[file:./.ob-jupyter/64dd8952199087ddcf760bf55051268697a40055.png]]
+#+end_ORG
+
+The slope may be related to the relative densities of the 6 layers, while subtarget shape should underlie the variation of nodes per layer.  We can scale the number of nodes by the fraction expected for each layer,
+
+#+name: plot-col-relnodes_per_layer-volumes
+#+header: :results value :file ./conicality/composition-relnodes_per_layer-volume.png
+#+header: :exports both
+#+header: :wrap (display-fig "Column composition: cell count and volume" "Scaled cell count of a column depends it's volume.")
+#+begin_src jupyter-python
+rel_nodes = (col_composition_layers.nodes / cell_fracs_per_layer.loc[col_composition_layers.layer.values].values).values
+col_composition_layers = col_composition_layers.assign(rel_nodes=rel_nodes)
+fig = plt.figure(figsize=(GOLDEN * 10, 10))
+sbn.scatterplot(x="volume", y="rel_nodes", hue="layer", ax=fig.add_subplot(), data=col_composition_layers.reset_index())
+#+end_src
+
+#+RESULTS: plot-col-relnodes_per_layer-volumes
+#+begin_ORG
+#+attr_org: :width 95%
+#+NAME: Column composition: cell count and volume
+#+CAPTION: Scaled cell count of a column depends it's volume.
+:RESULTS:
+: <AxesSubplot:xlabel='volume', ylabel='rel_nodes'>
+[[file:./conicality/composition-relnodes_per_layer-volume.png]]
+:END:
+#+end_ORG
+
+We can scale nodes per layer by the number of nodes in the subtarget to get fraction in the subtarget, and compare the result to the layer node fraction in the whole circuit.
+#+name: plot-col-nodefracs-volumes
+#+header: :results value :file ./conicality/nodesfracs_vs_volumes.png
+#+header: :exports both
+#+header: :wrap (display-fig "frac-nodes vs volume" "Fraction of nodes in each layer against the total volume of a column")
+#+begin_src jupyter-python
+col_layer_fracs = col_layer_nodes.div(col_layer_nodes.sum(axis=1), axis=0)
+
+col_composition_frac_layers = (col_shapes.join(pd.concat([n for _,n in col_layer_fracs.iteritems()],
+                                                         keys=col_layer_fracs.columns, names=["layer"])
+                                               .reorder_levels([1,0]).rename("fracs"))
+                               .reset_index().set_index("subtarget_id"))
+
+fig = plt.figure(figsize=(GOLDEN * 10, 10))
+ax = fig.add_subplot()
+ax = sbn.scatterplot(x="volume", y="fracs", hue="layer", ax=ax,
+                     data=col_composition_frac_layers.reset_index(drop=True))
+
+layer_counts = circuit.cells.get(properties="layer").value_counts()
+layer_fracs = layer_counts / layer_counts.sum()
+
+for l, f in layer_fracs.items():
+    ax.hlines(y=layer_fracs.values, xmin=1.75e8, xmax=4.0e8, color="gray", linestyles="--")
+    ax.text(x=1.7E8, y=f, s=f"L{l}")
+#+end_src
+
+#+RESULTS: plot-col-nodefracs-volumes
+#+begin_ORG
+#+attr_org: :width 95%
+#+NAME: frac-nodes vs volume
+#+CAPTION: Fraction of nodes in each layer against the total volume of a column
+[[file:./conicality/nodesfracs_vs_volumes.png]]
+#+end_ORG
+
+So we see that the fractions of the nodes per layer follow the expected dependence on volume, /i.e/ no dependence. The variance around the expected value should arise from other geometrical features.
+
+#+name: plot-col-nodefracs-heights
+#+header: :results value :file ./conicality/nodesfracs_vs_heights.png
+#+header: :exports both
+#+header: :wrap (display-fig "frac-nodes vs heights" "Fraction of nodes in each layer against the total heights of a column")
+#+begin_src jupyter-python
+col_layer_fracs = col_layer_nodes.div(col_layer_nodes.sum(axis=1), axis=0)
+
+col_composition_frac_layers = (col_shapes.join(pd.concat([n for _,n in col_layer_fracs.iteritems()],
+                                                         keys=col_layer_fracs.columns, names=["layer"])
+                                               .reorder_levels([1,0]).rename("fracs"))
+                               .reset_index().set_index("subtarget_id"))
+
+fig = plt.figure(figsize=(GOLDEN * 10, 10))
+ax = fig.add_subplot()
+ax = sbn.scatterplot(x="height", y="fracs", hue="layer", ax=ax,
+                     data=col_composition_frac_layers.reset_index(drop=True))
+
+layer_counts = circuit.cells.get(properties="layer").value_counts()
+layer_fracs = layer_counts / layer_counts.sum()
+
+for l, f in layer_fracs.items():
+    ax.hlines(y=layer_fracs.values, xmin=1400, xmax=2100, color="gray", linestyles="--")
+    ax.text(x=1350, y=f, s=f"L{l}")
+#+end_src
+
+#+RESULTS: plot-col-nodefracs-heights
+#+begin_ORG
+#+attr_org: :width 95%
+#+NAME: frac-nodes vs heights
+#+CAPTION: Fraction of nodes in each layer against the total heights of a column
+[[file:./conicality/nodesfracs_vs_heights.png]]
+#+end_ORG
+
+#+name: plot-col-nodes_per_layer-conicalities
+#+header: :results value :file ./conicality/composition-nodes_per_layer-conicality.png
+#+header: :exports both
+#+header: :wrap (display-fig "Column composition: cell count and conicality" "Cell count per layer of a column depends it's conicality.")
+#+begin_src jupyter-python
+fig = plt.figure(figsize=(GOLDEN * 10, 10))
+sbn.scatterplot(x="conicality", y="nodes", hue="layer", ax=fig.add_subplot(), data=col_composition_layers.reset_index())
+#+end_src
+
+#+RESULTS: plot-col-nodes_per_layer-conicalities
+#+begin_ORG
+#+attr_org: :width 95%
+#+CAPTION: Cell count per layer of a column depends it's conicality.
+#+NAME: Column composition: cell count and conicality#+caption: Cell count per layer of a column depends it's conicality.
+[[file:./conicality/composition-nodes_per_layer-conicality.png]]
+#+end_ORG
+
+#+name: plot-col-fracs_per_layer-conicalities
+#+header: :results value :file ./conicality/composition-fracs_per_layer-conicality.png
+#+header: :exports both
+#+header: :wrap (display-fig "Column composition: cell count and conicality" "Cell count fraction per layer of a column depends it's conicality.")
+#+begin_src jupyter-python
+fig = plt.figure(figsize=(GOLDEN * 10, 10))
+ax = sbn.scatterplot(x="conicality", y="fracs", hue="layer", ax=fig.add_subplot(),
+                     data=col_composition_frac_layers.reset_index())
+
+
+layer_counts = circuit.cells.get(properties="layer").value_counts()
+layer_fracs = layer_counts / layer_counts.sum()
+
+for l, f in layer_fracs.items():
+    ax.hlines(y=layer_fracs.values, xmin=-0.009, xmax=0.001, color="k")
+    ax.text(x=-0.008, y=f, s=f"L{l}")
+
+
+fig
+#+end_src
+
+#+RESULTS: plot-col-fracs_per_layer-conicalities
+#+begin_ORG
+#+attr_org: :width 95%
+#+CAPTION: Cell count fraction per layer of a column depends it's conicality.
+#+NAME: Column composition: cell count and conicality#+caption: Cell count fraction per layer of a column depends it's conicality.
+[[file:./conicality/composition-fracs_per_layer-conicality.png]]
+#+end_ORG
+While the cell fractions did not show any dependence on the subtarget volume, the plot above shows decreasing cell fraction in L2, L3, and L4 with conicality, while L5 has the expected fraction and L6 fraction increases with conicality, even reaching almost half the cells in subtargets with a positive ~conicality~. Could this be happening because, compared to other layers, L6 has a larger volume where conicality is larger?
+
+** Connections
+We can also look at the number of connections,
+#+begin_src jupyter-python
+col_cnxns = (tap.adjacency["local"].dataset.loc[col_shapes.index].apply(lambda l: l().astype(bool).sum())
+             .droplevel(["circuit_id", "connectome_id"]).loc[col_shapes.index])
+#+end_src
+
+#+RESULTS:
+:  2023-07-04 18:39:50,035: Load dataset ('extract-edge-populations', 'local'):
+: 'NotAvailable'
+:  2023-07-04 18:39:50,037: Load dataset ('extract-edge-populations', 'long-range-cross'):
+: 'NotAvailable'
+:  2023-07-04 18:39:50,037: Load dataset ('extract-edge-populations', 'local-cross'):
+: 'NotAvailable'
+
+and use the results to visualize relationships,
+#+name: plot-col-edges_volumes
+#+header: :results value :file ./conicality/composition-edges-volume.png
+#+header: :exports both
+#+header: :wrap (display-fig "Column composition: Edge count and volume" "Edge count of a column depends it's volume.")
+#+begin_src jupyter-python
+col_connectivity = col_shapes.assign(edges=col_cnxns)
+
+fig = plt.figure(figsize=(GOLDEN*10, 10))
+ax = fig.add_subplot()
+sbn.scatterplot(x="volume", y="edges", ax=ax, data=col_connectivity.reset_index(drop=True))
+ #+end_src
+
+ #+RESULTS: plot-col-edges_volumes
+ #+begin_ORG
+ #+attr_org: :width 95%
+ #+NAME: Column composition: Edge count and volume
+ #+CAPTION: Edge count of a column depends it's volume.
+ :RESULTS:
+ : <AxesSubplot:xlabel='volume', ylabel='edges'>
+ [[file:./conicality/composition-edges-volume.png]]
+ :END:
+ #+end_ORG
+
+ Let us check layer connectivity.
+ #+begin_src jupyter-python :results silent
+def count_edges(adj, nodes, from_layer=None, to_layer=None):
+    """..."""
+    adj = adj.astype(bool).tocoo()
+    layers = pd.DataFrame({"from_layer": [f"L{l}" for l in nodes.layer.loc[adj.row].values],
+                           "to_layer":  [f"L{l}" for l in nodes.layer.loc[adj.col].values]})
+    layer_counts = layers.value_counts()
+    return layer_counts
+ #+end_src
+
+To compute for all subtargets,
+ #+begin_src jupyter-python
+from tqdm import tqdm; tqdm.pandas()
+_edges = (col_shapes.index.to_series()
+          .progress_apply(lambda s: count_edges(tap.adjacency["local"].dataset.loc[s, 0, 0](),
+                                                tap.nodes.dataset.loc[s, 0]())))
+layers = _edges.columns
+edges = pd.concat([_edges[ll] for ll in layers], axis=0, keys=layers).rename("edges")
+del _edges
+#+end_src
+
+#+RESULTS:
+
+That we can join with columnar shapes,
+#+begin_src jupyter-python
+col_composition_edges_layers = col_shapes.join(edges).reorder_levels([2, 0, 1])
+ #+end_src
+
+To plot
+#+name: plot-col-edgefracs_from_layer_conicality
+#+header: :results value :file ./conicality/composition-edgefracs-from_layer-conicality.png
+#+header: :exports both
+#+header: :wrap (display-fig "Column composition: Edge fractions per layer and conicality")
+#+begin_src jupyter-python
+col_edges_from_layer = col_composition_edges_layers.groupby(["subtarget_id", "from_layer"]).edges.sum()
+col_composition_edges_from_layer = col_shapes.join(col_edges_from_layer)
+
+fig = plt.figure(figsize=(10 *GOLDEN, 10)); ax = fig.add_subplot()
+sbn.scatterplot(x="conicality", y="edges", hue="from_layer", ax=ax,
+                data=col_composition_edges_from_layer.reset_index())
+#+end_src
+
+#+name: plot-col-edgefracs_to_layer_conicality
+#+header: :results value :file ./conicality/composition-edgefracs-to_layer-conicality.png
+#+header: :exports both
+#+header: :wrap (display-fig "Column composition: Edge fractions per layer and conicality")
+#+begin_src jupyter-python
+col_edges_to_layer = col_composition_edges_layers.groupby(["subtarget_id", "to_layer"]).edges.sum()
+col_composition_edges_to_layer = col_shapes.join(col_edges_to_layer)
+
+fig = plt.figure(figsize=(10 *GOLDEN, 10)); ax = fig.add_subplot()
+sbn.scatterplot(x="conicality", y="edges", hue="to_layer", ax=ax,
+                data=col_composition_edges_to_layer.reset_index())
+#+end_src
+
+#+RESULTS: plot-col-edgefracs_to_layer_conicality
+#+begin_ORG
+#+attr_org: :width 95%
+#+NAME: Column composition: Edge fractions per layer and conicality
+
+:RESULTS:
+: <AxesSubplot:xlabel='conicality', ylabel='edges'>
+[[file:./conicality/composition-edgefracs-to_layer-conicality.png]]
+:END:
+#+end_ORG
+
+#+begin_src jupyter-python :result silent
+def norm_edges(role_layer):
+    """..."""
+    def normalize(shape):
+        s = shape.droplevel(["subtarget_id", role_layer])
+        return s / s.sum()
+    return normalize
+
+from_edges_normed = (col_composition_edges_layers.edges.groupby(["subtarget_id", "from_layer"])
+                     .apply(norm_edges("from_layer")).rename("edge_fracs"))
+#+end_src
+
+#+RESULTS:
+
+To plot,
+
+#+begin_src jupyter-python
+#col_composition_edgefracs_layers = pd.concat([col_composition_edges_layers, from_edges_normed], axis=1)
+edges_normed = ((col_composition_edges_layers.edges
+                / col_composition_edges_layers.edges.groupby("subtarget_id").sum())
+                .rename("edge_fracs"))
+col_composition_edgefracs_layers = pd.concat([col_composition_edges_layers, edges_normed], axis=1)
+#+end_src
+
+And we can plot a lattice,
+#+name: plot-col-edges_layer_layer_conicality
+#+header: :results value :file ./conicality/composition-edges-layer_layer-conicality.png
+#+header: :exports both
+#+header: :wrap (display-fig "Column composition: Edges per layer and conicality")
+#+begin_src jupyter-python
+import matplotlib as mpl
+with mpl.rc_context({"font.size": 8, "xtick.labelsize": 8, "ytick.labelsize": 8,
+                     "axes.titlesize": 12, "axes.labelsize": 12}):
+    g = sbn.FacetGrid(col_composition_edgefracs_layers.reset_index(), col="to_layer", row="from_layer",
+                      height=2, aspect=1.0, margin_titles=True)
+    g.map(sbn.scatterplot, "conicality", "edges")
+#+end_src
+
+#+RESULTS: plot-col-edges_layer_layer_conicality
+#+begin_ORG
+#+attr_org: :width 95%
+#+NAME: Column composition: Edges per layer and conicality
+
+[[file:./conicality/composition-edges-layer_layer-conicality.png]]
+#+end_ORG
+
+or
+#+name: plot-col-edgefracs_layer_layer_conicality
+#+header: :results value :file ./conicality/composition-edgefracs-layer_layer-conicality.png
+#+header: :exports both
+#+header: :wrap (display-fig "Column composition: Edge-fractions per layer and conicality")
+#+begin_src jupyter-python
+import matplotlib as mpl
+with mpl.rc_context({"font.size": 8, "xtick.labelsize": 8, "ytick.labelsize": 8,
+                     "axes.titlesize": 12, "axes.labelsize": 12}):
+    g = sbn.FacetGrid(col_composition_edgefracs_layers.reset_index(), col="to_layer", row="from_layer",
+                      height=2, aspect=1.0, margin_titles=True)
+    g.map(sbn.scatterplot, "conicality", "edge_fracs")
+#+end_src
+
+#+RESULTS: plot-col-edgefracs_layer_layer_conicality
+#+begin_ORG
+#+attr_org: :width 95%
+#+NAME: Column composition: Edge-fractions per layer and conicality
+
+[[file:./conicality/composition-edgefracs-layer_layer-conicality.png]]
+#+end_ORG
+
+Let us normalize the edges by the product of nodes in layers from and to,
+#+begin_src jupyter-python
+from_nodes = (col_composition_nodes_layers.nodes
+              .loc[col_composition_edges_layers.droplevel("to_layer").index]
+             .rename("nodes"))
+to_nodes = (col_composition_nodes_layers.nodes
+            .loc[col_composition_edges_layers.droplevel("from_layer").index]
+             .rename("nodes"))
+col_composition_edgesnormed_layers = pd.concat([col_composition_edges_layers,
+                                                (col_composition_edges_layers.edges.rename("edgesnormed")
+                                                 / (from_nodes.values * to_nodes.values))],
+                                                axis=1)
+#+end_src
+
+#+RESULTS:
+
+To plot,
+#+name: plot-col-edgesnormed_layer_layer_conicality
+#+header: :results value :file ./conicality/composition-edgesnormed-layer_layer-conicality.png
+#+header: :exports both
+#+header: :wrap (display-fig "Column composition: Edges normed per layer and conicality")
+#+begin_src jupyter-python
+import matplotlib as mpl
+with mpl.rc_context({"font.size": 8, "xtick.labelsize": 8, "ytick.labelsize": 8,
+                     "axes.titlesize": 12, "axes.labelsize": 12}):
+    g = sbn.FacetGrid(col_composition_edgesnormed_layers.reset_index(), col="to_layer", row="from_layer",
+                      height=2, aspect=1.0, margin_titles=True)
+    g.map(sbn.scatterplot, "conicality", "edgesnormed")
+    for row in g.axes:
+        for ax in row:
+            ax.set_yscale("linear")
+#+end_src
+
+#+RESULTS: plot-col-edgesnormed_layer_layer_conicality
+#+begin_ORG
+#+attr_org: :width 95%
+#+NAME: Column composition: Edges normed per layer and conicality
+
+[[file:./conicality/composition-edgesnormed-layer_layer-conicality.png]]
+#+end_ORG
+
+#+name: plot-col-edgesnormed_layer_layer_height
+#+header: :results value :file ./conicality/composition-edgesnormed-layer_layer-height.png
+#+header: :exports both
+#+header: :wrap (display-fig "Column composition: Edges normed per layer and height")
+#+begin_src jupyter-python
+import matplotlib as mpl
+with mpl.rc_context({"font.size": 8, "xtick.labelsize": 8, "ytick.labelsize": 8,
+                     "axes.titlesize": 12, "axes.labelsize": 12}):
+    g = sbn.FacetGrid(col_composition_edgesnormed_layers.reset_index(), col="to_layer", row="from_layer",
+                      height=2, aspect=1.0, margin_titles=True)
+    g.map(sbn.scatterplot, "height", "edgesnormed")
+#+end_src
+
+#+RESULTS: plot-col-edgesnormed_layer_layer_height
+#+begin_ORG
+#+attr_org: :width 95%
+#+NAME: Column composition: Edges normed per layer and height
+
+[[file:./conicality/composition-edgesnormed-layer_layer-height.png]]
+#+end_ORG
+
+#+begin_src jupyter-python
+#edgesnormed_ll = (col_composition_edgesnormed_layers.reset_index()
+#                  .pivot(columns="from_layer", values="edgesnormed", index=["subtarget_id", "to_layer"]))
+
+h = col_composition_edgesnormed_layers.height.values
+hbins = (10 * h / (h.max() - h.min())).astype(int)
+
+c = col_composition_edgesnormed_layers.conicality.values
+cbins = (10 * c / (c.max() - c.min())).astype(int)
+
+qq = col_composition_edgesnormed_layers.assign(height_bins=hbins, conicality_bins=cbins)
+layers = [f"L{l}" for l in range(1, 7)]
+qqq = {pre: {post: (qq.loc[slice(None), pre, post].droplevel(["from_layer", "to_layer"])
+                    .groupby(["subtarget_id", "height_bins", "conicality_bins"])
+                    .edgesnormed.mean()
+                    .droplevel("subtarget_id").groupby(["height_bins", "conicality_bins"]).mean().reset_index()
+                    .pivot(index="height_bins", columns="conicality_bins", values="edgesnormed"))
+             for post in layers}
+       for pre in layers}
+#+end_src
+
+#+RESULTS:
+
+#+name: plot-col-edgesnormed_layer_layer_height_conicality
+#+header: :results value :file ./conicality/composition-edgesnormed-layer_layer-height-conicality.png
+#+header: :exports both
+#+header: :wrap (display-fig "Column composition: Edges normed per layer and height and conicality")
+#+begin_src jupyter-python
+import matplotlib as mpl
+with mpl.rc_context({"font.size": 8, "xtick.labelsize": 8, "ytick.labelsize": 8,
+                     "axes.titlesize": 12, "axes.labelsize": 12}):
+    g = sbn.FacetGrid(col_composition_edgesnormed_layers.reset_index(), col="to_layer", row="from_layer",
+                      height=2, aspect=1.0, margin_titles=True, legend_out=True)
+    g.map_dataframe(sbn.scatterplot, x="conicality", y="height", hue="edgesnormed")
+#+end_src
+
+#+RESULTS: plot-col-edgesnormed_layer_layer_height_conicality
+#+begin_ORG
+#+attr_org: :width 95%
+#+NAME: Column composition: Edges normed per layer and height and conicality
+
+[[file:./conicality/composition-edgesnormed-layer_layer-height-conicality.png]]
+#+end_ORG

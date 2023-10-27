@@ -27,5 +27,5 @@ def get_logger(for_step, at_level=None):
     """Centralized logging for ConnSense Apps."""
     logger = logging.getLogger(f"ConnSense {for_step.upper()}")
     logger.setLevel(at_level if at_level
-                    else os.environ.get("LOGLEVEL", logging.INFO))
+                    else int(os.environ.get("LOGLEVEL", logging.INFO)))
     return logger

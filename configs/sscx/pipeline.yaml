@@ -258,6 +258,15 @@ parameters:
             algorithm:
               source: "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/randomization.py"
               method: "ER_shuffle"
+          dd2:
+            description: >-
+              Apply DD2, a second order distance dependent model, to rewire the circuit.
+            seeds: [0, 1, 2, 3, 4]
+            algorithm:
+              source: "/gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/connectome_analysis/library/randomization.py"
+              method: "run_DD2_model"
+            tap_datasets:
+              model_params_dd2: ["analyze-connectivity", "model-params-dd2"]
 # controls:1 ends here
 
 # We will slice each ~subtarget~ into ~subtgraphs~ consisting of each of the cortical layers. Thus a single ~subtarget~ should give us 6 of these ~slicings~. To compute analysis on a ~slicing~ we will have to enter it inside the ~analysis~ config.
@@ -452,6 +461,52 @@ parameters:
           method: "cross_col_k_in_degree"
         output: "pandas.DataFrame"
 # cross-col-k-indegree:1 ends here
+
+# We have defined extractions of /cross-connectivity/, which measures the amount of connectivity between ~subtargets~. This data can be large on the disc, so we may want to save aggregate values only. We can interpret this data as connectivity of a /coarse-grained/ connectome with connectivity strengths in each ~source --> target~ representing the total number of synapses from the axons starting at the neurons contained in the ~source~ sub-population on to dendrites of the neurons among the ~target~ sub-population. We define ~source~ and ~target~ sub-populations as our analysis' ~subtargets~, and aggregate ~moments~ of the values of the connection matrix containing synapse counts,
+# #+header: :comments both :padline no :tangle ./pipeline.yaml
+
+# [[file:config.org::*cross-connectivity][cross-connectivity:1]]
+      cross-connectivity-local:
+        description: >-
+          Moments of counts of synapses between nodes across subtargets.
+        input:
+          pre:
+            dataset: ["define-subtargets", "flatmap-columns"]
+          circuit:
+            - "Bio_M"
+          connectome:
+            - "local"
+          post:
+            dataset: ["define-subtargets", "flatmap-columns"]
+          join: CROSS
+        computation:
+          source: micasa.connsense.develop.extract.edge_populations.extract_connectivity
+          method: aggregate_cross_adj
+        output: "pandas.Series"
+# cross-connectivity:1 ends here
+
+# for ~local~ edges and
+# #+header: :comments both :padline no :tangle ./pipeline.yaml
+
+# [[file:config.org::*cross-connectivity][cross-connectivity:2]]
+      cross-connectivity-long-range:
+        description: >-
+          Moments of counts of synapses between nodes across subtargets.
+        input:
+          pre:
+            dataset: ["define-subtargets", "flatmap-columns"]
+          circuit:
+            - "Bio_M"
+          connectome:
+            - "intra_SSCX_midrange_wm"
+          post:
+            dataset: ["define-subtargets", "flatmap-columns"]
+          join: CROSS
+        computation:
+          source: micasa.connsense.develop.extract.edge_populations.extract_connectivity
+          method: aggregate_cross_adj
+        output: "pandas.Series"
+# cross-connectivity:2 ends here
 
 # #+header: :comments both :padline no :tangle ./pipeline.yaml
 

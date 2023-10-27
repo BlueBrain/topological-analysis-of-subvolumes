@@ -1,0 +1,955 @@
+#+STARTUP: overview
+#+STARTUP: logdrawer
+#+STARTUP: hideblocks
+
+#+PROPERTY: header-args: :eval never-export
+
+#+PROPERTY: header-args:jupyter-python :session ~/jupyter-run/active-ssh.json
+#+PROPERTY: header-args:jupyter: :exports both
+
+#+PROPERTY: header-args:jupyter :session ~/jupyter-run/active-ssh.json
+#+PROPERTY: header-args:jupyter-python: :exports both
+
+#+PROPERTY: header-args:bash: :exports code
+
+#+PROPERTY: header-args:elisp: :exports both
+
+#+PROPERTY: header-args:bibtex :exports none
+#+PROPERTY: header-args:bibtex :tangle "~/observations/org/resources/bibliography/refs.bib"
+
+#+LATEX_CLASS: article
+#+LATEX_CLASS_OPTIONS: [a4paper,12pt]
+#+LATEX_HEADER: \usepackage[utf8]{inputenc}
+#+LATEX_HEADER: \usepackage{booktabs} % for much better looking tables
+#+LATEX_HEADER: \usepackage{g\usepackage{babel}
+#+LATEX_HEADER: \usepackage{babel}
+#+LATEX_HEADER: \usepackage[up,bf,raggedright]{titlesec}
+#+LATEX_HEADER: \usepackage{paralist} % very flexible & customisable lists (eg. enumerate/itemize, etc.)
+#+LATEX_HEADER: \usepackage{subfig} % make it possible to include more than one captioned figure/table in a single float
+#+LATEX_HEADER: \usepackage[labelfont=bf,font=small]{caption}
+#+LATEX_HEADER: \usepackage[hidelinks]{hyperref}% for adding urls
+#+LATEX_HEADER: \usepackage{sectsty}
+#+LATEX_HEADER: \allsectionsfont{\sffamily\mdseries\upshape} % (See the fntguide.pdf for font help)
+#+LATEX_HEADER: \sectionfont{\bfseries\Large\raggedright}
+#+LATEX_HEADER \usepackage[natbib=true]{biblatex} \DeclareFieldFormat{apacase}{#1} \addbibresource{~/org/resources/bibliography/refs.bib}
+#+LATEX_HEADER: \usepackage{parskip}
+#+LATEX_HEADER: \usepackage{amsmath}%To cleanly write equations and math text
+
+
+#+OPTIONS: <:nil c:nil todo:nil H:5
+
+Let us load the ~Python~ environment that we will need for our discussion,
+#+begin_src elisp :results silent
+(pyvenv-activate "~/.vmgr_repo/py39/")
+#+end_src
+
+Let us setup an interactive ~Python~ session where we can run the code developed here.
+#+begin_src jupyter
+print("Welcome to EMACS Jupyter")
+#+end_src
+
+#+RESULTS:
+: Welcome to EMACS Jupyter
+
+#+title: Flatmapping a Circuit
+
+We study a method to calculate flat coordinates for brain regions with a local /principal/ axis of anatomical organization. Our main target is the cortex, where the principal axis of organization is towards the cortical surface (pia). This operation maps each /voxel/ in the 3D physical space of the brain-region to a /pixel/ in it's 2D ~flatmap~. Multiple voxels will be mapped to the same pixel, which will thus represent a lamniarily structured sub-volume of the circuit. Representation of layers in the ~flatmap~ is uniform across the cortical surface.
+
+* Setup
+In our discussion we will develop scientific concepts to measure the circuit, and implement Python functions to compute them. Here we setup a notebook template to test and explore, and the structure of a ~Python~ package for our methods.
+
+To get the notebook you will have to clone,
+#+BEGIN_SRC shell
+git clone https://bbpgitlab.epfl.ch/conn/structural/topological-analysis-of-subvolumes.git
+git checkout beta
+#+END_SRC
+
+#+NAME: notebook-init
+#+BEGIN_SRC jupyter-python :results silent
+from importlib import reload
+from collections.abc import Mapping
+from collections import OrderedDict
+from pprint import pprint, pformat
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+import matplotlib
+
+reload(matplotlib)
+from matplotlib import pylab as plt
+import seaborn as sbn
+
+from IPython.display import display
+
+from bluepy import Synapse, Cell, Circuit
+import voxcell
+
+import conntility
+from conntility.circuit_models.neuron_groups import group_by_grid
+from conntility.flatmapping import supersample_flatmap
+
+GOLDEN = (1. + np.sqrt(5.))/2.
+print("We will plot golden aspect ratios: ", GOLDEN)
+#+END_SRC
+
+** Workspaces
+We have run ~connsense-CRAP~ for the SSCx dissemination variant /Bio-M/, extracting data that we will use to compute the factology. Here is a list of workspaces we will need to generate factsheets.
+#+NAME: notebook-workspaces
+#+BEGIN_SRC jupyter-python :results silent
+ROOTSPACE = Path("/")
+PROJSPACE = ROOTSPACE / "gpfs/bbp.cscs.ch/project/proj83"
+SOODSPACE = PROJSPACE / "home/sood"
+CONNSPACE = SOODSPACE / "topological-analysis-subvolumes/test/v2"
+DEVSPACE  = CONNSPACE / "test" / "develop"
+#+END_SRC
+
+** ~connsense~ Modules
+While test-developing it will be good to have direct access to the ~connsense-TAP-store~ we will use. We will use a module from ~connsense~ to load the HDFstore,
+#+NAME: notebook-connsense-tap
+#+BEGIN_SRC jupyter-python
+from connsense.develop import topotap as cnstap
+tap = cnstap.HDFStore(CONNSPACE/"pipeline.yaml")
+circuit = tap.get_circuit("Bio_M")
+print("Available analyses: ")
+pprint(tap.analyses)
+circuit
+#+END_SRC
+
+#+RESULTS: notebook-connsense-tap
+:RESULTS:
+:  2023-07-23 20:05:22,648: Load circuit Bio_M
+: Available analyses:
+: {'connectivity': {'cross-col-k-indegree': <connsense.develop.topotap.TapDataset object at 0x7fff1470e7c0>,
+:                   'cross-connectivity-local': <connsense.develop.topotap.TapDataset object at 0x7fff1470eb50>,
+:                   'cross-connectivity-long-range': <connsense.develop.topotap.TapDataset object at 0x7fff1470e640>,
+:                   'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7fff1470e820>,
+:                   'node-participation': <connsense.develop.topotap.TapDataset object at 0x7fff1470e8e0>,
+:                   'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7fff1470e940>,
+:                   'thalamic-innervation': <connsense.develop.topotap.TapDataset object at 0x7fff1470e2b0>,
+:                   'wm-innervation': <connsense.develop.topotap.TapDataset object at 0x7fff1470e790>}}
+: <bluepy.circuit.Circuit at 0x7fff1470e4f0>
+:END:
+
+
+** Emacs specific :noexport:
+We can get all figures displayed 95% so that we can work with them in front of us in an Emacs buffer. Here is a method that does that witb an example. This code is here only to see how much we use it. It should find a way to a place in our ~doom-config~.
+
+#+NAME: fit-display-defun
+#+BEGIN_SRC emacs-lisp :results silent
+(defun fit-display-of (figure width height)
+    (concat "#+attr_org: :width " width " :height " height (string ?\n) figure))
+#+END_SRC
+
+#+NAME: plot-display
+#+HEADER: :var figure="this-should-be-path.png" :var width="95%" :var height="95%"
+#+BEGIN_SRC emacs-lisp :results silent
+(fit-display-of figure width height)
+#+END_SRC
+
+That we can use with ~:post~,
+#+name: test-plot-display
+#+HEADER: :results value file :file ./test-fit-fig.png
+#+HEADER: :exports both :session return
+#+HEADER: :post plot-display(figure=*this*)
+#+BEGIN_SRC jupyter-python :post plot-display(figure=*this*)
+import pandas as pd
+from matplotlib import pyplot as plt
+import seaborn as sbn
+
+csv_url = 'https://archive.ics.uci.edu/ml/machine-learning-databases/iris/iris.data'
+col_names = ['Sepal_Length','Sepal_Width','Petal_Length','Petal_Width','Class']
+irisies = pd.read_csv(csv_url, names=col_names)
+
+fig = plt.figure(figsize=(15, 12))
+ax = sbn.histplot(x="Petal_Length", hue="Class", data=irisies, ax=fig.add_subplot())
+#+END_SRC
+
+#+RESULTS: test-plot-display
+#+attr_org: :width 95% :height 95%
+[[file:./test-fit-fig.png]]
+
+We can also ~wrap~ with a function,
+#+BEGIN_SRC emacs-lisp :results silent
+(defun display-fig (&optional label caption attributes)
+  "A wrap function for src blocks."
+  (concat
+   "ORG\n"
+   "#+attr_org: :width 95%\n"
+   "#+attr_html: :width 95%\n"
+   "#+attr_latex: :width 95%\n"
+   (when caption
+     (format "#+CAPTION: %s\n" caption))
+   (when label
+     (format "#+NAME: %s" label))
+   (when caption
+     (format "#+caption: %s" caption))))
+#+END_SRC
+
+and use it with ~:wrap~,
+#+HEADER: :wrap (display-fig "fig-sin" "A sin wave.")
+#+name: figure-sin-wave
+#+BEGIN_SRC jupyter-python
+import numpy as np
+import matplotlib.pyplot as plt
+from pathlib import Path
+
+x = np.linspace(0, 4 * np.pi, 1000)
+y = np.sin(x)
+
+fig = plt.figure(figsize=(15, 12))
+axes = plt.plot(x, y)
+p = Path.home() / 'work/workspaces/scratch/sin.png'
+#plt.savefig(p)
+#+END_SRC
+
+#+RESULTS: figure-sin-wave
+#+begin_ORG
+#+attr_org: :width 95%
+#+attr_html: :width 95%
+#+attr_latex: :width 95%
+#+CAPTION: A sin wave.
+#+NAME: fig-sin#+caption: A sin wave.
+[[file:./.ob-jupyter/2b5f030950050e88d31b69a9e93fb0c7f0a4000e.png]]
+#+end_ORG
+
+#+NAME: fit-display
+#+HEADER: :var figure="" :var attr_value="95%" :var attr_name="#+attr_html: :width "
+#+BEGIN_SRC emacs-lisp
+(concat attr_name attr_value (string ?\n) figure)
+#+END_SRC
+
+#+RESULTS: fit-display
+: #+attr_html: :width 95%
+
+#+NAME: attr-wrap
+#+BEGIN_SRC sh :var figure="" :var width="95%" :results output
+echo "#+attr_html: :width $width"
+echo "$figure"
+#+END_SRC
+
+#+RESULTS: attr-wrap
+: #+attr_html: :width 95%
+:
+
+* Introduction
+We will discuss ~flatmapping~ based on methods developed at BBP, and develop further utilities that help us analyze circuit ~subtargets~ based on it's ~flatmap~ here.
+#+name: fmap-util-init
+#+header: :comments both :padline no :results silent
+#+begin_src jupyter-python :tangle ./develop/subtargets.py
+import pandas as pd
+import numpy as np
+
+import bluepy
+import voxcell
+
+import conntility
+from conntility.circuit_models.neuron_groups import group_by_grid
+from conntility.flatmapping import supersample_flatmap
+#+end_src
+
+
+#+name: fmap-util
+#+header: :comments both :padline no :results silent
+#+begin_src jupyter-python :tangle ./develop/subtargets.py
+#+end_src
+* Subtargets
+We define a /geometric/ subtarget as the sub-population of all neurons whose soma are located in an atlas ~subvolume~. Working in the circuit's ~flatspace~, we will place the ~flat-coordinates~ of each voxel in a grid of regular tiles. The grid's ~resolution~ is then the length of tile's sides, and inter-tile distance twice it's value.
+
+Let us begin by placing the flatmap positions in a grid. We will need a method to get flatmap positions from the circuit.
+#+name: fmap-coords
+#+header: :comments both :padline no :results silent
+#+begin_src jupyter-python :tangle ./develop/subtargets.py
+VOXEL_INDICES = ["i", "j", "k"]
+FLAT_XY = ["flat_x", "flat_y"]
+FLAT_DEPTH = "depth"
+
+def flatmap_coords(circuit, regions):
+    """...Get flatmap coordinates of a circuit's regions."""
+    pixelated = circuit.atlas.load_data("flatmap")
+    orientations = circuit.atlas.load_data("orientation")
+    fmap = supersample_flatmap(pixelated, orientations).raw
+    fmap_depth = supersample_flatmap(pixelated, orientations, include_depth=True).raw[:, :, :, 1]
+
+    voxels_valid = np.all(fmap >= 0, axis=-1)
+    voxels_modeled = mask_volume(circuit, regions)
+    voxels_mask = voxels_valid & voxels_modeled
+
+    by_voxel = pd.MultiIndex.from_arrays(np.nonzero(voxels_mask), names=VOXEL_INDICES)
+    flat_xy = pd.DataFrame(fmap[voxels_mask], columns=FLAT_XY, index=by_voxel)
+    return flat_xy.assign(depth=fmap_depth[voxels_mask])
+
+def mask_volume(circuit, regions):
+    """Get volumetric data coverging the circuit's atlas volume that intersects regions."""
+    hierarchy = voxcell.RegionMap.load_json(circuit.atlas.fetch_hierarchy())
+    region_ids = np.hstack([list(hierarchy.find(r, "acronym", with_descendants=True))
+                            for r in regions])
+    annotations = circuit.atlas.load_data("brain_regions")
+    return np.isin(annotations.raw, region_ids)#.reshape((-1,))
+#+end_src
+
+The ~flatmap_coords~ provide us information about the pixels where circuit regions' voxels' ~flatmap~ positions fall.
+#+begin_src jupyter-python
+sscx_regions = [f"S1{r}" for r in ("DZ", "DZO", "HL", "FL", "J", "Sh", "Tr", "ULp")]
+pixels = flatmap_coords(circuit, sscx_regions)
+display(pixels)
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+: /gpfs/bbp.cscs.ch/project/proj83/home/sood/proj83-rsync/Connectome-utilities/conntility/flatmapping/_supersample_utility.py:136: UserWarning: Optimal rotation is not uniquely or poorly defined for the given sets of vectors.
+:   res = Rotation.align_vectors(vtgt, vv)
+: Rotation errors: min: 0.0, median: 0.09387602600937707, mean: 0.1362824184485066, std: 0.15664142313770807, max: 2.0
+: Rotation errors: min: 0.0, median: 0.09387602600937707, mean: 0.1362824184485066, std: 0.15664142313770807, max: 2.0
+#+begin_example
+                  flat_x       flat_y        depth
+i   j   k
+252 248 44    131.326956  6305.991114  1252.640263
+        45    131.268842  6294.558394  1289.649372
+        46    131.210727  6283.125674  1326.658481
+    249 42    133.008187  6354.961759  1088.527667
+        43    159.829737  6334.371329  1252.640263
+...                  ...          ...          ...
+388 259 104  6003.844212  3858.573017    -0.000000
+389 253 113  6059.213031  3345.622218    -0.000000
+    254 110  6004.978052  3495.538957    -0.000000
+    255 109  6047.616610  3581.494568    -0.000000
+    256 110  6055.963382  3562.431813    -0.000000
+
+[791460 rows x 3 columns]
+#+end_example
+:END:
+
+
+To generate a grid for the resulting ~pixel-map~,
+#+name: fmap-subvolumes
+#+header: :comments both :padline no :results silent
+#+begin_src jupyter-python :tangle ./develop/subtargets.py
+def distribute_grid(points, resolution, shape="hexagon"):
+    """..."""
+    assert shape.lower() == "hexagon", "No other implemented!!!"
+    voxel_indices = points.index.to_frame().reset_index(drop=True)
+    return (group_by_grid(points, FLAT_XY, resolution).reset_index()
+            .rename(columns={"grid-i": "grid_i", "grid-j": "grid_j",
+                             "grid-x": "grid_x", "grid-y": "grid_y",
+                             "grid-subtarget": "subtarget"})
+            .astype({"grid_i": int, "grid_j": int})
+            .assign(voxel_i=voxel_indices.i.values,
+                    voxel_j=voxel_indices.j.values,
+                    voxel_k=voxel_indices.k.values)
+            .set_index(["voxel_i", "voxel_j", "voxel_k"]))
+#+end_src
+
+Distribution ~flatmap-pixels~ on grid-points we get a ~grid-assignment~.
+#+begin_src jupyter-python
+grid_assignment = distribute_grid(pixels, resolution=230.)
+display(grid_assignment)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+                         grid_i  grid_j       flat_x       flat_y  \
+voxel_i voxel_j voxel_k
+252     248     44          -27      27   131.326956  6305.991114
+                45          -27      27   131.268842  6294.558394
+                46          -27      27   131.210727  6283.125674
+        249     42          -27      27   133.008187  6354.961759
+                43          -27      27   159.829737  6334.371329
+...                         ...     ...          ...          ...
+388     259     104          -1      32  6003.844212  3858.573017
+389     253     113           0      30  6059.213031  3345.622218
+        254     110           0      30  6004.978052  3495.538957
+        255     109           0      30  6047.616610  3581.494568
+        256     110           0      30  6055.963382  3562.431813
+
+                               depth        grid_x  grid_y subtarget
+voxel_i voxel_j voxel_k
+252     248     44       1252.640263  3.802528e-13  6210.0    R18;C0
+                45       1289.649372  3.802528e-13  6210.0    R18;C0
+                46       1326.658481  3.802528e-13  6210.0    R18;C0
+        249     42       1088.527667  3.802528e-13  6210.0    R18;C0
+                43       1252.640263  3.802528e-13  6210.0    R18;C0
+...                              ...           ...     ...       ...
+388     259     104        -0.000000  6.174761e+03  3795.0   R11;C15
+389     253     113        -0.000000  5.975575e+03  3450.0   R10;C15
+        254     110        -0.000000  5.975575e+03  3450.0   R10;C15
+        255     109        -0.000000  5.975575e+03  3450.0   R10;C15
+        256     110        -0.000000  5.975575e+03  3450.0   R10;C15
+
+[791460 rows x 8 columns]
+#+end_example
+
+The ~grid-assignment~ contains a label for the ~subtarget~ each voxel was assigned to. We can generate ~grid-info~ from this assignment,
+#+name: fmap-grid-info
+#+header: :comments both :padline no :results silent
+#+begin_src jupyter-python :tangle ./develop/subtargets.py
+def inform_grid(assignment, resolution, shape="hexagon",
+                ,*, volume_per_voxel):
+    """...Extract info about a grid from an assignment of voxels to grid points."""
+    grid_ij = ["grid_i", "grid_j"]
+    tiles = (assignment.set_index(grid_ij)[["subtarget", "grid_x", "grid_y"]]
+             .drop_duplicates())
+    depths = assignment.groupby(grid_ij).depth
+
+    voxel_counts = assignment[grid_ij].value_counts()
+    return (tiles.reset_index().set_index(grid_ij)
+            .assign(subtarget_id=np.arange(len(tiles)) + 1)
+            .assign(is_not_boundary=check_boundary(resolution, shape))
+            .assign(number_voxels=voxel_counts)
+            .assign(has_sufficient_volume=check_volume(resolution, volume_per_voxel))
+            .assign(conicality=depths.apply(conicality()))
+            .assign(depth=depths.apply(column_depth()))
+            .assign(volume=depths.apply(column_volume(volume_per_voxel))))
+#+end_src
+that includes several measurements that can be used to quality check the ~subtargets~.
+
+#+name: fmap-grid-info-quality-check
+#+header: :comments both :padline no :results silent
+#+begin_src jupyter-python :tangle ./develop/subtargets.py
+from scipy.spatial import distance as spdist
+
+def check_boundary(resolution, shape="hexagon"):
+    """Check boundary of a assignment to a grid of given resolution."""
+    n_sides = {"hexagon": 6}[shape.lower()]
+
+    def _check_grid(points):
+        distances = spdist.squareform(spdist.pdist(points[["grid_x", "grid_y"]]))
+        n_neighbors = ((distances > 0) & (distances <= 2 * resolution)).sum(axis=0)
+        return n_neighbors == n_sides
+
+    return _check_grid
+
+
+def check_volume(resolution, volume_per_voxel, lower_bound=None):
+    """..."""
+    if lower_bound is None:
+        lower_bound = 1000 * np.pi * (resolution ** 2) / 1E9
+
+    def _check_grid(points):
+        volume = volume_per_voxel * points.number_voxels
+        return volume >= lower_bound
+
+    return _check_grid
+
+def conicality(min_size=2000, bin_size=100):
+    """..."""
+    def histogram(values):
+        bins = np.arange(0, np.max(values) + bin_size, bin_size)
+        bin_centers = 0.5 * (bins[:-1] + bins[1:])
+        return bin_centers, np.histogram(values, bins=bins)[0]
+
+    def _measure_voxel_depth(values):
+        if np.any(np.isnan(values)): return np.NaN
+
+        depths, n_voxels = histogram(values)
+        try:
+            slope, offset = np.polyfit(depths[1:-1], np.sqrt(n_voxels)[1:-1], 1)
+        except TypeError:
+            print("Could not measure conicality for depths: \n", depths)
+            return np.NaN
+        return slope
+
+    return _measure_voxel_depth
+
+def column_depth(min_size=2000, cutoff_perc=(2, 98)):
+    """..."""
+    def _measure_voxel_depth(values):
+        if np.any(np.isnan(values)): return np.NaN
+        return np.percentile(values, cutoff_perc[1]) - np.percentile(values, cutoff_perc[0])
+
+    return _measure_voxel_depth
+
+def column_volume(volume_per_voxel, min_size=2000):
+    """..."""
+    def _measure_voxel_depth(values):
+        if np.any(np.isnan(values)): return np.NaN
+        return len(values) * volume_per_voxel
+
+    return _measure_voxel_depth
+#+end_src
+
+We can also produce volumetric data that annotates the voxels by the ~subtarget~ they are in,
+#+name: fmap-subvolume-annotate
+#+header: :comments both :padline no :results silent
+#+begin_src jupyter-python :tangle ./develop/subtargets.py
+def annotate_subvolumes(atlas, grid_assignment,  grid_info, raw=False):
+    """..."""
+    voxels_by_subtarget = grid_assignment.subtarget.reset_index().set_index("subtarget")
+
+    subtarget_ids = grid_info.set_index("subtarget").subtarget_id
+
+    brain_regions = atlas.load_data("brain_regions")
+    annotations = np.zeros(brain_regions.shape, dtype=int)
+    for subtarget, indices in voxels_by_subtarget.groupby("subtarget"):
+        annotations[(indices["voxel_i"].values,
+                     indices["voxel_j"].values,
+                     indices["voxel_k"].values)] = subtarget_ids[subtarget]
+    return (annotations if raw else
+            voxcell.VoxelData(annotations, brain_regions.voxel_dimensions,
+                              offset=brain_regions.offset))
+#+end_src
+
+Having defined ~grid-tiles~ as ~subvolumes~, we can ~populate~ them with the circuit's neurons to define ~subtargets~,
+#+name: fmap-subtargets-distribute
+#+header: :comments both :padline no :results silent
+#+begin_src jupyter-python :tangle ./develop/subtargets.py
+from conntility.circuit_models.neuron_groups import load_group_filter
+
+def distribute_subtargets(circuit, subvolumes):
+    """..."""
+    loader_cfg = {
+        "loading": {
+            "properties": ["x", "y", "z"],
+            "atlas": [
+                {"data": subvolumes, "properties": ["subtarget_id"]}
+            ]
+        }
+    }
+    neurons = load_group_filter(circuit, loader_cfg).set_index("subtarget_id").gid
+    that_were_assigned_to_subtargets = neurons.index > 0
+    return neurons[that_were_assigned_to_subtargets].groupby("subtarget_id").apply(list)
+#+end_src
+
+We can put our efforts together into a method to generate subtargets from ~connsense~,
+#+name: fmap-subtargets-generate
+#+header: :comments both :padline no :results silent
+#+begin_src jupyter-python :tangle ./develop/subtargets.py
+def generate_subtargets(circuit, regions, grid_resolution, grid_shape="hexagon"):
+    """..."""
+    brain_regions = circuit.atlas.load_data("brain_regions")
+    pixels = flatmap_coords(circuit, regions)
+    grid_assignment = distribute_grid(pixels, grid_resolution, grid_shape)
+    grid_info = inform_grid(grid_assignment, grid_resolution, grid_shape,
+                            volume_per_voxel=brain_regions.voxel_volume/1E9)
+    subvolumes = annotate_subvolumes(circuit.atlas, grid_assignment, grid_info)
+    subtargets = distribute_subtargets(circuit, subvolumes)
+
+    return (grid_info, subvolumes, subtargets)
+#+end_src
+
+** Notebook
+We want to define subtargets on a grid in the circuit's ~flatmap~. The atlas ~flatmap~ is /pixelated/, /i.e./ the data consists of integer values. We will need to convert these values into floats by /supersampling/.
+#+name: notebook-generate-subtargets
+#+header: :comments both :padline no
+#+begin_src jupyter-python :tangle no :results silent
+fmap_pixelated = circuit.atlas.load_data("flatmap")
+orientations = circuit.atlas.load_data("orientation")
+
+fmap = supersample_flatmap(fmap_pixelated, orientations)
+fmap_depth = supersample_flatmap(fmap_pixelated, orientations, include_depth=True)
+#+end_src
+
+We do not want to include all the voxels in the subtargets, but only those where we have modeled the circuit, /i.e/ where cells were placed. The /populated/ regions were 8 /sub-regions/ of the rat primary SSCx. In the ~atlas~ we find the volumetric-dataset ~brain_regions~ that contains annotations (as integer-IDs) of regions. An ~annotation~ID~ is mapped to a ~region~ that must be in the ~atlas~ hierarchy. The atlas' ~brain_regions~ data may be descendents of the regions that we want to analyze. In the SSCx ~atlas~ these will be the overlaps of 8 SSCx subregions with the three cortical layers. So we prepare a list of the ~brain_region-IDs~ that are desecended from the 8 SSCx subregions,
+
+#+name: notebook-filter-regions
+#+header: :comments both :padline no
+#+begin_src jupyter-python :tangle no :results silent
+all_brain_regions = circuit.atlas.load_data("brain_regions")
+
+regions = [f"S1{r}" for r in ("DZ", "DZO", "HL", "FL", "J", "Sh", "Tr", "ULp")]
+hierarchy = voxcell.RegionMap.load_json(circuit.atlas.fetch_hierarchy())
+that_were_modeled = np.hstack([list(hierarchy.find(r, "acronym", with_descendants=True))
+                               for r in regions])
+
+voxels_modeled = np.isin(all_brain_regions.raw, that_were_modeled)
+#+end_src
+
+We can define this as a method,
+#+name: fmap-util-voxels
+#+header: :comments both :padline no :results silent
+#+begin_src jupyter-python :tangle no
+def mask_volume(circuit, regions):
+    """Get volumetric data coverging the circuit's atlas volume that intersects regions."""
+    hierarchy = voxcell.RegionMap.load_json(circuit.atlas.fetch_hierarchy())
+    region_ids = np.hstack([list(hierarchy.find(r, "acronym", with_descendants=True))
+                            for r in regions])
+    annotations = circuit.atlas.load_data("brain_regions")
+    return np.isin(annotations.raw, region_ids)#.reshape((-1,))
+#+end_src
+
+The ~volumetric-datasets~ for the ~flatmap~ contain matrix data that we want to /serialize/ into a frame, and filter the voxels that were modeled,
+#+name: notebook-supersample-fmap-frame
+#+header: :comments both :padline no
+#+begin_src jupyter-python :tangle no
+FLAT_XY = ["flat_x", "flat_y"]
+FLAT_DEPTH = "depth"
+
+raw_locations = fmap_ss.raw.reshape((-1, 2))
+filter_modeled = np.nonzero(np.all(raw_locations >= 0, axis=1)
+                            & voxels_modeled.reshape((-1,)))
+raw_local_depth = fmap_depth.raw[:, :, :, 1].flat[filter_modeled[0]]
+fcoords = (pd.DataFrame(raw_locations[filter_modeled], columns=FLAT_XY)
+           .assign(**{FLAT_DEPTH: raw_local_depth}))
+display(fcoords)
+#+end_src
+
+Here is a cleaner way to do this. In the flatmap, values of (-1, -1) are given to pixels that could not be flatmapped / supersampled. We want to remove these pixels, and their corresponding voxels from the those that we want to analyze.
+#+begin_src jupyter-python
+voxels_valid = np.all(fmap_ss.raw >= 0, axis=-1)
+
+flat_xy = pd.DataFrame(fmap_ss.raw[voxels_valid & voxels_modeled], columns=FLAT_XY)
+flat_coords = flat_xy.assign(depth=fmap_depth.raw[:, :, :, 1][voxels_valid & voxels_modeled])
+display(flat_coords)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+             flat_x       flat_y        depth
+0        131.326956  6305.991114  1252.640263
+1        131.268842  6294.558394  1289.649372
+2        131.210727  6283.125674  1326.658481
+3        133.008187  6354.961759  1088.527667
+4        159.829737  6334.371329  1252.640263
+...             ...          ...          ...
+791455  6003.844212  3858.573017    -0.000000
+791456  6059.213031  3345.622218    -0.000000
+791457  6004.978052  3495.538957    -0.000000
+791458  6047.616610  3581.494568    -0.000000
+791459  6055.963382  3562.431813    -0.000000
+
+[791460 rows x 3 columns]
+#+end_example
+
+The two results are identical,
+#+begin_src jupyter-python
+pd.testing.assert_frame_equal(fcoords, flat_coords)
+#+end_src
+
+#+name: fmap-util-flat-coords
+#+header: :comments both :padline no :results silent
+#+begin_src jupyter-python :tangle no
+VOXEL_INDICES = ["i", "j", "k"]
+
+def frame_coords(flatmap, depths=None, mask=None):
+    """Frame locations in a flatmap..."""
+    valid = np.all(flatmap >= 0, axis=-1)
+    mask = (valid if mask is None else valid & mask)
+
+    voxel_indices = pd.MultiIndex.from_arrays(np.nonzero(mask), names=VOXEL_INDICES)
+    flat_xy = pd.DataFrame(flatmap[mask], columns=FLAT_XY, index=voxel_indices)
+
+    return flat_xy if depths is None else flat_xy.assign(depth=depths[mask])
+#+end_src
+
+with which we can investigate a little. Comparing all the voxels that could be flatmapped to those that were modeled,
+#+name: fmap-util
+#+header: :comments both :padline no :results silent
+#+begin_src jupyter-python :tangle no
+#+end_src
+
+#+header: :comments both :padline no
+#+begin_src jupyter-python :tangle no
+fcoords_valid = frame_locations(fmap.raw, fmap_depth.raw[:, :, :, 1])
+fcoords_modeled = frame_locations(fmap.raw, fmap_depth.raw[:, :, :, 1], mask=voxels_modeled)
+print("Fraction voxels modeled: ", len(fcoords_modeled)/len(fcoords_valid))
+print("valid: ")
+display(fcoords_valid.describe())
+
+print("modeled: ")
+display(fcoords_modeled.describe())
+#+end_src
+
+With flat coordinates in a frame, we can create a pixel grid of voxels,
+#+name: notebook-subtargets-generate
+#+header: :comments both :padline no
+#+begin_src jupyter-python :tangle no
+radius = 230.0
+grid_voxels = (group_by_grid(fcoords, FLAT_XY, radius).reset_index()
+               .rename(columns={"grid-i": "grid_i", "grid-j": "grid_j",
+                                "grid-x": "grid_x", "grid-y": "grid_y",
+                                "grid-subtarget": "subtarget"})
+               .set_index(["grid_i", "grid_j"])
+               .assign(nrrd_file_flat_index=filter_modeled[0]))
+display(grid_voxels)
+#+end_src
+where we assigned the column ~nrrd_file_flat_index~ to save the flat index into the raw matrix nrrd
+
+#+RESULTS: notebook-subtargets-generate
+#+begin_example
+                    flat_x       flat_y        depth        grid_x  grid_y  \
+grid_i grid_j
+-27    27       131.326956  6305.991114  1252.640263  3.802528e-13  6210.0
+       27       131.268842  6294.558394  1289.649372  3.802528e-13  6210.0
+       27       131.210727  6283.125674  1326.658481  3.802528e-13  6210.0
+       27       133.008187  6354.961759  1088.527667  3.802528e-13  6210.0
+       27       159.829737  6334.371329  1252.640263  3.802528e-13  6210.0
+...                    ...          ...          ...           ...     ...
+-1     32      6003.844212  3858.573017    -0.000000  6.174761e+03  3795.0
+ 0     30      6059.213031  3345.622218    -0.000000  5.975575e+03  3450.0
+       30      6004.978052  3495.538957    -0.000000  5.975575e+03  3450.0
+       30      6047.616610  3581.494568    -0.000000  5.975575e+03  3450.0
+       30      6055.963382  3562.431813    -0.000000  5.975575e+03  3450.0
+
+              subtarget  nrrd_file_flat_index
+grid_i grid_j
+-27    27        R18;C0              43890748
+       27        R18;C0              43890749
+       27        R18;C0              43890750
+       27        R18;C0              43891032
+       27        R18;C0              43891033
+...                 ...                   ...
+-1     32       R11;C15              67542722
+ 0     30       R10;C15              67714903
+       30       R10;C15              67715186
+       30       R10;C15              67715471
+       30       R10;C15              67715758
+
+[791460 rows x 7 columns]
+#+end_example
+
+The result is a dataframe that provides the flatspace coordinates for each tile in a (hexagonal) grid. We can extract information about the grid,
+#+name: notebook-grid-info
+#+header: :comments both :padline no :results silent
+#+begin_src jupyter-python :tangle no
+grid_info = (grid_voxels[["subtarget", "grid_x", "grid_y"]].drop_duplicates().reset_index()
+             .set_index(["grid_i", "grid_j"]))
+grid_info = grid_info.assign(nrrd_file_id=np.arange(len(grid_info)) + 1)
+#+end_src
+
+We will add distance information,
+#+name: notebook-grid-info-distance
+#+header: :comments both :padline no :results silent
+#+begin_src jupyter-python :tangle no
+from scipy.spatial import distance
+DD = distance.squareform(distance.pdist(grid_info[["grid_x", "grid_y"]]))
+grid_info = grid_info.assign(is_not_boundary=((DD > 0) & (DD < 500)).sum(axis=0) == 6)
+min_volume = 1000 * np.pi * (radius ** 2) / 1E9
+volume_voxel = annotations.voxel_volume / 1E9
+grid_volume = volume_voxel * grid_voxels.groupby("subtarget").apply(len)
+subtargets = grid_info.subtarget.values
+grid_info = (grid_info
+             .assign(has_sufficient_volume=grid_volume[subtargets].values >= min_volume))
+#+end_src
+
+We can also create a ~.nrrd~ volume of column ids.
+#+name: notebook-column-id-nrrd
+#+header: :comments both :padline no :results silent
+#+begin_src jupyter-python :tangle no
+column_id_volume = np.zeros(fmap.raw.shape[:-1], dtype=int)
+flat_index = grid_voxels.set_index("subtarget")[["nrrd_file_flat_index"]]
+
+for _, row in grid_info.iterrows():
+    flat_locs = flat_index.loc[row.subtarget].values
+    column_id_volume.flat[flat_locs.flatten()] = row.nrrd_file_id
+
+column_id_nrrd = voxcell.VoxelData(column_id_volume, fmap_ss.voxel_dimensions,
+                                   offset=fmap_ss.offset)
+#+end_src
+
+Calculate structural measures, such as conicality
+#+begin_src jupyter-python
+def make_histogram(values, bin_sz=50):
+    bins = numpy.arange(0, numpy.max(values) + bin_sz, bin_sz)
+    bin_centers = 0.5 * (bins[:-1] + bins[1:])
+    return bin_centers, numpy.histogram(values, bins=bins)[0]
+
+def conicality(values, min_sz=2000, bin_sz=100):
+    if numpy.any(numpy.isnan(values)): #len(values) < min_sz:
+        return np.NaN
+    x, y = make_histogram(values, bin_sz=bin_sz)
+    y = numpy.sqrt(y)
+    try:
+        slope, offset = np.polyfit(x[1:-1], y[1:-1], 1)
+    except TypeError:
+        print("XY hist not possible for ", x, y)
+        return np.NaN
+    val_at_0 = offset #numpy.sqrt(offset)
+
+    val_at_2k = offset + 2000 * slope #numpy.sqrt(offset + 2000 * slope)
+    return slope
+    # return (val_at_2k - val_at_0) / (val_at_2k + val_at_0)
+
+def column_height(values, min_sz=2000, cutoff_perc=(2, 98)):
+    if numpy.any(numpy.isnan(values)): #len(values) < min_sz:
+        return numpy.NaN
+    return numpy.percentile(values, cutoff_perc[1]) - numpy.percentile(values, cutoff_perc[0])
+
+def column_volume(values, min_sz=2000, per_voxel=fmap.voxel_volume):
+    if numpy.any(numpy.isnan(values)): #len(values) < min_sz:
+        return numpy.NaN
+    return len(values) * per_voxel
+
+
+coords = ["grid_i", "grid_j", "grid_x", "grid_y", "subtarget"]
+depths = grid_voxels.reset_index().groupby(coords)["depth"]
+grid_conicality = depths.apply(conicality).rename("conicality")
+grid_height = depths.apply(column_height).rename("height")
+grid_volume = depths.apply(column_volume).rename("volume")
+#+end_src
+
+#+RESULTS:
+: XY hist not possible for  [ 50. 150.] [0. 1.]
+: XY hist not possible for  [ 50. 150.] [1.73205081 1.        ]
+: XY hist not possible for  [50.] [1.41421356]
+: XY hist not possible for  [ 50. 150.] [1. 1.]
+: XY hist not possible for  [] []
+: XY hist not possible for  [ 50. 150.] [4.69041576 2.44948974]
+
+#+header: :wrap (display-fig "figure-subtarget-conicality" "Conicality across subtargets.")
+#+begin_src jupyter-python
+from matplotlib import pyplot as plt
+
+fig = plt.figure(figsize=(9, 6))
+ax = fig.add_axes([0.025, 0.025, 0.825, 0.95])
+cols = plt.cm.RdBu(np.linspace(0, 1, 100))
+col_mn = -0.005
+col_mx = 0.005
+col_lo = lambda x: cols[int(np.maximum(
+                            np.minimum(len(cols) * (x - col_mn) / (col_mx - col_mn),
+                                          len(cols) - 1), 0.0))]
+
+for ijxy, v in grid_conicality.items():
+    if np.isnan(v):
+        col = [0.75, 0.75, 0.75]
+    else:
+        col = col_lo(v)
+    ax.plot(ijxy[2], ijxy[3], ls="None", marker="h", color=col, ms=9)
+
+ax.set_frame_on(False)
+ax.set_xticks([]); ax.set_yticks([])
+
+ax = fig.add_axes([0.97, 0.2, 0.03, 0.6])
+ax.imshow(np.linspace(1, 0, 100).reshape((-1, 1)), aspect="auto", cmap="RdBu")
+ax.set_xticks([])
+tcks = np.array([0, 0.25, 0.5, 0.75, 1.0])
+ax.set_yticks(100 * tcks)
+ax.set_yticklabels(["{0}".format(int(1000*x))
+                    for x in col_mn * tcks + col_mx * (1.0 - tcks)])
+#+end_src
+
+Next we will group neurons into their column ~subtargets~,
+#+name: notebook-group-neurons
+#+header: :comments both :padline no :results silent
+#+begin_src jupyter-python :tangle no
+from conntility.circuit_models.neuron_groups import load_group_filter
+
+loader_cfg = {
+    "loading":{ # Neuron properties to load. Here we put anything that may interest us
+        "properties": ["x", "y", "z", "layer", "synapse_class",
+                       "ss_flat_x", "ss_flat_y"] # positions flattened space.
+    },
+    "grouping": [ # This defines the columns to use. Here we...
+        {
+            "method": "group_by_grid", # ... define columns with a hex grid...
+            "columns": ["ss_flat_x", "ss_flat_y"], # based on their flattened x, y coords.
+            "args": [radius], # the grid has the given radius, determines neurons / column
+            "kwargs": {}
+        }
+    ]
+
+}
+
+subtarget_assignment = (load_group_filter(circuit, loader_cfg).reset_index()
+                        .rename(columns={"grid-i": "grid_i", "grid-j": "grid_j",
+                                         "grid-x": "grid_x", "grid-y": "grid_y",
+                                         "grid-subtarget": "subtarget"})
+                        .set_index(["grid_i", "grid_j"]))
+display(subtarget_assignment)
+#+end_src
+
+#+header: :comments both :padline no :results silent
+#+begin_src jupyter-python :tangle no
+#+end_src
+
+#+name: fmap-subtargets-conntility-grid
+#+header: :comments both :padline no :results silent
+#+begin_src jupyter-python :tangle no
+def distribute_grid(points, resolution, shape="hexagon"):
+    """..."""
+    assert shape.lower() == "hexagon", "No other implemented!!!"
+    voxel_indices = points.index.to_frame().reset_index(drop=True)
+    return (group_by_grid(points, FLAT_XY, resolution).reset_index()
+            .rename(columns={"grid-i": "grid_i", "grid-j": "grid_j",
+                             "grid-x": "grid_x", "grid-y": "grid_y",
+                             "grid-subtarget": "subtarget"})
+            .set_index(["grid_i", "grid_j"])
+            .assign(voxel_i=voxel_indices.i.values,
+                    voxel_j=voxel_indices.j.values,
+                    voxel_k=voxel_indices.k.values))
+
+
+def generate_subtargets(circuit, regions, grid_resolution, shape="hexagon"):
+    """..."""
+
+    fmap_pixelated = circuit.atlas.load_data("flatmap")
+    orientations = circuit.atlas.load_data("orientation")
+    fmap = supersample_flatmap(fmap_pixelated, orientations)
+    fmap_depth = supersample_flatmap(fmap_pixelated, orientations, include_depth=True)
+
+    of_regions = mask_volume(circuit, regions)
+    fmap_coords = frame_coordinates(fmap.raw, fmap_depth.raw[:, :, :, 1], mask=of_regions)
+    voxel_indices = fmap_coords.index.to_frame().reset_index(drop=True)
+
+    grid_voxels = (group_by_grid(fmap_coords, FLAT_XY, grid_resolution)
+                   .rename(columns={"grid-i": "grid_i", "grid-j": "grid_j",
+                                    "grid-x": "grid_x", "grid-y": "grid_y",
+                                    "grid-subtarget": "subtarget"})
+                   .set_index(["grid_i", "grid_j"])
+                   .assign(voxel_i=voxel_indices.i.values,
+                           voxel_j=voxel_indices.j.values,
+                           voxel_k=voxel_indices.k.values))
+
+    annotations = circuit.atlas.load_data("brain_regions")
+    hierarchy = voxcell.RegionMap.load_json(circuit.atlas.fetch_hierarchy())
+
+    supersampled_fmap = supersample_flatmap(fmap, orientations)
+    supersampled_depth = supersample_flatmap(fmap, orientations, include_depth=True)
+ bbconf
+    regions = [f"S1{r}" for r in ("DZ", "DZO", "HL", "FL", "J", "Sh", "Tr", "ULp")]
+    target_regions = {r: list(hierarchy.find(r, "acronym", with_descendants=True))
+                      for r in regions}
+
+    layers = {l: list(hierarchy.find("@" + l, "name", with_descendants=True))
+              for l in (f"layer {l}" for l in range(1, 6))}
+
+#+end_src
+
+Some info about the grid,
+#+header: :comments both :padline no :results silent
+#+begin_src jupyter-python :tangle no
+from scipy.spatial import distance as spdist
+
+def check_boundary(grid, resolution, shape="hexagon"):
+    """..."""
+    n_sides = {"hexagon": 6}[shape.lower()]
+    distances = spdist.squareform(spdist.pdist(grid))
+    return ((distances > 0) & (distances <= 2 * resolution)).sum(axis=0) == n_sides
+
+
+def check_volume(grid_voxels, resolution, volume_per_voxel, min_volume=None):
+    """..."""
+    if min_volume is None:
+        min_volume = 1000 * np.pi *  (resolution ** 2) / 1E9
+    volume = volume_per_voxel * grid_voxels.groupby("subtarget").apply(len)
+    return volume >= min_volume
+
+
+def gather_info(grid_voxels):
+    """..."""
+    unique_grid = grid_voxels[["subtarget", "grid_x", "grid_y"]].drop_duplicates()
+    info = (unique_grid.reset_index().set_index[["grid_i", "grid_j"]]
+            .assign(nrrd_file_id=np.arange(len(unique_grid))+1)
+            .assign(is_not_boundary=check_boundary(unique_grid)))
+
+
+#+end_src
+
+* Grids
+
+We can use a circuit's ~flatmap~ as a /coordinate-system/ to locate neural matter. So it will be useful to define ~grids~ in this ~flatmap~. Previously we have extensively used a hexagonal grid that we will now begin to generalize.
+
+We can list the functions of a ~grid~ and implement individual ones as ~subtypes~,
+#+header:
+#+begin_src python
+from abc import ABC, abstractmethod
+
+class Grid(ABC):
+    """A grid in 2D -- to be used for flatmapping."""
+    @abstractmethod
+    def translate(self, positions):
+        """Translate postions..."""
+
+#+end_src
+** Trittile
+We can build a hexagonal grid (~hexgrid~) from a triangular one. To define a triangular grid we need it's origin, side, and angle from the ~x-axis~.

@@ -1,0 +1,137 @@
+#+begin_src jupyter-python
+import os
+import numpy as np
+import pandas as pd
+import bluepy 
+
+from conntility.circuit_models import neuron_groups, circuit_matrix_between_groups
+from conntility.circuit_models.connection_matrix import LOCAL_CONNECTOME
+from conntility import ConnectivityMatrix
+
+# 240 columns last is empty, column 0 is trash i.e. neurons that can't be flatmapped
+NRRD_FNAME = "/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/column_identities.nrrd"  
+circ_fn = "/gpfs/bbp.cscs.ch/project/proj83/circuits/Bio_M/20200805/CircuitConfig_TC_WM"
+circ = bluepy.Circuit(circ_fn)
+
+fn_corrs = "/gpfs/bbp.cscs.ch/project/proj83/scratch/bbp_workflow/sscx_calibration_mgfix/5-FullCircuit/5-FullCircuit-2-BetterMinis-FprScan/5d83d4c2-693c-4ecc-a9da-c8dd2c8100c3/4/corrs_240hexes.npz"
+fn_grid = "/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/voxel-based-hex-grid-info-extended.h5"
+#+end_src
+
+#+begin_src jupyter-python
+from conntility.circuit_models import neuron_groups
+
+# 1. Load neuron properties, group into columns X synapse_class
+load_cfg = {"loading": {"base_target": "Mosaic",
+                        "properties": ["x", "y", "z", "synapse_class"],
+                        "atlas": [{"data": NRRD_FNAME, "properties": ["column_id"]}]},
+            "grouping": [{"method": "group_by_properties", "columns": ["column_id", "synapse_class"]}]}
+nrn_df = neuron_groups.load_group_filter(circ, load_cfg)
+nrn_df = nrn_df.drop(0)
+grid_info = pd.read_hdf(fn_grid).set_index("nrrd-file-id")
+
+# 2. Calculate mean values for columns X synapse_class. Give it an index that is compatible with the raw quotient matrix
+mn_props = nrn_df.index.to_frame().drop_duplicates()
+for prop in ["grid-x", "grid-y"]:
+    mn_props[prop] = grid_info[prop][mn_props["idx-column_id"]].values
+
+idxx = mn_props.index.to_frame().apply(lambda row: "{0}_{1}".format(row["idx-column_id"], row["idx-synapse_class"]), axis=1)
+mn_props.index = idxx
+
+# 3. Read raw quotient matrix, if needed fill in missing rows of zero values
+root_out='/gpfs/bbp.cscs.ch/project/proj83/home/egas/SSCX_structure_vs_function/data/'
+connectome = "intra_SSCX_midrange_wm"
+
+if connectome == "sum":
+    fn = f"{root_out}quotient_mat_local.pkl"
+    M = pd.read_pickle(fn)
+    fn = f"{root_out}quotient_mat_intra_SSCX_midrange_wm.pkl"
+    M = M.add(pd.read_pickle(fn), fill_value=0)
+else:
+    fn = f"{root_out}quotient_mat_{connectome}.pkl"
+    M = pd.read_pickle(fn)
+C = M.unstack("Target node", fill_value=0.0).sort_index()
+
+if connectome != LOCAL_CONNECTOME:
+    i_idxx = list(np.setdiff1d(C.columns, C.index))
+    i_idxx = [_x for _x in i_idxx if _x in C.columns]
+    zero_inh = pd.DataFrame(np.zeros((len(i_idxx), C.shape[1])),
+                            index=i_idxx, columns=C.columns)
+    C = pd.concat([C, zero_inh], axis=0).sort_index()
+C = C.drop(columns=["0_EXC", "0_INH"], index=["0_EXC", "0_INH"])
+
+# 4. Build ConnectivityMatrix with node properties
+assert np.all([_a == _b for _a, _b in zip(C.index, C.columns)])  # Rows/Columns in same order
+N = mn_props.loc[C.index].reset_index(drop=True)  # Look up node properties in that order
+obj = ConnectivityMatrix(C.values, vertex_properties=N)
+
+# Add info on internal correlations
+correlations = np.load(fn_corrs)["ei_corrs"]
+obj.add_vertex_property("ei_correlation", correlations[obj.vertices["idx-column_id"]])
+
+fn = f"{root_out}quotient_mat_{connectome}.h5"
+obj.to_h5(fn)
+#+end_src
+
+#+begin_src jupyter-python
+# Find core
+from matplotlib import pyplot as plt
+
+grp = obj.index("idx-synapse_class").eq("EXC").filter().ge(8.5E6).core_decomposition()
+
+col_part = [0.9, 0.2, 0.2]
+col_not = [0.6, 0.95, 0.6]
+
+fig = plt.figure(figsize=(2.5, 2.5))
+ax = fig.gca()
+
+for i in grp.index:
+    v = grp[i].vertices
+    if i[0] > 0:
+        col = col_part
+    else:
+        col = col_not
+    ax.plot(v["grid-x"], v["grid-y"], ls="None", marker="h", ms=6, color=col)
+
+ax.set_xticks([]); ax.set_yticks([])
+ax.set_frame_on(False)
+plt.axis("equal")
+
+fig.savefig("member-8M-connection-core.pdf")
+#+end_src
+
+[[file:8339137084470c0505063c1ad5f9823e754c8e6d.png]]
+
+#+begin_src jupyter-python
+# 20/04/23: Save info to a DataFrame for Daniela
+import pandas
+foo = obj.index("idx-synapse_class").eq("EXC")
+is_core = ~np.isin(foo.vertices["idx-column_id"], grp[0].vertices["idx-column_id"])
+df = pandas.DataFrame({"indeg": foo.array.sum(axis=0),
+                 "core": is_core}, index=foo.vertices["idx-column_id"])
+
+df.to_csv("/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/lr-indegree-and-core.csv")
+#+end_src
+
+#+begin_src jupyter-python
+import numpy
+
+grp = obj.index("idx-synapse_class").eq("EXC")
+fig = plt.figure(figsize=(2.5, 2.5))
+ax = fig.gca()
+
+for i, v in grp.vertices.iterrows():
+    col = plt.cm.bwr((v["ei_correlation"] + 1) / 2)
+    #col = numpy.maximum(numpy.minimum([v["ei_correlation"], 0.0, 1.0 - v["ei_correlation"]], 1.0), 0)
+    ax.plot(v["grid-x"], v["grid-y"], ls="None", marker="h", ms=6, color=col)
+    
+ax.set_xticks([]); ax.set_yticks([])
+ax.set_frame_on(False)
+plt.axis("equal")
+
+fig.savefig("ei_correlations_240_cols.pdf")
+#+end_src
+
+[[file:cf6d5af861594f16398eae67de62e12081fbb617.png]]
+
+#+begin_src jupyter-python
+#+end_src

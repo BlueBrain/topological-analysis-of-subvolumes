@@ -1,0 +1,537 @@
+#+STARTUP: overview
+#+STARTUP: logdrawer
+#+STARTUP: hideblocks
+
+#+PROPERTY: header-args: :eval never-export
+
+#+PROPERTY: header-args:jupyter-python :session ~/jupyter-run/active-ssh.json
+#+PROPERTY: header-args:jupyter: :exports both
+
+#+PROPERTY: header-args:jupyter :session ~/jupyter-run/active-ssh.json
+#+PROPERTY: header-args:jupyter-python: :exports both
+
+#+PROPERTY: header-args:bash: :exports code
+
+#+PROPERTY: header-args:elisp: :exports both
+
+#+PROPERTY: header-args:bibtex :exports none
+#+PROPERTY: header-args:bibtex :tangle "~/observations/org/resources/bibliography/refs.bib"
+
+#+LATEX_CLASS: article
+#+LATEX_CLASS_OPTIONS: [a4paper,12pt]
+#+LATEX_HEADER: \usepackage[utf8]{inputenc}
+#+LATEX_HEADER: \usepackage{booktabs} % for much better looking tables
+#+LATEX_HEADER: \usepackage{g\usepackage{babel}
+#+LATEX_HEADER: \usepackage{babel}
+#+LATEX_HEADER: \usepackage[up,bf,raggedright]{titlesec}
+#+LATEX_HEADER: \usepackage{paralist} % very flexible & customisable lists (eg. enumerate/itemize, etc.)
+#+LATEX_HEADER: \usepackage{subfig} % make it possible to include more than one captioned figure/table in a single float
+#+LATEX_HEADER: \usepackage[labelfont=bf,font=small]{caption}
+#+LATEX_HEADER: \usepackage[hidelinks]{hyperref}% for adding urls
+#+LATEX_HEADER: \usepackage{sectsty}
+#+LATEX_HEADER: \allsectionsfont{\sffamily\mdseries\upshape} % (See the fntguide.pdf for font help)
+#+LATEX_HEADER: \sectionfont{\bfseries\Large\raggedright}
+#+LATEX_HEADER \usepackage[natbib=true]{biblatex} \DeclareFieldFormat{apacase}{#1} \addbibresource{~/org/resources/bibliography/refs.bib}
+#+LATEX_HEADER: \usepackage{parskip}
+#+LATEX_HEADER: \usepackage{amsmath}%To cleanly write equations and math text
+
+
+#+OPTIONS: <:nil c:nil todo:nil H:5
+
+Let us load the ~Python~ environment that we will need for our discussion,
+#+begin_src elisp :results silent
+(pyvenv-activate "~/.vmgr_repo/py39/")
+#+end_src
+
+Let us setup an interactive ~Python~ session where we can run the code developed here.
+#+begin_src jupyter
+print("Welcome to EMACS Jupyter")
+#+end_src
+
+#+RESULTS:
+: Welcome to EMACS Jupyter
+
+
+#+title: Coarse Graining
+
+
+* Setup
+In our discussion we will develop scientific concepts to measure the circuit, and implement Python functions to compute them. Here we setup a notebook template to test and explore, and the structure of a ~Python~ package for our methods.
+
+To get the notebook you will have to clone,
+#+BEGIN_SRC shell
+git clone https://bbpgitlab.epfl.ch/conn/structural/topological-analysis-of-subvolumes.git
+git checkout beta
+#+END_SRC
+
+#+NAME: notebook-init
+#+BEGIN_SRC jupyter-python :results silent
+from importlib import reload
+from collections.abc import Mapping
+from collections import OrderedDict
+from pprint import pprint, pformat
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+import matplotlib
+
+reload(matplotlib)
+from matplotlib import pylab as plt
+import seaborn as sbn
+
+from IPython.display import display
+
+from bluepy import Synapse, Cell, Circuit
+
+GOLDEN = (1. + np.sqrt(5.))/2.
+#+END_SRC
+
+** Workspaces
+We have run ~connsense-CRAP~ for the SSCx dissemination variant /Bio-M/, extracting data that we will use to compute the factology. Here is a list of workspaces we will need to generate factsheets.
+#+NAME: notebook-workspaces
+#+BEGIN_SRC jupyter-python :results silent
+ROOTSPACE = Path("/")
+PROJSPACE = ROOTSPACE / "gpfs/bbp.cscs.ch/project/proj83"
+SOODSPACE = PROJSPACE / "home/sood"
+CONNSPACE = SOODSPACE / "topological-analysis-subvolumes/test/v2/coarse-graining"
+DEVSPACE  = CONNSPACE / "test" / "develop"
+#+END_SRC
+
+** ~connsense~ Modules
+While test-developing it will be good to have direct access to the ~connsense-TAP-store~ we will use. We will use a module from ~connsense~ to load the HDFstore. We will also load the ~connsense-tap~ at ~CONNSPACE.parent~ which holds an extensive analysis of ~hexgrid-subtargets~ of side $230 \um$.
+#+NAME: notebook-connsense-tap
+#+BEGIN_SRC jupyter-python
+from connsense.develop import topotap as cnstap
+tap = cnstap.HDFStore(CONNSPACE.parent/"pipeline.yaml")
+circuit = tap.get_circuit("Bio_M")
+print("Available analyses: ")
+pprint(tap.analyses)
+circuit
+#+END_SRC
+
+#+RESULTS: notebook-connsense-tap
+:RESULTS:
+:  2023-07-24 12:44:14,902: Load circuit Bio_M
+: Available analyses:
+: {'connectivity': {'cross-col-k-indegree': <connsense.develop.topotap.TapDataset object at 0x7fff153c9a90>,
+:                   'cross-connectivity-local': <connsense.develop.topotap.TapDataset object at 0x7fff153c9a60>,
+:                   'cross-connectivity-long-range': <connsense.develop.topotap.TapDataset object at 0x7fff153c9610>,
+:                   'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7fffbb6f7fa0>,
+:                   'node-participation': <connsense.develop.topotap.TapDataset object at 0x7fff153c93d0>,
+:                   'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7fffbb6f7070>,
+:                   'thalamic-innervation': <connsense.develop.topotap.TapDataset object at 0x7fff153c9ac0>,
+:                   'wm-innervation': <connsense.develop.topotap.TapDataset object at 0x7fff153c9340>}}
+: <bluepy.circuit.Circuit at 0x7fffbb6f7f70>
+:END:
+
+** Emacs specific :noexport:
+We can get all figures displayed 95% so that we can work with them in front of us in an Emacs buffer. Here is a method that does that witb an example. This code is here only to see how much we use it. It should find a way to a place in our ~doom-config~.
+
+#+NAME: fit-display-defun
+#+BEGIN_SRC emacs-lisp :results silent
+(defun fit-display-of (figure width height)
+    (concat "#+attr_org: :width " width " :height " height (string ?\n) figure))
+#+END_SRC
+
+#+NAME: plot-display
+#+HEADER: :var figure="this-should-be-path.png" :var width="95%" :var height="95%"
+#+BEGIN_SRC emacs-lisp :results silent
+(fit-display-of figure width height)
+#+END_SRC
+
+That we can use with ~:post~,
+#+name: test-plot-display
+#+HEADER: :results value file :file ./test-fit-fig.png
+#+HEADER: :exports both :session return
+#+HEADER: :post plot-display(figure=*this*)
+#+BEGIN_SRC jupyter-python :post plot-display(figure=*this*)
+import pandas as pd
+from matplotlib import pyplot as plt
+import seaborn as sbn
+
+csv_url = 'https://archive.ics.uci.edu/ml/machine-learning-databases/iris/iris.data'
+col_names = ['Sepal_Length','Sepal_Width','Petal_Length','Petal_Width','Class']
+irisies = pd.read_csv(csv_url, names=col_names)
+
+fig = plt.figure(figsize=(15, 12))
+ax = sbn.histplot(x="Petal_Length", hue="Class", data=irisies, ax=fig.add_subplot())
+#+END_SRC
+
+#+RESULTS: test-plot-display
+#+attr_org: :width 95% :height 95%
+[[file:./test-fit-fig.png]]
+
+We can also ~wrap~ with a function,
+#+BEGIN_SRC emacs-lisp :results silent
+(defun display-fig (&optional label caption attributes)
+  "A wrap function for src blocks."
+  (concat
+   "ORG\n"
+   "#+attr_org: :width 95%\n"
+   "#+attr_html: :width 95%\n"
+   "#+attr_latex: :width 95%\n"
+   (when caption
+     (format "#+CAPTION: %s\n" caption))
+   (when label
+     (format "#+NAME: %s" label))
+   (when caption
+     (format "#+caption: %s" caption))))
+#+END_SRC
+
+and use it with ~:wrap~,
+#+HEADER: :wrap (display-fig "fig-sin" "A sin wave.")
+#+name: figure-sin-wave
+#+BEGIN_SRC jupyter-python
+import numpy as np
+import matplotlib.pyplot as plt
+from pathlib import Path
+
+x = np.linspace(0, 4 * np.pi, 1000)
+y = np.sin(x)
+
+fig = plt.figure(figsize=(15, 12))
+axes = plt.plot(x, y)
+p = Path.home() / 'work/workspaces/scratch/sin.png'
+#plt.savefig(p)
+#+END_SRC
+
+#+RESULTS: figure-sin-wave
+#+begin_ORG
+#+attr_org: :width 95%
+#+attr_html: :width 95%
+#+attr_latex: :width 95%
+#+CAPTION: A sin wave.
+#+NAME: fig-sin#+caption: A sin wave.
+[[file:./.ob-jupyter/2b5f030950050e88d31b69a9e93fb0c7f0a4000e.png]]
+#+end_ORG
+
+#+NAME: fit-display
+#+HEADER: :var figure="" :var attr_value="95%" :var attr_name="#+attr_html: :width "
+#+BEGIN_SRC emacs-lisp
+(concat attr_name attr_value (string ?\n) figure)
+#+END_SRC
+
+#+RESULTS: fit-display
+: #+attr_html: :width 95%
+
+#+NAME: attr-wrap
+#+BEGIN_SRC sh :var figure="" :var width="95%" :results output
+echo "#+attr_html: :width $width"
+echo "$figure"
+#+END_SRC
+
+#+RESULTS: attr-wrap
+: #+attr_html: :width 95%
+:
+
+* Introduction
+In physics a problem's /fine-grained/ description includes the /microscale/ structure of particles and interactions between them. A /coarse-grained/ description then involves the development of a theory that scales the parameters of /coarse-grained/ particles and the interactions that emerge from the problem's /fine-grained/ description. This procedure involves development of a /renormalization-group/, which is basically a series of transformations as a function of the scale of /coarse-graining/. We will attempt to do such a thing for a brain circuit. Our attempts at coarse-graining a brain circuit will parallel the physics approach only up to the procedure of /scaling/ an interacting system by simplifying the data required to represent it. We will develop simplifications of the connectivity information of all neurons in a ~subtarget~, considering both the /intrinsic/ connectivity that is between neurons in the source ~subtarget~, and /extrinsic/ connectivity that includes connections from neurons in one ~subtarget~ with the target neurons in another. The ~subtargets~ will be defined as tiles of a lattice-grid in the circuit's ~flatspace~, starting with a hexagonal grid, and later a square grid.
+
+The main question we want to ask is if we can recognize any signature of /long-range/ connectome in the combined connectome. We have modeled ~long-range~ connectome based on experimental data on long-range white-matter projections of cortical neurons. Are the visible in the connectivity data of synapse counts between neuron pairs? If so, how may we see them?
+
+We will use ~connsense~ to compute the connectivity matrices and their summaries.
+
+* Connsense pipeline
+We need paths for running connsense pipeline,
+
+** paths
+We need to set paths to the artefacts that the pipeline will use. We set paths for the circuit to analyze, and the root space for the pipeline's HDF5 stores, and the HDF5 group for each of the pipeline steps.
+#+header: :comments both :padline no :tangle ./pipeline.yaml
+#+begin_src yaml
+paths:
+  description: >-
+    The ~connsense~ pipeline needs paths to the input data to load from,
+    and output paths to store data. Paths to the circuit must be provided
+    along with paths to the HDF5 archive that will store the pipeline's
+    results.
+  format: relative
+  circuit:
+    root: "/gpfs/bbp.cscs.ch/project/proj83/circuits"
+    files:
+      Bio_M: "Bio_M/20200805/CircuitConfig_TC_WM"
+  pipeline:
+    root: "/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/coarse-graining"
+    input:
+      store: "connsense.h5"
+    output:
+      store: "connsense.h5"
+    steps:
+      define-subtargets: "subtargets"
+      extract-node-populations: "nodes/populations"
+      extract-edge-populations: "edges/populations"
+      analyze-connectivity: "analyses/connectivity"
+#+end_src
+
+We will use ~flatmap-hexgrid~ columns as ~subtargets~. We will have a group of ~subtargets~ for scale length we want to study. We will set the scaling length as value of the hexagon side of a group of ~flatmap-columns~.
+** parameters
+We provide the parameters for each step.
+#+header: :comments both :padline no :tangle ./pipeline.yaml
+#+begin_src yaml
+parameters:
+  description: >-
+    Provide parameters that apply to each step.
+#+end_src
+The pipeline will ~define~ the ~subtargets~, ~extract~ circuit artefacts for the ~subtargets~, and ~analyze~ the results. Each of these ~steps~ need to be defined.
+*** define-subtargets
+#+header: :comments both :padline no :tangle ./pipeline.yaml
+#+begin_src yaml
+  define-subtargets:
+    description: >-
+      Configure the subtargets to analyze, entrying each definition as a key, value.
+    definitions:
+#+end_src
+We define ~flatmap-columns~ which are prism like columns orientated along cortical layers, from white-matter to pia. The data is loaded from an ~NRRD~ that maps each circuit voxel to an ~id~ that corresponds to ~flatmap-column-subtarget~. We also need ~info~, a ~dataframe~ that provides information about these ~subtargets~ indexing them by the ~id~ from the ~NRRD~.
+**** flatmap-columns
+We will have flatmap columns of radii 28.75, 57.5, 115.0, 230,0, 460.0, 920.0, and 1840.0. Let us write out a template that we can fill programmatically,
+#+header: :comments both :padline no :tangle ./pipeline.yaml
+#+begin_src yaml
+      flatmap-columns:
+        description: >-
+          Hexaongal prism like columns oriented along cortical layers,
+          from white-matter to pia.  The data is loaded from an NRRD file that maps each
+          circuit voxel to a subtarget ids corresponding to a flatmap column.The subtarget
+          ids should be mapped to the subtargets they refer to in a dataframe provided as
+          the input `info`.
+        input:
+          circuit:
+            - "Bio_M"
+        kwargs:
+          regions: TOFILL
+          grid_resolution: TOFILL
+          grid_shape: TOFILL
+        loader:
+          source: flatmap_utility.develop.subtargets
+          method: generate_subtargets
+#+end_src
+*** create-index
+Within ~connsense~ we use an ~internal~ index for ~subtarget, circuit, connectome~. While we can infer this information from [[paths]] and [[define-subtargets]], we have not yet (<2023-02-13 Mon>) implemented this feature. Should be deprecated in future.
+#+header: :comments both :padline no :tangle ./pipeline.yaml
+#+begin_src yaml
+  create-index:
+    description:
+      Create tap-store indices by listing datasets for each index variable.
+    variables:
+      circuit:
+        - "Bio_M"
+      connectome:
+        - "local"
+        - "intra_SSCX_midrange_wm"
+        - "Thalamocortical_input_VPM"
+        - "Thalamocortical_input_POM"
+      subtarget:
+        dataset: ["define-subtargets", "flatmap-columns/name"]
+#+end_src
+** pipeline
+We will configure 7 ~connsense-pipelines~, for scaling factors of 1/8, 1/4, 1/2, 1, 2, 4, and 8 times a base resolution.
+#+name: pipeline-initialize-taps
+#+header: :comments both :padline no :results silent
+#+begin_src jupyter-python :tangle ./pipeline.py
+from shutil import copyfile
+from copy import deepcopy
+from pathlib import Path
+import yaml
+
+from multiprocessing import Process, Manager
+
+from connsense.io import read_config, logging
+from connsense.io.slurm import SlurmConfig
+from connsense.pipeline import workspace
+from connsense.pipeline.pipeline import TopologicalAnalysis
+from connsense.develop import parallelization as cnsprl
+
+PIPECFG = "pipeline.yaml"
+RUNCFG = "runtime.yaml"
+
+LOG = logging.get_logger("A fountain of taps")
+
+def initialize_taps(config={}, update=False):
+    """Set up taps for coarse-graining."""
+    grid = config.get("parameters", {}).get("grid", {})
+    tiling = grid.get("tiliing", "hexagon")
+    base_resolution = grid.get("base-resolution", 230.)
+    scaling_factors = grid.get("scaling-factors", [1/8, 1/4, 1/2, 1, 2, 4, 8])
+    regions = grid.get("regions", [f"S1{r}" for r in
+                                   ["DZ", "DZO", "HL", "FL", "J", "Sh", "Tr", "ULp"]])
+
+    paths = config.get("paths", {})
+    coarse_graining = Path(paths.get("root") or Path.cwd())
+    with open(coarse_graining / PIPECFG, 'r') as f:
+        pipeline = yaml.load(f, Loader=yaml.FullLoader)
+
+    def _configure(resolution):
+        print("configure resolution", resolution)
+        at_resolution = coarse_graining/str(resolution)
+        at_resolution.mkdir(exist_ok=update)
+
+        pipeline["paths"]["pipeline"]["root"] = at_resolution.as_posix()
+
+        definitions = pipeline["parameters"]["define-subtargets"]["definitions"]
+        kwargs = definitions["flatmap-columns"]["kwargs"]
+        kwargs["regions"] = regions
+        kwargs["grid_resolution"] = resolution
+        kwargs["grid_shape"] = tiling
+
+        with open(at_resolution/PIPECFG, 'w') as f: yaml.dump(pipeline, f)
+        copyfile(coarse_graining/RUNCFG, at_resolution/RUNCFG)
+
+        top = TopologicalAnalysis(config=at_resolution/PIPECFG, parallelize=at_resolution/RUNCFG)
+        workspace.initialize((top._config, at_resolution/PIPECFG),
+                             "define-subtargets", "flatmap-columns", mode="develop",
+                             parallelize=(top._parallelize, at_resolution/RUNCFG))
+        top.initialize(mode="develop")
+        return at_resolution
+
+    resolutions = (s * base_resolution for s in scaling_factors)
+    taps = {r: _configure(resolution=r) for r in resolutions}
+
+    config_with_taps = deepcopy(config)
+    config_with_taps["taps"] = taps
+
+    with open(coarse_graining / "fountain.yaml", 'w') as to_config_file:
+        yaml.dump({"paths": {"root": config_with_taps["paths"]["root"].as_posix()},
+                   "parameters": {"grid": {"tiling": tiling,
+                                           "base-resolution": base_resolution,
+                                           "scaling-factors": scaling_factors,
+                                           "regions": regions}},
+                   "taps": {tap: location.as_posix() for tap, location in taps.items()}},
+                  to_config_file)
+
+
+    return config_with_taps
+
+def update_taps(config={}):
+    """..."""
+    return initialize_taps(config, update=True)
+#+end_src
+
+We can see what we need in the ~config~ for a ~fountain~ of ~taps~,
+#+begin_src yaml :tangle ./fountain.yaml
+paths:
+  description: >-
+    Several taps will be run, one for each of the grid resolution values.
+    These will be run in their own directories, under a root.
+  root: "/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/coarse-graining"
+
+parameters:
+  grid:
+    tiling: "hexagon"
+    base-resolution: 230.0
+    scaling-factors: [0.125, 0.250, 0.500, 1.000, 2.000, 4.000, 8.000]
+    regions: ["S1DZO", "S1DZ", "S1FL", "S1HL", "S1J", "S1Sh", "S1Tr", "S1ULp"]
+#+end_src
+which we can read with ~YAML~.
+
+While initialization was easy, we also want to be able to run the same ~tap-command~ for all the resolutions at once, instead of having to issue several from the CLI. That will require a shell script. Instead of devicing another ~connsense~ like tool, we will first solve the problem at hand. What we need are shell commands, one for each ~tap~ (in a ~fountain~), to be invoked at the CLI or written to a shell script that can be run. We can either launch each ~tap~ computation on a single node, or schedule them on the cluster. There are many possibilities, use-cases, /etc/, and we will choose only one. We will produce a ~launchscript~ containing ~sbatch~ submissions. The ~sbatch~ submission will be to a single node. We can ~multiprocess~ from within Python or with a shell script.
+
+#+name: pipeline-define-subtargets
+#+header: :comments both :padline no :results silent
+#+begin_src jupyter-python :tangle ./pipeline.py
+def define_subtargets(config, group):
+    """Define subtargets for each of the taps in a configuration."""
+    from connsense.define_subtargets import run as generate
+
+    def pushd(path): return f"pushd {path}"
+    command = f"tap run define-subtargets {group}"
+    def popd(): return f"popd\n"
+
+    def install(tap, at_location, *, index, bowl):
+        LOG.info("Install (%s-th) tap %s at %s", index, tap, at_location)
+        bowl[index] = generate(at_location/PIPECFG, substep=group,
+                               parallelize=at_location/RUNCFG, in_mode="develop")
+        return bowl[index]
+
+    manager = Manager()
+    bowl = manager.dict()
+    processes = []
+
+    for i, (tap, at_location) in enumerate(config['taps'].items()):
+        p = Process(target=install, args=(tap, Path(at_location)),
+                    kwargs={"index": i, "bowl": bowl})
+        p.start()
+        processes.append(p)
+
+    LOG.info("Launched %s processes", i + 1)
+
+    for p in processes: p.join()
+
+    LOG.info("Parallel computation of define-subtargets results %s", len(bowl))
+    return bowl
+
+#+end_src
+
+The method to ~define_subtargets~ will run the computation on a single node as multiple-processes, each deifnition of a tap's subtargets. To expose it to the CLI we will need a script,
+#+name: pipeline-scripts
+#+header: :comments both :padline no :results silent
+#+begin_src jupyter-python :tangle ./coarse_grain.py
+from pathlib import Path
+import yaml
+
+from connsense.io import logging
+from connsense.apps.topological_analysis import get_parser
+
+import pipeline
+
+LOG = logging.get_logger("A fountain of taps")
+
+def main(argued=None):
+    if not argued:
+        parser = get_parser()
+        argued = parser.parse_args()
+
+    LOG.info("Argued coarse-graining: \n%s", argued)
+
+    with open(Path.cwd()/"fountain.yaml", 'r') as f:
+        config = yaml.load(f, Loader=yaml.FullLoader)
+
+    if argued.step == "define-subtargets":
+        return pipeline.define_subtargets(config, argued.substep)
+
+    LOG.error("Not Implemented pipeline step %s", argued.step)
+    raise ValueError(f"Not Implemented pipeline step {argued.step}")
+
+
+if __name__ == "__main__":
+    LOG.warning("Run coarse-graining taps.")
+    parser = get_parser()
+    main(parser.parse_args())
+#+end_src
+
+#+begin_src jupyter-python :tangle no
+def define_subtargets(group, in_config):
+    """Define subtargets for each of the taps in a configuration."""
+    root = Path(in_config["root"])
+    shell_script = root / "define-subtargets.sh"
+
+    def pushd(path): return f"pushd {path}"
+    command = f"tap run define-subtargets {group}"
+    def popd(): return f"popd\n"
+
+    executable = '\n'.join(['\n'.join([pushd(at_location), command, popd()])
+                            for tap, at_location in config["taps"].items()])
+
+    LOG.info("Prepare sbatch.")
+    template = read_config.read(root / PIPECFG)
+    runtime = cnsprl.read_runtime_config(root / RUNCFG, of_pipeline=template)
+    slurm_params = cnsprl.configure_slurm(("define-subtargets", group), template, runtime)
+    sbatch = deepcopy(slurm_params["sbatch"])
+    sbatch["name"] = "define-subtargets"
+    sbatch["executable"] = executable
+    sbatch["cli_args"] = False
+    slurm.SlurmConfig(sbatch).save(to_filepath=root/"define-subtargets.sbatch")
+
+    return root/"define-subtargets.sbatch"
+
+    LOG.info("Write commands at %s", shell_script)
+    with open(shell_script, 'w') as to_cli:
+        to_cli.write("#!/bin/bash\n")
+        for tap, at_location in config["taps"].items():
+            LOG.info("Command define subtargets of tap %s at %s", tap, at_location)
+            to_cli.writelines([pushd(at_location), command, popd()])
+
+#+end_src
+
+#+RESULTS:
+
+We might want to ~sbatch~ the launch script.

@@ -10,3 +10,10 @@ doc/build
 *ipynb_checkpoints*
 .idea*
 venv
+*.err
+*.log
+.ob-jupyter
+.arxiv
+connsense/docs
+*-saved.py
+resources/

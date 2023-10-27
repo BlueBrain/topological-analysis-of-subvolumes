@@ -68,6 +68,7 @@ class SlurmConfig:
         self._qos = self._read_field("qos", "for heavier / longer jobs", "normal")
         self._mail = self._read_field("mail", "to mail progress to", None)
 
+        self._cli_args = fldict.get("cli_args", True)
 
     def _keyval(self, attrname):
         """..."""
@@ -146,6 +147,9 @@ class SlurmConfig:
             venv = self._source_venv()
             if venv:
                 f.write(venv)
-            f.write(f'{self._executable} "$@"\n')
+            if self._cli_args:
+                f.write(f'{self._executable} "$@"\n')
+            else:
+                f.write(self._executable)
 
         return to_filepath

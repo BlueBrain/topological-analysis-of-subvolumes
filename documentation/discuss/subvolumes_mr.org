@@ -1,0 +1,489 @@
+#+begin_src jupyter-python
+import bluepy
+import pandas
+import numpy
+import conntility
+
+from conntility.circuit_models.neuron_groups import group_by_grid
+from conntility.flatmapping import supersample_flatmap
+import voxcell
+#+end_src
+
+<<cbefbf1b>>
+Load circuit and flatmap. Then supersample flatmap (including one copy
+with depth values)
+
+#+begin_src jupyter-python
+circ_cfg = "/gpfs/bbp.cscs.ch/project/proj83/circuits/Bio_M/20200805/CircuitConfig"
+lst_regions = ["S1HL", "S1FL", "S1Tr", "S1Sh", "S1ULp", "S1J", "S1DZ", "S1DZO"]
+lst_layers = ["layer 1", "layer 2", "layer 3", "layer 4", "layer 5", "layer 6"]
+circ = bluepy.Circuit(circ_cfg)
+
+fm = circ.atlas.load_data("flatmap")
+orient = circ.atlas.load_data("orientation")
+ann = circ.atlas.load_data("brain_regions")
+hier = voxcell.RegionMap.load_json(circ.atlas.fetch_hierarchy())
+
+ss_fm = supersample_flatmap(fm, orient)
+ss_fm_depth = supersample_flatmap(fm, orient, include_depth=True)
+
+tgt_id_dict = dict([(_reg, list(hier.find(_reg, "acronym", with_descendants=True)))
+                    for _reg in lst_regions])
+layer_id_dict = dict([(_reg, list(hier.find("@" + _reg, "name", with_descendants=True)))
+                    for _reg in lst_layers])
+#+end_src
+
+<<1c7a6b4c>>
+Generate mask of target region voxels, i.e. the eight modeled subregions
+
+#+begin_src jupyter-python
+tgt_ids = numpy.hstack(
+    [list(hier.find(_reg, "acronym", with_descendants=True))
+     for _reg in lst_regions])
+is_valid = numpy.isin(ann.raw, tgt_ids).reshape((-1,))
+#+end_src
+
+<<55b0cde5>>
+Group voxels in a hex grid. That is, look up flat locations of all
+(non-masked) voxel centers, then group them.
+
+#+begin_src jupyter-python
+import pandas
+import numpy
+
+raw_locs = ss_fm.raw.reshape((-1, 2))
+raw_loc_idx = numpy.nonzero(numpy.all(raw_locs >= 0, axis=1) & is_valid)
+raw_loc_depth = ss_fm_depth.raw[:, :, :, 1].flat[raw_loc_idx[0]]
+
+df = pandas.DataFrame(raw_locs[raw_loc_idx], columns=["ss_flat_x", "ss_flat_y"])
+df["depth"] = raw_loc_depth
+
+grid_voxels = group_by_grid(df, ["ss_flat_x", "ss_flat_y"], 230)
+grid_voxels["nrrd-file-flat-index"] = raw_loc_idx[0]
+
+grid_info = grid_voxels[["grid-subtarget", "grid-x", "grid-y"]].drop_duplicates().reset_index()
+grid_info["nrrd-file-id"] = numpy.arange(len(grid_info)) + 1
+
+from scipy.spatial import distance
+
+DD = distance.squareform(distance.pdist(grid_info[["grid-x", "grid-y"]]))
+grid_info["is-not-boundary"] = ((DD > 0) & (DD < 500)).sum(axis=0) == 6
+
+min_volume = 1000 * numpy.pi * (230 ** 2) / 1E9
+grid_vol = grid_voxels.groupby(["grid-subtarget"]).apply(len) * ann.voxel_volume / 1E9
+grid_info["has-sufficient-volume"] = grid_vol[grid_info["grid-subtarget"]].values > min_volume
+
+grid_info.to_hdf("voxel-based-hex-grid-info.h5", "grid-info")
+#+end_src
+
+#+begin_example
+/gpfs/bbp.cscs.ch/home/reimann/venvs/py38/lib/python3.8/site-packages/tables/path.py:155: NaturalNameWarning: object name is not a valid Python identifier: 'grid-info'; it does not match the pattern ``^[a-zA-Z_][a-zA-Z0-9_]*$``; you will not be able to use natural naming to access this object; using ``getattr()`` will still work, though
+  check_attribute_name(name)
+#+end_example
+
+<<674b6c50>>
+Create a nrrd volume of column id. This can be used to generate voxels
+
+#+begin_src jupyter-python
+colum_idx_vol = numpy.zeros(fm.raw.shape[:-1], dtype=int)
+
+
+subtgt2flatidx = grid_voxels.set_index("grid-subtarget")[["nrrd-file-flat-index"]]
+
+for _, row in grid_info.iterrows():
+    flat_locs = subtgt2flatidx.loc[row["grid-subtarget"]].values
+    colum_idx_vol.flat[flat_locs.flatten()] = row["nrrd-file-id"]
+
+
+column_idx_nrrd = voxcell.VoxelData(colum_idx_vol, ss_fm.voxel_dimensions, offset=ss_fm.offset)
+column_idx_nrrd.save_nrrd("column_identities.nrrd")
+#+end_src
+
+#+begin_src jupyter-python
+criteria = ["is-not-boundary", "has-sufficient-volume"]
+
+matches_criteria = grid_info.set_index("grid-subtarget")[criteria].all(axis=1)
+
+def is_valid_target(tgt_name):
+    return matches_criteria[tgt_name]
+
+is_valid = matches_criteria[grid_voxels["grid-subtarget"]].values
+
+# Mask out depth values for invalid columns
+grid_voxels["depth"][~is_valid] = numpy.NaN
+#+end_src
+
+#+begin_example
+<ipython-input-236-f757cf07ebe3>:11: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  grid_voxels["depth"][~is_valid] = numpy.NaN
+#+end_example
+
+<<3052cca0>>
+Calculate structural measures, such as conicality
+#+begin_src jupyter-python
+def make_histogram(values, bin_sz=50):
+    bins = numpy.arange(0, numpy.max(values) + bin_sz, bin_sz)
+    bin_centers = 0.5 * (bins[:-1] + bins[1:])
+    return bin_centers, numpy.histogram(values, bins=bins)[0]
+
+def conicality(values, min_sz=2000, bin_sz=100):
+    if numpy.any(numpy.isnan(values)): #len(values) < min_sz:
+        return numpy.NaN
+    x, y = make_histogram(values, bin_sz=bin_sz)
+    y = numpy.sqrt(y)
+    slope, offset = numpy.polyfit(x[1:-1], y[1:-1], 1)
+    val_at_0 = offset #numpy.sqrt(offset)
+    
+    val_at_2k = offset + 2000 * slope #numpy.sqrt(offset + 2000 * slope)
+    return slope
+    # return (val_at_2k - val_at_0) / (val_at_2k + val_at_0)
+
+def column_height(values, min_sz=2000, cutoff_perc=(2, 98)):
+    if numpy.any(numpy.isnan(values)): #len(values) < min_sz:
+        return numpy.NaN
+    return numpy.percentile(values, cutoff_perc[1]) - numpy.percentile(values, cutoff_perc[0])
+
+def column_volume(values, min_sz=2000):
+    if numpy.any(numpy.isnan(values)): #len(values) < min_sz:
+        return numpy.NaN
+    return len(values) * fm.voxel_volume
+    
+
+grid_conicality = grid_voxels.groupby(["grid-i", "grid-j", "grid-x", "grid-y", "grid-subtarget"])["depth"].apply(conicality)
+grid_conicality.name = "conicality"
+
+grid_height = grid_voxels.groupby(["grid-i", "grid-j", "grid-x", "grid-y", "grid-subtarget"])["depth"].apply(column_height)
+grid_height.name = "height"
+grid_volume = grid_voxels.groupby(["grid-i", "grid-j", "grid-x", "grid-y", "grid-subtarget"])["depth"].apply(column_volume)
+grid_volume.name = "volume"
+#+end_src
+
+<<bea7f719>>
+Plot them...
+
+#+begin_src jupyter-python
+from matplotlib import pyplot as plt
+
+fig = plt.figure(figsize=(2.5, 2))
+ax = fig.add_axes([0.025, 0.025, 0.825, 0.95])
+cols = plt.cm.RdBu(numpy.linspace(0, 1, 100))
+col_mn = -0.005
+col_mx = 0.005
+col_lo = lambda x: cols[int(numpy.maximum(
+                            numpy.minimum(len(cols) * (x - col_mn) / (col_mx - col_mn),
+                                          len(cols) - 1), 0.0))]
+
+for ijxy, v in grid_conicality.items():
+    if numpy.isnan(v):
+        col = [0.75, 0.75, 0.75]
+    else:
+        col = col_lo(v)
+    ax.plot(ijxy[2], ijxy[3], ls="None",
+            marker="h", color=col, ms=9)
+ax.set_frame_on(False)
+ax.set_xticks([]); ax.set_yticks([])
+
+ax = fig.add_axes([0.97, 0.2, 0.03, 0.6])
+ax.imshow(numpy.linspace(1, 0, 100).reshape((-1, 1)), aspect="auto", cmap="RdBu")
+ax.set_xticks([])
+tcks = numpy.array([0, 0.25, 0.5, 0.75, 1.0])
+ax.set_yticks(100 * tcks)
+ax.set_yticklabels(["{0}".format(int(1000*x)) for x in col_mn * tcks + col_mx * (1.0 - tcks)])
+
+fig.savefig("conicality_overview.pdf")
+#+end_src
+
+[[file:0b67e872292ad64b3e40641fa3f7edc17cabb8e4.png]]
+
+#+begin_src jupyter-python
+from matplotlib import pyplot as plt
+
+fig = plt.figure(figsize=(2.5, 2))
+ax = fig.add_axes([0.025, 0.025, 0.825, 0.95])
+cols = plt.cm.summer(numpy.linspace(0, 1, 100))
+col_mn = 1000
+col_mx = 2150
+col_lo = lambda x: cols[int(numpy.maximum(
+                            numpy.minimum(len(cols) * (x - col_mn) / (col_mx - col_mn),
+                                          len(cols) - 1), 0.0))]
+
+for ijxy, v in grid_height.items():
+    if numpy.isnan(v):
+        col = [0.75, 0.75, 0.75]
+    else:
+        col = col_lo(v)
+    ax.plot(ijxy[2], ijxy[3], ls="None",
+            marker="h", color=col, ms=9)
+ax.set_frame_on(False)
+ax.set_xticks([]); ax.set_yticks([])
+
+ax = fig.add_axes([0.97, 0.2, 0.03, 0.6])
+ax.imshow(numpy.linspace(1, 0, 100).reshape((-1, 1)), aspect="auto", cmap="summer")
+ax.set_xticks([])
+tcks = numpy.array([0, 0.25, 0.5, 0.75, 1.0])
+ax.set_yticks(100 * tcks)
+ax.set_yticklabels(["{0}".format(int(x/10)*10) for x in col_mn * tcks + col_mx * (1.0 - tcks)])
+
+fig.savefig("height_overview.pdf")
+#+end_src
+
+[[file:7b497eacb8c1c8eba511f6cd31ca8b31476d3810.png]]
+
+<<94002b3e>>
+Load neurons and group them into the same columns
+
+#+begin_src jupyter-python
+from conntility.circuit_models.neuron_groups import load_group_filter
+
+loader_cfg = {
+    "loading":{ # Neuron properties to load. Here we put anything that may interest us
+        "properties": ["x", "y", "z", "layer", "synapse_class",
+                       "ss_flat_x", "ss_flat_y"] # These are neuron locations in a flattened space. Used to define columns.
+    },
+    "grouping": [ # This defines the columns to use. Here we...
+        {
+            "method": "group_by_grid", # ... define columns with a hex grid...
+            "columns": ["ss_flat_x", "ss_flat_y"], # ... based on their flattened x, y coordinates...
+            "args": [230], # ... where the grid has a radius of 200 um. Adjust the radius to change neurons / column
+            "kwargs": {}
+        }
+    ]
+
+}
+
+nrn = load_group_filter(circ, loader_cfg)
+nrn = nrn.loc[~numpy.isnan(nrn["ss_flat_x"])]
+#+end_src
+
+#+begin_example
+/gpfs/bbp.cscs.ch/home/reimann/venvs/py38/lib/python3.8/site-packages/conntility/circuit_models/neuron_groups/loader.py:31: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  neurons[GID] = neurons.index
+/gpfs/bbp.cscs.ch/home/reimann/venvs/py38/lib/python3.8/site-packages/conntility/flatmapping/_supersample_utility.py:136: UserWarning: Optimal rotation is not uniquely or poorly defined for the given sets of vectors.
+  res = Rotation.align_vectors(vtgt, vv)
+#+end_example
+
+#+begin_example
+Rotation errors: min: 0.0, median: 0.09387602600937471, mean: 0.136282418448154, std: 0.15664142313801505, max: 2.0
+#+end_example
+
+#+begin_src jupyter-python
+column_id_nrrd_file = "/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/column_identities.nrrd"
+grid_info_file = "/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/voxel-based-hex-grid-info.h5"
+grid_info = pandas.read_hdf(grid_info_file, "grid-info")
+
+loader_cfg = {
+    "loading":{ # Neuron properties to load. Here we put anything that may interest us
+        "properties": ["x", "y", "z", "layer", "synapse_class"],
+                       #"ss_flat_x", "ss_flat_y"], # These are neuron locations in a flattened space. Used to define columns.
+        "atlas": [
+            {"data": column_id_nrrd_file, "properties": ["column-id"]}
+        ],
+
+    }
+}
+
+nrn = load_group_filter(circ, loader_cfg)
+nrn = nrn.loc[nrn["column-id"] > 0]  # Only include neurons in voxels that have been assigned to columns
+
+for target_spec_to_transplant in ["grid-i", "grid-j", "grid-x", "grid-y", "grid-subtarget"]:
+    nrn[target_spec_to_transplant] =\
+    grid_info.set_index("nrrd-file-id").loc[nrn["column-id"]][target_spec_to_transplant].values
+
+nrn = nrn.set_index(["grid-i", "grid-j"])
+display(nrn)
+#+end_src
+
+#+begin_example
+/gpfs/bbp.cscs.ch/home/reimann/venvs/py38/lib/python3.8/site-packages/conntility/circuit_models/neuron_groups/loader.py:31: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  neurons[GID] = neurons.index
+<ipython-input-240-c25e1ba65e26>:20: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  nrn[target_spec_to_transplant] =\
+<ipython-input-240-c25e1ba65e26>:20: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  nrn[target_spec_to_transplant] =\
+<ipython-input-240-c25e1ba65e26>:20: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  nrn[target_spec_to_transplant] =\
+#+end_example
+
+#+begin_example
+               layer synapse_class            x            y            z  \
+grid-i grid-j                                                               
+-7     17          1           INH  4877.122429  -668.324217 -1696.124733   
+-5     19          1           INH  5383.917646  -546.443089 -2318.223122   
+-1     8           1           INH  5038.520009 -2747.467238 -2582.717297   
+-3     9           1           INH  4873.650857 -2615.218299 -2412.265532   
+-12    24          1           INH  4470.542212   561.526704 -1271.187550   
+...              ...           ...          ...          ...          ...   
+ 3     9           5           INH  4509.475274 -2362.381286 -4218.200359   
+ 0     27          5           INH  5481.109969  1600.112153 -4327.481596   
+-25    29          5           INH  2013.692376  1964.270177 -1345.768408   
+-17    25          5           INH  3194.431573   786.250809 -1621.000855   
+-7     8           5           INH  3444.749392 -2584.448130 -2110.472539   
+
+                   gid  column-id       grid-x  grid-y grid-subtarget  
+grid-i grid-j                                                          
+-7     17            1        126  1991.858429  2760.0          R8;C5  
+-5     19            2        152  2788.601800  2760.0          R8;C7  
+-1     8             3        105  1394.300900  1035.0          R3;C3  
+-3     9             4         98  1195.115057  1380.0          R4;C3  
+-12    24            5        107  2390.230114  4140.0         R12;C6  
+...                ...        ...          ...     ...            ...  
+ 3     9       4234925        141  2390.230114   690.0          R2;C6  
+ 0     27      4234926        201  5378.017758  3105.0         R9;C13  
+-25    29      4234927          7   796.743371  6210.0         R18;C2  
+-17    25      4234928         55  1593.486743  4830.0         R14;C4  
+-7     8       4234929         52   199.185843  1725.0          R5;C0  
+
+[3979210 rows x 10 columns]
+#+end_example
+
+<<64a50975>>
+Calculate how much different groups of neurons are over- or
+under-expressed in the subvolumes
+
+#+begin_src jupyter-python
+
+def calculate_overexpression(modality):
+    per_tgt_count = nrn.groupby(["grid-i", "grid-j"])[modality].value_counts()
+    per_tgt_count.index.names = per_tgt_count.index.names[:2] + [modality] # Because pandas is stupid
+    total_count = per_tgt_count.unstack(modality).sum(axis=0)
+    total_frac = total_count / total_count.sum()
+
+    per_tgt_frac = nrn.groupby(["grid-i", "grid-j"])[modality].value_counts(normalize=True)
+    per_tgt_frac.index.names = per_tgt_frac.index.names[:2] + [modality] # Because pandas is stupid
+    per_tgt_overexpression = per_tgt_frac / total_frac
+    
+    per_tgt_overexpression = per_tgt_overexpression.reorder_levels([-1, 0, 1])
+    per_tgt_overexpression.name = "overexpression"
+    
+    return per_tgt_overexpression
+
+layer_overexpression = calculate_overexpression("layer")
+ei_overexpression = calculate_overexpression("synapse_class")
+#+end_src
+
+<<c12eb756>>
+Plot results
+
+#+begin_src jupyter-python
+from scipy.stats import linregress
+
+cols_per_layer = {
+    1: "#fff200", 
+    2: "#f7941d", 
+    3: "#e02f61", 
+    4: "#fc9bfd", 
+    5: "#68a8e0", 
+    6: "#6ce662",
+    "EXC": [1.0, 0.0, 0.0],
+    "INH": [0.0, 0.0, 1.0]
+}
+
+def plot_fun(ax, per_tgt_overexpression, per_target_xdata, x_col="conicality",
+             xlim=[-0.0055, 0.0015], ylim=None):
+    gc = per_target_xdata.droplevel(["grid-x", "grid-y", "grid-subtarget"])
+    labelled = []
+    ax.plot(xlim, [1.0, 1.0], color="black", ls="--")
+    
+    classes = per_tgt_overexpression.index.to_frame()[per_tgt_overexpression.index.names[0]].drop_duplicates().values
+    
+    for cls in classes:
+        cc =  pandas.concat([gc, per_tgt_overexpression[cls]], axis=1)
+        cc = cc.loc[~numpy.any(numpy.isnan(cc), axis=1)]
+        regress = linregress(cc[x_col], cc["overexpression"])
+        ax.plot(cc[x_col], cc["overexpression"], ls="None", marker='.',
+              color=cols_per_layer[cls], label=cls, ms=2)
+
+        yfit = regress.intercept + regress.slope * numpy.array(xlim)
+        print("{0}: {1}".format(cls, regress.rvalue ** 2))
+        ax.plot(xlim, yfit, color=cols_per_layer[cls])
+            
+    ax.set_xlim(xlim)
+    if ylim is not None:
+        ax.set_ylim(ylim)
+
+    ax.set_xlabel(x_col)
+    ax.set_ylabel("Neuron count, rel. to mean")
+    ax.legend()
+
+    ax.set_frame_on(False)
+
+
+fig = plt.figure(figsize=(3.75, 1.5))
+ax_layer = fig.add_axes([0.1, 0.1, 0.35, 0.85])
+ax_ei = fig.add_axes([0.65, 0.1, 0.35, 0.85])
+plot_fun(ax_layer, layer_overexpression, grid_conicality, ylim=[0.5, 1.5])
+plot_fun(ax_ei, ei_overexpression, grid_conicality)
+fig.savefig("conicality_effect_on_composition.pdf")
+#+end_src
+
+#+begin_example
+5: 0.0011339488628863558
+4: 0.7633387276753509
+3: 0.7610405877475469
+2: 0.7345461003719452
+6: 0.7630313736534651
+1: 0.30761577769494963
+EXC: 0.4479093311564991
+INH: 0.4479093311564994
+#+end_example
+
+[[file:c1c34fa08bfe9147378bb8e7006ffb81abca2b90.png]]
+
+#+begin_src jupyter-python
+grid_conicality.to_hdf("/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/subvolume_metrics_msk.h5", "conicality")
+grid_height.to_hdf("/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/subvolume_metrics_msk.h5", "height")
+grid_volume.to_hdf("/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/subvolume_metrics_msk.h5", "volume")
+#+end_src
+
+#+begin_example
+/gpfs/bbp.cscs.ch/home/reimann/venvs/py38/lib/python3.8/site-packages/tables/attributeset.py:464: NaturalNameWarning: object name is not a valid Python identifier: 'index_namegrid-i'; it does not match the pattern ``^[a-zA-Z_][a-zA-Z0-9_]*$``; you will not be able to use natural naming to access this object; using ``getattr()`` will still work, though
+  check_attribute_name(name)
+/gpfs/bbp.cscs.ch/home/reimann/venvs/py38/lib/python3.8/site-packages/tables/attributeset.py:464: NaturalNameWarning: object name is not a valid Python identifier: 'index_namegrid-j'; it does not match the pattern ``^[a-zA-Z_][a-zA-Z0-9_]*$``; you will not be able to use natural naming to access this object; using ``getattr()`` will still work, though
+  check_attribute_name(name)
+/gpfs/bbp.cscs.ch/home/reimann/venvs/py38/lib/python3.8/site-packages/tables/attributeset.py:464: NaturalNameWarning: object name is not a valid Python identifier: 'index_namegrid-x'; it does not match the pattern ``^[a-zA-Z_][a-zA-Z0-9_]*$``; you will not be able to use natural naming to access this object; using ``getattr()`` will still work, though
+  check_attribute_name(name)
+/gpfs/bbp.cscs.ch/home/reimann/venvs/py38/lib/python3.8/site-packages/tables/attributeset.py:464: NaturalNameWarning: object name is not a valid Python identifier: 'index_namegrid-y'; it does not match the pattern ``^[a-zA-Z_][a-zA-Z0-9_]*$``; you will not be able to use natural naming to access this object; using ``getattr()`` will still work, though
+  check_attribute_name(name)
+/gpfs/bbp.cscs.ch/home/reimann/venvs/py38/lib/python3.8/site-packages/tables/attributeset.py:464: NaturalNameWarning: object name is not a valid Python identifier: 'index_namegrid-subtarget'; it does not match the pattern ``^[a-zA-Z_][a-zA-Z0-9_]*$``; you will not be able to use natural naming to access this object; using ``getattr()`` will still work, though
+  check_attribute_name(name)
+#+end_example
+
+<<b3c86ced>>
+*** Creating meshes for rendering the subvolumes
+:PROPERTIES:
+:CUSTOM_ID: creating-meshes-for-rendering-the-subvolumes
+:END:
+
+#+begin_src jupyter-python
+import subprocess
+import tqdm
+
+for i in tqdm.tqdm(numpy.unique(colum_idx_vol)[1:]):
+    subprocess.check_call(["nrrd2obj", "--nrrd", "column_identities.nrrd",
+                           "--obj", "meshes/voxel_column_{0}.obj".format(i),
+                          "--mask-values", "{0}".format(i), "--decimation", "0.2",
+                          "--sigma-smooth", "1.0"])
+#+end_src

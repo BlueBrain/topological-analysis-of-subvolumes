@@ -563,16 +563,20 @@ class HDFStore:
     def __init__(self, config, in_connsense_h5=None):
         """Initialize an instance of connsense-TAP HDFStore.
 
-        config: Path to a YAML / JSON file that configures the pipeline, or a Mapping resulting from reading
-        ~       such a config file.
-        in_consense_h5: Path to the connsense-TAP H5 store if different from the one configured
-        ~               This can be used for testing the data produced in individual compute-nodes during
-        ~               a pipeline run.
+        config: Path to a YAML / JSON file that configures the pipeline,
+        or a Mapping resulting from reading such a config file.
+
+        in_consense_h5: Path to the connsense-TAP H5 store if different
+
+        from the one configured This can be used for testing the data produced in
+        individual compute-nodes during a pipeline run.
         """
         self._config = read_config.read(config) if not isinstance(config, Mapping) else config
         self._root = locate_store(self._config, in_connsense_h5)
         self._groups = group_steps(self._config)
         self._circuits = {}
+
+        self._external = locate_store(self._config, "external.h5")
 
     @lazy
     def parameters(tap):
@@ -656,7 +660,17 @@ class HDFStore:
                         config_q[k] = v
                 return config_q
     
-            g, qq = q.split('/')
+            try:
+                g, qq = q.split('/')
+            except ValueError:
+                try:
+                    g, qq, qqq = q.split('/')
+                except Exception as err:
+                    LOG.warning("Unable to parse computation %s, %s", computation_type, quantity)
+                    raise err
+                #qq = '/'.join([qq, qqq])
+    
+    
             config_g = {"description": config[g].get("description", "NotAvailable")}
             config_g[q] = {"description": config[g].get("description", "NotAvailable"),
                            "dataset": (computation_type, f"{g}/{qq}")}
@@ -1018,3 +1032,27 @@ class HDFStore:
         from .import parallelization as prl
         ctrls = prl.control_inputs(of_computation=analysis, in_config=tap._config, using_tap=tap)
         return ctrls.reorder_levels([l for l in ctrls.index.names if l!="control"]+["control"])
+
+    def append_external(tap, dataset, data):
+        """Append an external dataset to a TAP instance.
+        dataset: [computation_type, quantity] that can be used to determine the h5/group to save.
+        data: the actual dataframe to save.
+        """
+        external_h5 = Path(tap._root).parent/"external.h5"
+    
+        computation_type, of_quantity = dataset
+        _, group = tap.get_path(computation_type)
+        dset = f"{group}/{of_quantity}"
+    
+        data.to_hdf(external_h5, key=dset)
+        return (external_h5, dset)
+    
+    def read_external(tap, dataset):
+        """Read the external dataset that has been previously registered."""
+        external_h5 = Path(tap._root).parent/"external.h5"
+    
+        computation_type, of_quantity = dataset
+        _, group = tap.get_path(computation_type)
+        dset = f"{group}/{of_quantity}"
+    
+        return pd.read_hdf(external_h5, key=dset)

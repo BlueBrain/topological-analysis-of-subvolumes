@@ -173,7 +173,7 @@ def main(argued=None):
     if not argued:
         argued = parser.parse_args()
 
-    LOG.info("Initialize the topological analysis pipeline: \n%s", pformat(argued))
+    LOG.info("The topological analysis pipeline: \n%s", pformat(argued))
 
     at_pipeline = Path(argued.configure)
     if not at_pipeline.is_absolute():
@@ -343,12 +343,12 @@ def get_parser():
                         help=("Pass the analysis to run, for the analyses steps. Omit for other steps."))
 
     parser.add_argument("-c", "--configure", required=False, default=Path.cwd()/"pipeline.yaml",
-                        help=("Path to the (JSON) configuration that describes what to run.\n"
+                        help=("Path to the configuration that describes what to run.\n"
                               "The config should specify the input and output paths,"
                               "  and parameters  for each of the pipeline steps."))
 
     parser.add_argument("-p", "--parallelize", required=False, default=Path.cwd()/"runtime.yaml",
-                        help=("Path to the (JSON) configuration that describes how to compute.\n"
+                        help=("Path to the configuration that describes how to compute.\n"
                               "The entries in this configuration will provide parameters such as\n"
                               "paralellization parameters, whether to parallilize on a single node or multiple.\n"
                               "This configuraiton must be provided for parallilization of the tasks\n"

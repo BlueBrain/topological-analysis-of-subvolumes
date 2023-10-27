@@ -354,31 +354,41 @@ def extract_subtargets(definition, in_config, tap):
     circuits = input_circuits(definition, in_config, tap).apply(tap.get_circuit)
     kwargs = defparams.get("kwargs", {})
 
-    if not members:
-        assert "path" in kwargs, "Missing argument value for path -- needed to load the subtarget group members."
-        if "info" in kwargs:
-            from .flatmap import read_subtargets, load_nrrd
-            subtargets_with_info = read_subtargets(kwargs["info"])
-            subtargets = subtargets_with_info["subtarget"]
-            subtarget_info = subtargets_with_info.drop(columns="subtarget")
-            circuit_gidses = (pd.concat([load(circuit=c, path=kwargs["path"]).reindex(subtargets.index, fill_value=[])
-                                        for c in circuits], axis=0,
-                                        keys=circuits.index.values, names=circuits.index.names)
-                              .reorder_levels(["subtarget_id", "circuit_id"]))
-        else:
-            subtargets, subtarget_info, circuit_gidses = load(kwargs["path"])
+    if members and isinstance(members, list):
+        members = index_subtarget(members)
+        info = None
+        subtargets = (pd.concat([members.apply(lambda s: load(c, s, **kwargs)).rename("gids")
+                                for c in circuits], axis=0,
+                                keys=circuits.index.values, names=[circuits.index.name])
+                      .reorder_levels(["subtarget_id", "circuit_id"]))
+        return (members, info, subtargets)
 
-    elif isinstance(members, list):
-        subtargets = index_subtarget(members)
-        subtarget_info = None
-        circuit_gidses = (pd.concat([subtargets.apply(lambda s: load(c, s, **kwargs)).rename("gids")
-                                     for c in circuits], axis=0,
-                                     keys=circuits.index.values, names=[circuits.index.name])
-                          .reorder_levels(["subtarget_id", "circuit_id"]))
-    else:
-        raise NotImplementedError(f"NOT-YET when members of type {type(members)}")
 
-    return (subtargets, subtarget_info, circuit_gidses)
+    if "path" not in kwargs:
+        assert len(circuits) == 1, ("This will work for only one circuit, "
+                                    "as do many other parts of the code, for now")
+        circuit = circuits.iloc[0]; circuit.variant = circuits.index[0]
+        grid_info, subvolumes, subtargets = load(circuit, **kwargs)
+        info = grid_info.reset_index().set_index("subtarget_id").drop(columns="subtarget")
+        members = grid_info.reset_index().set_index("subtarget_id").subtarget
+        subtargets = (pd.concat([subtargets], keys=[circuit.variant], names=["circuit_id"])
+                      .reorder_levels([1,0]))
+        return (members, info, subtargets)
+
+    assert "info" in kwargs, "Missing subtarget info"
+
+    from .flatmap import read_subtargets, load_nrrd
+    subtargets_with_info = read_subtargets(kwargs["info"])
+    members = subtargets_with_info["subtarget"]
+    info = subtargets_with_info.drop(columns="subtarget")
+    subtargets = (pd.concat([load(circuit=c, path=kwargs["path"]).reindex(members.index, fill_value=[])
+                                for c in circuits], axis=0,
+                            keys=circuits.index.values, names=circuits.index.names)
+                    .reorder_levels(["subtarget_id", "circuit_id"]))
+    return (members, info, subtargets)
+
+
+    raise NotImplementedError(f"NOT-YET when members of type {type(members)}")
 
 
 def run(config, substep=None, in_mode=None, output=None, **kwargs):

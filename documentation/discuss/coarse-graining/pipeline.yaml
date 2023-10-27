@@ -1,0 +1,88 @@
+
+# We need to set paths to the artefacts that the pipeline will use. We set paths for the circuit to analyze, and the root space for the pipeline's HDF5 stores, and the HDF5 group for each of the pipeline steps.
+# #+header: :comments both :padline no :tangle ./pipeline.yaml
+
+# [[file:coarse-graining.org::*paths][paths:1]]
+paths:
+  description: >-
+    The ~connsense~ pipeline needs paths to the input data to load from,
+    and output paths to store data. Paths to the circuit must be provided
+    along with paths to the HDF5 archive that will store the pipeline's
+    results.
+  format: relative
+  circuit:
+    root: "/gpfs/bbp.cscs.ch/project/proj83/circuits"
+    files:
+      Bio_M: "Bio_M/20200805/CircuitConfig_TC_WM"
+  pipeline:
+    root: "/gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/coarse-graining"
+    input:
+      store: "connsense.h5"
+    output:
+      store: "connsense.h5"
+    steps:
+      define-subtargets: "subtargets"
+      extract-node-populations: "nodes/populations"
+      extract-edge-populations: "edges/populations"
+      analyze-connectivity: "analyses/connectivity"
+# paths:1 ends here
+
+# We provide the parameters for each step.
+# #+header: :comments both :padline no :tangle ./pipeline.yaml
+
+# [[file:coarse-graining.org::*parameters][parameters:1]]
+parameters:
+  description: >-
+    Provide parameters that apply to each step.
+# parameters:1 ends here
+
+# #+header: :comments both :padline no :tangle ./pipeline.yaml
+
+# [[file:coarse-graining.org::*define-subtargets][define-subtargets:1]]
+  define-subtargets:
+    description: >-
+      Configure the subtargets to analyze, entrying each definition as a key, value.
+    definitions:
+# define-subtargets:1 ends here
+
+# We will have flatmap columns of radii 28.75, 57.5, 115.0, 230,0, 460.0, 920.0, and 1840.0. Let us write out a template that we can fill programmatically,
+# #+header: :comments both :padline no :tangle ./pipeline.yaml
+
+# [[file:coarse-graining.org::*flatmap-columns][flatmap-columns:1]]
+      flatmap-columns:
+        description: >-
+          Hexaongal prism like columns oriented along cortical layers,
+          from white-matter to pia.  The data is loaded from an NRRD file that maps each
+          circuit voxel to a subtarget ids corresponding to a flatmap column.The subtarget
+          ids should be mapped to the subtargets they refer to in a dataframe provided as
+          the input `info`.
+        input:
+          circuit:
+            - "Bio_M"
+        kwargs:
+          regions: TOFILL
+          grid_resolution: TOFILL
+          grid_shape: TOFILL
+        loader:
+          source: flatmap_utility.develop.subtargets
+          method: generate_subtargets
+# flatmap-columns:1 ends here
+
+# Within ~connsense~ we use an ~internal~ index for ~subtarget, circuit, connectome~. While we can infer this information from [[paths]] and [[define-subtargets]], we have not yet (<2023-02-13 Mon>) implemented this feature. Should be deprecated in future.
+# #+header: :comments both :padline no :tangle ./pipeline.yaml
+
+# [[file:coarse-graining.org::*create-index][create-index:1]]
+  create-index:
+    description:
+      Create tap-store indices by listing datasets for each index variable.
+    variables:
+      circuit:
+        - "Bio_M"
+      connectome:
+        - "local"
+        - "intra_SSCX_midrange_wm"
+        - "Thalamocortical_input_VPM"
+        - "Thalamocortical_input_POM"
+      subtarget:
+        dataset: ["define-subtargets", "flatmap-columns/name"]
+# create-index:1 ends here

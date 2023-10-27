@@ -1,0 +1,1648 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+<head>
+<!-- 2022-10-11 Tue 14:59 -->
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Topotap</title>
+<meta name="author" content="Vishal Sood" />
+<meta name="generator" content="Org Mode" />
+<style>
+  #content { max-width: 60em; margin: auto; }
+  .title  { text-align: center;
+             margin-bottom: .2em; }
+  .subtitle { text-align: center;
+              font-size: medium;
+              font-weight: bold;
+              margin-top:0; }
+  .todo   { font-family: monospace; color: red; }
+  .done   { font-family: monospace; color: green; }
+  .priority { font-family: monospace; color: orange; }
+  .tag    { background-color: #eee; font-family: monospace;
+            padding: 2px; font-size: 80%; font-weight: normal; }
+  .timestamp { color: #bebebe; }
+  .timestamp-kwd { color: #5f9ea0; }
+  .org-right  { margin-left: auto; margin-right: 0px;  text-align: right; }
+  .org-left   { margin-left: 0px;  margin-right: auto; text-align: left; }
+  .org-center { margin-left: auto; margin-right: auto; text-align: center; }
+  .underline { text-decoration: underline; }
+  #postamble p, #preamble p { font-size: 90%; margin: .2em; }
+  p.verse { margin-left: 3%; }
+  pre {
+    border: 1px solid #e6e6e6;
+    border-radius: 3px;
+    background-color: #f2f2f2;
+    padding: 8pt;
+    font-family: monospace;
+    overflow: auto;
+    margin: 1.2em;
+  }
+  pre.src {
+    position: relative;
+    overflow: auto;
+  }
+  pre.src:before {
+    display: none;
+    position: absolute;
+    top: -8px;
+    right: 12px;
+    padding: 3px;
+    color: #555;
+    background-color: #f2f2f299;
+  }
+  pre.src:hover:before { display: inline; margin-top: 14px;}
+  /* Languages per Org manual */
+  pre.src-asymptote:before { content: 'Asymptote'; }
+  pre.src-awk:before { content: 'Awk'; }
+  pre.src-authinfo::before { content: 'Authinfo'; }
+  pre.src-C:before { content: 'C'; }
+  /* pre.src-C++ doesn't work in CSS */
+  pre.src-clojure:before { content: 'Clojure'; }
+  pre.src-css:before { content: 'CSS'; }
+  pre.src-D:before { content: 'D'; }
+  pre.src-ditaa:before { content: 'ditaa'; }
+  pre.src-dot:before { content: 'Graphviz'; }
+  pre.src-calc:before { content: 'Emacs Calc'; }
+  pre.src-emacs-lisp:before { content: 'Emacs Lisp'; }
+  pre.src-fortran:before { content: 'Fortran'; }
+  pre.src-gnuplot:before { content: 'gnuplot'; }
+  pre.src-haskell:before { content: 'Haskell'; }
+  pre.src-hledger:before { content: 'hledger'; }
+  pre.src-java:before { content: 'Java'; }
+  pre.src-js:before { content: 'Javascript'; }
+  pre.src-latex:before { content: 'LaTeX'; }
+  pre.src-ledger:before { content: 'Ledger'; }
+  pre.src-lisp:before { content: 'Lisp'; }
+  pre.src-lilypond:before { content: 'Lilypond'; }
+  pre.src-lua:before { content: 'Lua'; }
+  pre.src-matlab:before { content: 'MATLAB'; }
+  pre.src-mscgen:before { content: 'Mscgen'; }
+  pre.src-ocaml:before { content: 'Objective Caml'; }
+  pre.src-octave:before { content: 'Octave'; }
+  pre.src-org:before { content: 'Org mode'; }
+  pre.src-oz:before { content: 'OZ'; }
+  pre.src-plantuml:before { content: 'Plantuml'; }
+  pre.src-processing:before { content: 'Processing.js'; }
+  pre.src-python:before { content: 'Python'; }
+  pre.src-R:before { content: 'R'; }
+  pre.src-ruby:before { content: 'Ruby'; }
+  pre.src-sass:before { content: 'Sass'; }
+  pre.src-scheme:before { content: 'Scheme'; }
+  pre.src-screen:before { content: 'Gnu Screen'; }
+  pre.src-sed:before { content: 'Sed'; }
+  pre.src-sh:before { content: 'shell'; }
+  pre.src-sql:before { content: 'SQL'; }
+  pre.src-sqlite:before { content: 'SQLite'; }
+  /* additional languages in org.el's org-babel-load-languages alist */
+  pre.src-forth:before { content: 'Forth'; }
+  pre.src-io:before { content: 'IO'; }
+  pre.src-J:before { content: 'J'; }
+  pre.src-makefile:before { content: 'Makefile'; }
+  pre.src-maxima:before { content: 'Maxima'; }
+  pre.src-perl:before { content: 'Perl'; }
+  pre.src-picolisp:before { content: 'Pico Lisp'; }
+  pre.src-scala:before { content: 'Scala'; }
+  pre.src-shell:before { content: 'Shell Script'; }
+  pre.src-ebnf2ps:before { content: 'ebfn2ps'; }
+  /* additional language identifiers per "defun org-babel-execute"
+       in ob-*.el */
+  pre.src-cpp:before  { content: 'C++'; }
+  pre.src-abc:before  { content: 'ABC'; }
+  pre.src-coq:before  { content: 'Coq'; }
+  pre.src-groovy:before  { content: 'Groovy'; }
+  /* additional language identifiers from org-babel-shell-names in
+     ob-shell.el: ob-shell is the only babel language using a lambda to put
+     the execution function name together. */
+  pre.src-bash:before  { content: 'bash'; }
+  pre.src-csh:before  { content: 'csh'; }
+  pre.src-ash:before  { content: 'ash'; }
+  pre.src-dash:before  { content: 'dash'; }
+  pre.src-ksh:before  { content: 'ksh'; }
+  pre.src-mksh:before  { content: 'mksh'; }
+  pre.src-posh:before  { content: 'posh'; }
+  /* Additional Emacs modes also supported by the LaTeX listings package */
+  pre.src-ada:before { content: 'Ada'; }
+  pre.src-asm:before { content: 'Assembler'; }
+  pre.src-caml:before { content: 'Caml'; }
+  pre.src-delphi:before { content: 'Delphi'; }
+  pre.src-html:before { content: 'HTML'; }
+  pre.src-idl:before { content: 'IDL'; }
+  pre.src-mercury:before { content: 'Mercury'; }
+  pre.src-metapost:before { content: 'MetaPost'; }
+  pre.src-modula-2:before { content: 'Modula-2'; }
+  pre.src-pascal:before { content: 'Pascal'; }
+  pre.src-ps:before { content: 'PostScript'; }
+  pre.src-prolog:before { content: 'Prolog'; }
+  pre.src-simula:before { content: 'Simula'; }
+  pre.src-tcl:before { content: 'tcl'; }
+  pre.src-tex:before { content: 'TeX'; }
+  pre.src-plain-tex:before { content: 'Plain TeX'; }
+  pre.src-verilog:before { content: 'Verilog'; }
+  pre.src-vhdl:before { content: 'VHDL'; }
+  pre.src-xml:before { content: 'XML'; }
+  pre.src-nxml:before { content: 'XML'; }
+  /* add a generic configuration mode; LaTeX export needs an additional
+     (add-to-list 'org-latex-listings-langs '(conf " ")) in .emacs */
+  pre.src-conf:before { content: 'Configuration File'; }
+
+  table { border-collapse:collapse; }
+  caption.t-above { caption-side: top; }
+  caption.t-bottom { caption-side: bottom; }
+  td, th { vertical-align:top;  }
+  th.org-right  { text-align: center;  }
+  th.org-left   { text-align: center;   }
+  th.org-center { text-align: center; }
+  td.org-right  { text-align: right;  }
+  td.org-left   { text-align: left;   }
+  td.org-center { text-align: center; }
+  dt { font-weight: bold; }
+  .footpara { display: inline; }
+  .footdef  { margin-bottom: 1em; }
+  .figure { padding: 1em; }
+  .figure p { text-align: center; }
+  .equation-container {
+    display: table;
+    text-align: center;
+    width: 100%;
+  }
+  .equation {
+    vertical-align: middle;
+  }
+  .equation-label {
+    display: table-cell;
+    text-align: right;
+    vertical-align: middle;
+  }
+  .inlinetask {
+    padding: 10px;
+    border: 2px solid gray;
+    margin: 10px;
+    background: #ffffcc;
+  }
+  #org-div-home-and-up
+   { text-align: right; font-size: 70%; white-space: nowrap; }
+  textarea { overflow-x: auto; }
+  .linenr { font-size: smaller }
+  .code-highlighted { background-color: #ffff00; }
+  .org-info-js_info-navigation { border-style: none; }
+  #org-info-js_console-label
+    { font-size: 10px; font-weight: bold; white-space: nowrap; }
+  .org-info-js_search-highlight
+    { background-color: #ffff00; color: #000000; font-weight: bold; }
+  .org-svg { }
+</style>
+</head>
+<body>
+<div id="content" class="content">
+<h1 class="title">Topotap</h1>
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#org248966f">1. Setup</a>
+<ul>
+<li><a href="#orgdbb599f">1.1. A notebook template to explore and develop</a></li>
+</ul>
+</li>
+<li><a href="#org3c720ad">2. Introduction</a></li>
+<li><a href="#org2e46df3">3. HDFStore</a></li>
+</ul>
+</div>
+</div>
+
+<div id="outline-container-org248966f" class="outline-2">
+<h2 id="org248966f"><span class="section-number-2">1.</span> Setup</h2>
+<div class="outline-text-2" id="text-1">
+<p>
+In our discussion we will develop scientific concepts to measure the circuit, and implement Python functions to compute them. Here we setup a notebook template to test and explore, and the structure of a <code>Python</code> package for our methods.
+</p>
+</div>
+
+<div id="outline-container-orgdbb599f" class="outline-3">
+<h3 id="orgdbb599f"><span class="section-number-3">1.1.</span> A notebook template to explore and develop</h3>
+<div class="outline-text-3" id="text-1-1">
+<p>
+Let us setup an interactive <code>Python</code> session where we can run the code developed here.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter">print("Welcome to EMACS Jupyter")
+</pre>
+</div>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python" id="org494685a"><span style="color: #0000FF;">from</span> importlib <span style="color: #0000FF;">import</span> <span style="color: #006FE0;">reload</span>
+<span style="color: #0000FF;">from</span> collections.abc <span style="color: #0000FF;">import</span> Mapping
+<span style="color: #0000FF;">from</span> collections <span style="color: #0000FF;">import</span> OrderedDict
+<span style="color: #0000FF;">from</span> pprint <span style="color: #0000FF;">import</span> pprint, pformat
+<span style="color: #0000FF;">from</span> pathlib <span style="color: #0000FF;">import</span> Path
+
+<span style="color: #0000FF;">import</span> numpy <span style="color: #0000FF;">as</span> np
+<span style="color: #0000FF;">import</span> pandas <span style="color: #0000FF;">as</span> pd
+
+<span style="color: #0000FF;">import</span> matplotlib
+
+<span style="color: #006FE0;">reload</span>(matplotlib)
+<span style="color: #0000FF;">from</span> matplotlib <span style="color: #0000FF;">import</span> pylab <span style="color: #0000FF;">as</span> plt
+<span style="color: #0000FF;">import</span> seaborn <span style="color: #0000FF;">as</span> sbn
+<span style="color: #BA36A5;">GOLDEN</span> = (<span style="color: #D0372D;">1</span>. + np.sqrt(<span style="color: #D0372D;">5</span>.))/<span style="color: #D0372D;">2</span>.
+
+<span style="color: #0000FF;">from</span> IPython.display <span style="color: #0000FF;">import</span> display
+
+<span style="color: #0000FF;">from</span> bluepy <span style="color: #0000FF;">import</span> Synapse, Cell, Circuit
+
+<span style="color: #006FE0;">print</span>(<span style="color: #008000;">"We will plot golden aspect ratios: "</span>, GOLDEN)
+</pre>
+</div>
+
+<p>
+We have run <code>connsense-CRAP</code> for the SSCx dissemination variant <i>Bio-M</i>, extracting data that we will use to compute the factology. Here is a list of workspaces we will need to generate factsheets.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python" id="orgbda27b0"><span style="color: #0000FF;">from</span> connsense.pipeline <span style="color: #0000FF;">import</span> pipeline
+<span style="color: #0000FF;">from</span> connsense.pipeline.parallelization <span style="color: #0000FF;">import</span> parallelization <span style="color: #0000FF;">as</span> prl
+<span style="color: #0000FF;">from</span> connsense.pipeline.store <span style="color: #0000FF;">import</span> store <span style="color: #0000FF;">as</span> tap_store
+
+<span style="color: #BA36A5;">ROOTSPACE</span> = Path(<span style="color: #008000;">"/"</span>)
+<span style="color: #BA36A5;">PROJSPACE</span> = ROOTSPACE / <span style="color: #008000;">"gpfs/bbp.cscs.ch/project/proj83"</span>
+<span style="color: #BA36A5;">CONNSPACE</span> = PROJSPACE / <span style="color: #008000;">"home/sood"</span> / <span style="color: #008000;">"topological-analysis-subvolumes/test/v2"</span>
+</pre>
+</div>
+
+<p>
+While test-developing it will be good to have direct access to the <code>connsense-TAP-store</code> we will use,
+</p>
+
+<p>
+We can collect the code above in a <code>Pyhton</code> template file that can be used to generate notebooks,
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python" id="orgc91d9e3"><span style="color: #BA36A5;">topaz</span> = pipeline.TopologicalAnalysis(CONNSPACE/<span style="color: #008000;">"pipeline.yaml"</span>, CONNSPACE/<span style="color: #008000;">"runtime.yaml"</span>)
+<span style="color: #BA36A5;">tap</span> = tap_store.HDFStore(topaz._config)
+<span style="color: #BA36A5;">circuit</span> = tap.get_circuit(<span style="color: #008000;">"Bio_M"</span>)
+<span style="color: #006FE0;">print</span>(<span style="color: #008000;">"Available analyses: "</span>)
+</pre>
+</div>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python" id="org10177a9"><span style="color: #0000FF;">import</span> connsense.pipeline.pipeline
+<span style="color: #0000FF;">import</span> connsense.pipeline.store.store
+
+<span style="color: #0000FF;">def</span> <span style="color: #006699;">reload_modules</span>():
+    <span style="color: #036A07;">"""..."""</span>
+    <span style="color: #006FE0;">reload</span>(connsense.pipeline.pipeline)
+    <span style="color: #006FE0;">reload</span>(connsense.pipeline.store.store)
+
+</pre>
+</div>
+
+<p>
+Finally, here is a template that we can use to start test-developing. We will deposit the code in a sub-directory, of the directory holding this file.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [markdown]</span>
+<span style="color: #036A07;">"""# Test Develop a Circuit Factology</span>
+<span style="color: #036A07;">"""</span>
+
+<span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [code]</span>
+<span style="color: #0000FF;">from</span> importlib <span style="color: #0000FF;">import</span> <span style="color: #006FE0;">reload</span>
+<span style="color: #0000FF;">from</span> collections.abc <span style="color: #0000FF;">import</span> Mapping
+<span style="color: #0000FF;">from</span> collections <span style="color: #0000FF;">import</span> OrderedDict
+<span style="color: #0000FF;">from</span> pprint <span style="color: #0000FF;">import</span> pprint, pformat
+<span style="color: #0000FF;">from</span> pathlib <span style="color: #0000FF;">import</span> Path
+
+<span style="color: #0000FF;">import</span> numpy <span style="color: #0000FF;">as</span> np
+<span style="color: #0000FF;">import</span> pandas <span style="color: #0000FF;">as</span> pd
+
+<span style="color: #0000FF;">import</span> matplotlib
+
+<span style="color: #006FE0;">reload</span>(matplotlib)
+<span style="color: #0000FF;">from</span> matplotlib <span style="color: #0000FF;">import</span> pylab <span style="color: #0000FF;">as</span> plt
+<span style="color: #0000FF;">import</span> seaborn <span style="color: #0000FF;">as</span> sbn
+<span style="color: #BA36A5;">GOLDEN</span> = (<span style="color: #D0372D;">1</span>. + np.sqrt(<span style="color: #D0372D;">5</span>.))/<span style="color: #D0372D;">2</span>.
+
+<span style="color: #0000FF;">from</span> IPython.display <span style="color: #0000FF;">import</span> display
+
+<span style="color: #0000FF;">from</span> bluepy <span style="color: #0000FF;">import</span> Synapse, Cell, Circuit
+
+<span style="color: #006FE0;">print</span>(<span style="color: #008000;">"We will plot golden aspect ratios: "</span>, GOLDEN)
+
+<span style="color: #0000FF;">from</span> connsense.pipeline <span style="color: #0000FF;">import</span> pipeline
+<span style="color: #0000FF;">from</span> connsense.pipeline.parallelization <span style="color: #0000FF;">import</span> parallelization <span style="color: #0000FF;">as</span> prl
+<span style="color: #0000FF;">from</span> connsense.pipeline.store <span style="color: #0000FF;">import</span> store <span style="color: #0000FF;">as</span> tap_store
+
+ROOTSPACE = Path(<span style="color: #008000;">"/"</span>)
+<span style="color: #BA36A5;">PROJSPACE</span> = ROOTSPACE / <span style="color: #008000;">"gpfs/bbp.cscs.ch/project/proj83"</span>
+<span style="color: #BA36A5;">CONNSPACE</span> = PROJSPACE / <span style="color: #008000;">"home/sood"</span> / <span style="color: #008000;">"topological-analysis-subvolumes/test/v2"</span>
+
+<span style="color: #BA36A5;">topaz</span> = pipeline.TopologicalAnalysis(CONNSPACE/<span style="color: #008000;">"pipeline.yaml"</span>, CONNSPACE/<span style="color: #008000;">"runtime.yaml"</span>)
+<span style="color: #BA36A5;">tap</span> = tap_store.HDFStore(topaz._config)
+<span style="color: #BA36A5;">circuit</span> = tap.get_circuit(<span style="color: #008000;">"Bio_M"</span>)
+<span style="color: #006FE0;">print</span>(<span style="color: #008000;">"Available analyses: "</span>)
+
+<span style="color: #0000FF;">import</span> connsense.pipeline.pipeline
+<span style="color: #0000FF;">import</span> connsense.pipeline.store.store
+
+<span style="color: #0000FF;">def</span> <span style="color: #006699;">reload_modules</span>():
+    <span style="color: #036A07;">"""..."""</span>
+    <span style="color: #006FE0;">reload</span>(connsense.pipeline.pipeline)
+    <span style="color: #006FE0;">reload</span>(connsense.pipeline.store.store)
+
+
+
+</pre>
+</div>
+</div>
+</div>
+</div>
+
+
+<div id="outline-container-org3c720ad" class="outline-2">
+<h2 id="org3c720ad"><span class="section-number-2">2.</span> Introduction</h2>
+<div class="outline-text-2" id="text-2">
+<p>
+While the <code>Python-environment</code> setup above loads the other packages that we will need, we will be most interested in discussing a layer for topological-analyses,
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python" id="org52618c6"><span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [markdown]</span>
+<span style="color: #036A07;">"""Load a connsense-TAP to analyze topology of a circuit</span>
+<span style="color: #036A07;">"""</span>
+<span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [code]</span>
+
+<span style="color: #0000FF;">from</span> connsense.develop <span style="color: #0000FF;">import</span> topotap <span style="color: #0000FF;">as</span> topotap_store
+<span style="color: #006FE0;">reload</span>(topotap_store)
+<span style="color: #BA36A5;">topotap</span> = topotap_store.HDFStore(CONNSPACE/<span style="color: #008000;">"pipeline.yaml"</span>)
+<span style="color: #006FE0;">print</span>(<span style="color: #008000;">"Available analyses: "</span>)
+pprint(topotap.analyses)
+</pre>
+</div>
+
+<p>
+Let us analyze degrees of the subtargets. To get to the data about circuit edges / adjacency, we start by looking at the <code>circuit-subtargets</code> that we are analyzed,
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python" id="org36e091d"><span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [markdown]</span>
+<span style="color: #036A07;">"""## Subtargets in connsense-TAP</span>
+<span style="color: #036A07;">"""</span>
+<span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [code]</span>
+
+topotap.subtargets
+</pre>
+</div>
+
+<p>
+This is the information that was provided in the configured definition of subtargets. In the earlier version of <code>connsense-TAP</code> this information was part of each <code>connsense-dataset</code>&rsquo;s index. However it does not need to. We can get the data from <code>connsense-TAP</code> store for analyses that need it.
+</p>
+
+<p>
+For each subtarget, <code>connsense-TAP</code> saves the <code>circuit-cell-gids</code> as a list. We do not expect each user to need this list &#x2014; <code>connsense-TAP</code> hides that information. However the <code>gids</code> are avaialble among the node properties.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python" id="org9041a50"><span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [markdown]</span>
+<span style="color: #036A07;">"""## Nodes in connsense-TAP</span>
+<span style="color: #036A07;">"""</span>
+<span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [code]</span>
+
+topotap.nodes.dataset
+</pre>
+</div>
+
+<p>
+The contents for each <code>circuit-subtarget</code> entry are a mysterious object <code>BeLazy</code> which is nothing more than an instruction to load the data,
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python" id="orgd41e349"><span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [markdown]</span>
+<span style="color: #036A07;">"""Contents of nodes</span>
+<span style="color: #036A07;">"""</span>
+<span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [code]</span>
+
+topotap.nodes.dataset.iloc[<span style="color: #D0372D;">0</span>].get_value().info()
+</pre>
+</div>
+
+<p>
+Lazy-data is necessary to track all the subtargets in a dataset as each can be big. However we can interact with <code>connsense-TAP</code> without having to know about laziness of the data,
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python" id="org817566f"><span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [markdown]</span>
+<span style="color: #036A07;">"""Contents of nodes</span>
+<span style="color: #036A07;">"""</span>
+<span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [code]</span>
+
+topotap.nodes(subtarget=<span style="color: #008000;">"R19;C0"</span>, circuit=<span style="color: #008000;">"Bio_M"</span>).info()
+</pre>
+</div>
+
+
+<p>
+We don&rsquo;t have to provide the circuit,
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python" id="org77c4970"><span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [markdown]</span>
+<span style="color: #036A07;">"""Nodes of a subtarget</span>
+<span style="color: #036A07;">"""</span>
+<span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [code]</span>
+
+topotap.nodes(subtarget=<span style="color: #008000;">"R19;C0"</span>).info()
+</pre>
+</div>
+
+<p>
+We can access the adjacencies,
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python" id="org3fe8f82"><span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [markdown]</span>
+<span style="color: #036A07;">"""## Adjacency datasets</span>
+<span style="color: #036A07;">"""</span>
+<span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [code]</span>
+topotap.adjacency.dataset
+</pre>
+</div>
+
+<p>
+That behaves similarly to <code>topotap.nodes</code> with an additional level for connectome. We have only one connectome that allows us to get adjacencies,
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python" id="org19112f9"><span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [markdown]</span>
+<span style="color: #036A07;">""" Adjacency of a subtarget</span>
+<span style="color: #036A07;">"""</span>
+<span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [code]</span>
+topotap.adjacency.dataset
+topotap.adjacency(<span style="color: #008000;">"R19;C0"</span>)
+</pre>
+</div>
+
+
+<p>
+And we have simplex-counts
+</p>
+<div class="org-src-container">
+<pre class="src src-jupyter-python" id="org24ca5a8"><span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [markdown]</span>
+<span style="color: #036A07;">"""## Analyses</span>
+<span style="color: #036A07;">"""</span>
+<span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [code]</span>
+pprint(topotap.analyses)
+</pre>
+</div>
+
+<p>
+that we can access using the same indexing scheme,
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python" id="org894f251"><span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [markdown]</span>
+<span style="color: #036A07;">"""Simplex counts</span>
+<span style="color: #036A07;">"""</span>
+<span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [code]</span>
+<span style="color: #BA36A5;">simplex_counts</span> = topotap.analyses[<span style="color: #008000;">"connectivity"</span>][<span style="color: #008000;">"simplex-counts"</span>]
+simplex_counts.dataset
+</pre>
+</div>
+
+<p>
+That also responds to calls,
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python" id="org3c7bc08"><span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [markdown]</span>
+<span style="color: #036A07;">"""Simplex counts</span>
+<span style="color: #036A07;">"""</span>
+<span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [code]</span>
+<span style="color: #BA36A5;">simplex_counts</span> = topotap.analyses[<span style="color: #008000;">"connectivity"</span>][<span style="color: #008000;">"simplex-counts"</span>]
+simplex_counts(<span style="color: #008000;">"R19;C0"</span>)
+</pre>
+</div>
+
+<pre class="example">
+ 2022-10-11 14:26:40,429: Pour analyses for analyze-connectivity
+ 2022-10-11 14:26:40,431: Initialize a SeriesStore matrix store loading / writing data at /gpfs/bbp.cscs.ch/project/proj83/home/sood/topological-analysis-subvolumes/test/v2/connsense.h5 / analyses/connectivity/simplex-counts
+dim
+0      1823
+1     88675
+2    276930
+3     85837
+4      3495
+5        21
+Name: simplex_count, dtype: int64
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org2e46df3" class="outline-2">
+<h2 id="org2e46df3"><span class="section-number-2">3.</span> HDFStore</h2>
+<div class="outline-text-2" id="text-3">
+<p>
+The long-range connectivity in the SSCx circuit is based on a topographical mapping connections between subregions.
+The mapping projects each voxel in the circuit atlas to a <i>pixel</i> in the circuit&rsquo;s <i>flatmap</i>. This <code>voxel--&gt;pixel</code> map, from the circuit&rsquo;s physical space to it&rsquo;s <code>flatmap</code> space, is used to compute neighborhoods of <i>intra-SSCx</i> white-matter (WM) projections. WM projections are expected to enter the cortex from under layer 6 and proceed upwards along cortical layers. Thalamo-cortical (TC) projections follow similar trajectories. We want to analyze local connectivity in such cortical columns.
+</p>
+
+<p>
+We want an interface to a <code>connsense-TAP</code> instance developed for topological network analyses of a brain circuit. Here we implement o replacement of <code>connsense.pipeline.store.store.HDFStore</code> adding methods for simpler interaction with the pipeline&rsquo;s data.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python" id="org4db2808"><span style="color: #036A07;">"""Interface to the HD5-store where the pipeline stores it's data.</span>
+<span style="color: #036A07;">"""</span>
+<span style="color: #0000FF;">from</span> collections.abc <span style="color: #0000FF;">import</span> Iterable, Mapping
+<span style="color: #0000FF;">from</span> collections <span style="color: #0000FF;">import</span> OrderedDict, defaultdict
+<span style="color: #0000FF;">from</span> copy <span style="color: #0000FF;">import</span> deepcopy
+<span style="color: #0000FF;">from</span> pprint <span style="color: #0000FF;">import</span> pformat
+<span style="color: #0000FF;">from</span> lazy <span style="color: #0000FF;">import</span> lazy
+<span style="color: #0000FF;">from</span> pathlib <span style="color: #0000FF;">import</span> Path
+<span style="color: #0000FF;">import</span> h5py
+
+<span style="color: #0000FF;">import</span> pandas <span style="color: #0000FF;">as</span> pd
+
+<span style="color: #0000FF;">from</span> connsense <span style="color: #0000FF;">import</span> plugins
+<span style="color: #0000FF;">from</span> connsense.define_subtargets.config <span style="color: #0000FF;">import</span> SubtargetsConfig
+<span style="color: #0000FF;">from</span> connsense <span style="color: #0000FF;">import</span> analyze_connectivity <span style="color: #0000FF;">as</span> anzconn
+<span style="color: #0000FF;">from</span> connsense.analyze_connectivity <span style="color: #0000FF;">import</span> matrices
+<span style="color: #0000FF;">from</span> connsense.io <span style="color: #0000FF;">import</span> read_config
+<span style="color: #0000FF;">from</span> connsense.io.write_results <span style="color: #0000FF;">import</span> (read <span style="color: #0000FF;">as</span> read_dataset,
+                                        read_subtargets,
+                                        read_node_properties,
+                                        read_toc_plus_payload)
+<span style="color: #0000FF;">from</span> connsense.io <span style="color: #0000FF;">import</span> logging
+<span style="color: #0000FF;">from</span> connsense.pipeline <span style="color: #0000FF;">import</span> ConfigurationError, NotConfiguredError, COMPKEYS
+<span style="color: #0000FF;">from</span> connsense.pipeline.parallelization <span style="color: #0000FF;">import</span> parallelization <span style="color: #0000FF;">as</span> prl
+
+<span style="color: #BA36A5;">LOG</span> = logging.get_logger(<span style="color: #006FE0;">__name__</span>)
+</pre>
+</div>
+
+<p>
+Paths are specified in <code>connsense-TAP</code> condiguration, using which we can locate the H5 file with the data that results from running <code>connsense-TAP</code>. The configuration provides paths to the H5 file, and the keys in the data-store for each of the computations / steps in the configuration. An HDFStore interface will need these paths,
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python" id="org1a29443"><span style="color: #0000FF;">def</span> <span style="color: #006699;">locate_store</span>(config, in_connsense_h5=<span style="color: #D0372D;">None</span>):
+    <span style="color: #036A07;">"""..."""</span>
+    <span style="color: #0000FF;">if</span> <span style="color: #0000FF;">not</span> in_connsense_h5:
+        <span style="color: #0000FF;">return</span> Path(config[<span style="color: #008000;">"paths"</span>][<span style="color: #008000;">"input"</span>][<span style="color: #008000;">"store"</span>])
+    <span style="color: #0000FF;">return</span> Path(in_connsense_h5)
+
+
+<span style="color: #0000FF;">def</span> <span style="color: #006699;">group_steps</span>(config):
+    <span style="color: #036A07;">"""..."""</span>
+    inputs = config[<span style="color: #008000;">"paths"</span>][<span style="color: #008000;">"input"</span>][<span style="color: #008000;">"steps"</span>]
+    <span style="color: #0000FF;">return</span> {step: group <span style="color: #0000FF;">for</span> step, (_, group) <span style="color: #0000FF;">in</span> inputs.items()}
+
+</pre>
+</div>
+
+<p>
+<code>connsense-TAP</code> store data with integer IDs in the index, while saving the names for the entries in H5. The names for IDs used are,
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python" id="org23fbf4e"><span style="color: #BA36A5;">SUBTARGET_ID</span> = <span style="color: #008000;">"subtarget_id"</span>
+<span style="color: #BA36A5;">CIRCUIT_ID</span> = <span style="color: #008000;">"circuit_id"</span>
+<span style="color: #BA36A5;">CONNECTOME_ID</span> = <span style="color: #008000;">"connectome_id"</span>
+<span style="color: #BA36A5;">MTYPE_ID</span> = <span style="color: #008000;">"mtype_id"</span>
+<span style="color: #BA36A5;">MORPHOLOGY_ID</span> = <span style="color: #008000;">"morphology_id"</span>
+
+<span style="color: #0000FF;">from</span> connsense.pipeline <span style="color: #0000FF;">import</span> COMPKEYS, PARAMKEY, ConfigurationError, NotConfiguredError
+</pre>
+</div>
+
+<p>
+Each individual configured of computation is entered in a list under a key that depends on it&rsquo;s computation type. Here is a list of these parameter keys for each computation type that <code>connsense-TAP</code> knows about,
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #BA36A5;">PARAMKEY</span> = {<span style="color: #008000;">"define-subtargets"</span>: <span style="color: #008000;">"definitions"</span>,
+            <span style="color: #008000;">"extract-voxels"</span>: <span style="color: #008000;">"annotations"</span>,
+            <span style="color: #008000;">"extract-node-types"</span>: <span style="color: #008000;">"modeltypes"</span>,
+            <span style="color: #008000;">"extract-edge-types"</span>: <span style="color: #008000;">"models"</span>,
+            <span style="color: #008000;">"create-index"</span>: <span style="color: #008000;">"variables"</span>,
+            <span style="color: #008000;">"extract-node-populations"</span>: <span style="color: #008000;">"populations"</span>,
+            <span style="color: #008000;">"extract-edge-populations"</span>: <span style="color: #008000;">"populations"</span>,
+            <span style="color: #008000;">"sample-edge-populations"</span>: <span style="color: #008000;">"analyses"</span>,
+            <span style="color: #008000;">"randomize-connectivity"</span>: <span style="color: #008000;">"algorithms"</span>,
+            <span style="color: #008000;">"configure-inputs"</span>: <span style="color: #008000;">"analyses"</span>,
+            <span style="color: #008000;">"analyze-geometry"</span>: <span style="color: #008000;">"analyses"</span>,
+            <span style="color: #008000;">"analyze-node-types"</span>: <span style="color: #008000;">"analyses"</span>,
+            <span style="color: #008000;">"analyze-composition"</span>: <span style="color: #008000;">"analyses"</span>,
+            <span style="color: #008000;">"analyze-connectivity"</span>: <span style="color: #008000;">"analyses"</span>,
+            <span style="color: #008000;">"analyze-physiology"</span>: <span style="color: #008000;">"analyses"</span>}
+</pre>
+</div>
+
+<p>
+We can instantiate an HDFStore interface instance with a path to the <code>pipeline</code> config, or the <code>config</code> itself. The <code>config</code> should contain a path to the H5 file that contains <code>connsense-TAP</code> data, or we can pass one as a second argument,
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python" id="org8ce7d52"><span style="color: #0000FF;">class</span> <span style="color: #6434A3;">HDFStore</span>:
+    <span style="color: #036A07;">"""An interface to the H5 data extracted by connsense-TAP.</span>
+<span style="color: #036A07;">    """</span>
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">__init__</span>(<span style="color: #0000FF;">self</span>, config, in_connsense_h5=<span style="color: #D0372D;">None</span>):
+        <span style="color: #036A07;">"""Initialize an instance of connsense-TAP HDFStore.</span>
+
+<span style="color: #036A07;">        config: Path to a YAML / JSON file that configures the pipeline, or a Mapping resulting from reading</span>
+<span style="color: #036A07;">        ~       such a config file.</span>
+<span style="color: #036A07;">        in_consense_h5: Path to the connsense-TAP H5 store if different from the one configured</span>
+<span style="color: #036A07;">        ~               This can be used for testing the data produced in individual compute-nodes during</span>
+<span style="color: #036A07;">        ~               a pipeline run.</span>
+<span style="color: #036A07;">        """</span>
+        <span style="color: #0000FF;">self</span>._config = read_config.read(config) <span style="color: #0000FF;">if</span> <span style="color: #0000FF;">not</span> <span style="color: #006FE0;">isinstance</span>(config, Mapping) <span style="color: #0000FF;">else</span> config
+        <span style="color: #0000FF;">self</span>._root = locate_store(<span style="color: #0000FF;">self</span>._config, in_connsense_h5)
+        <span style="color: #0000FF;">self</span>._groups = group_steps(<span style="color: #0000FF;">self</span>._config)
+
+</pre>
+</div>
+
+<p>
+Once we have an object to interface with a <code>connsense-TAP</code>, we will want to load datasets to further analyze them. Information about the configured computations are in the section <code>parameters</code>,
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python" id="orgc1853f1"><span style="color: #6434A3;">@lazy</span>
+<span style="color: #0000FF;">def</span> <span style="color: #006699;">parameters</span>(tap):
+    <span style="color: #036A07;">"""Section `parameters` of the config, loaded without `create-index`.</span>
+<span style="color: #036A07;">    """</span>
+    <span style="color: #0000FF;">return</span> {param: config <span style="color: #0000FF;">for</span> param, config <span style="color: #0000FF;">in</span> tap._config[<span style="color: #008000;">"parameters"</span>].items() <span style="color: #0000FF;">if</span> param != <span style="color: #008000;">"create-index"</span>}
+
+</pre>
+</div>
+
+<p>
+Each parameters entry is for a <code>computation-type</code> that may have multiple quantities under it. Each <code>(computation-type, of_quantity)</code> is a dataset that <code>connsense-TAP</code> can provide usWe can ask <code>connsense-TAP</code> to describe these computations. The quantities for a <code>parameters</code> entry are provided under a key,
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python" id="org8af8fa1"><span style="color: #0000FF;">def</span> <span style="color: #006699;">get_paramkey</span>(tap, computation_type):
+    <span style="color: #036A07;">"""..."""</span>
+    <span style="color: #0000FF;">return</span> PARAMKEY[computation_type]
+
+</pre>
+</div>
+
+<p>
+Here we have assumed that the computations are valid, <i>i.e</i> they have a <code>paramkey</code> entry known to <code>connsense-TAP</code>. We should check the configured <code>computation-types</code> against <code>connsense-TAP</code> when <code>HDFStore</code> is initialized (TODO).
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python" id="org7fa530d"><span style="color: #0000FF;">def</span> <span style="color: #006699;">describe</span>(tap, computation_type=<span style="color: #D0372D;">None</span>, of_quantity=<span style="color: #D0372D;">None</span>):
+    <span style="color: #036A07;">"""...Describe the dataset associated with a `(computation_type, of_quantity)`.</span>
+
+<span style="color: #036A07;">    computation_type: should be an entry in the configuration section parameters,</span>
+<span style="color: #036A07;">    ~                 if not provided, all computation-types</span>
+<span style="color: #036A07;">    of_quantity: should be an entry under argued `computation_type`</span>
+<span style="color: #036A07;">    ~            if not provided, all quantities under `computation_type`</span>
+<span style="color: #036A07;">    """</span>
+    <span style="color: #0000FF;">if</span> <span style="color: #0000FF;">not</span> computation_type:
+        <span style="color: #0000FF;">assert</span> <span style="color: #0000FF;">not</span> of_quantity, <span style="color: #008000;">"because a quantity without a computation-type does not make sense."</span>
+        <span style="color: #0000FF;">return</span> {c: tap.describe(computation_type=c) <span style="color: #0000FF;">for</span> c <span style="color: #0000FF;">in</span> tap.parameters}
+
+    <span style="color: #0000FF;">try</span>:
+        config = tap.parameters[computation_type]
+    <span style="color: #0000FF;">except</span> <span style="color: #6434A3;">KeyError</span> <span style="color: #0000FF;">as</span> kerr:
+        LOG.error(<span style="color: #008000;">"computation-type %s not configured! Update the config, or choose from \n%s"</span>,
+                  computation_type, pformat(tap.parameters.keys()))
+        <span style="color: #0000FF;">raise</span> NotConfiguredError(computation_type) <span style="color: #0000FF;">from</span> kerr
+
+    paramkey = tap.get_paramkey(computation_type)
+    <span style="color: #0000FF;">try</span>:
+        config = config[paramkey]
+    <span style="color: #0000FF;">except</span> <span style="color: #6434A3;">KeyError</span> <span style="color: #0000FF;">as</span> kerr:
+        LOG.error(<span style="color: #008000;">"Missing %s entries in %s config."</span>, paramkey, computation_type)
+        <span style="color: #0000FF;">raise</span> ConfigurationError(f<span style="color: #008000;">"</span>{paramkey}<span style="color: #008000;"> entries for </span>{computation_type}<span style="color: #008000;">"</span>)
+
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">describe_quantity</span>(q):
+        <span style="color: #0000FF;">return</span> {<span style="color: #008000;">"description"</span>: config[q].get(<span style="color: #008000;">"description"</span>, <span style="color: #D0372D;">None</span>), <span style="color: #008000;">"dataset"</span>: (computation_type, q)}
+
+    <span style="color: #0000FF;">if</span> <span style="color: #0000FF;">not</span> of_quantity:
+        <span style="color: #0000FF;">return</span> [describe_quantity(q) <span style="color: #0000FF;">for</span> q <span style="color: #0000FF;">in</span> config]
+
+    <span style="color: #0000FF;">return</span> describe_quantity(q=of_quantity)
+
+
+</pre>
+</div>
+
+<p>
+Data formats used by <code>connsense-TAP</code> may different between <code>computation-types</code>.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python" id="org577d94a">
+<span style="color: #0000FF;">def</span> <span style="color: #006699;">get_path</span>(tap, computation_type):
+    <span style="color: #036A07;">"""..."""</span>
+    <span style="color: #0000FF;">return</span> (tap._root, tap._groups[computation_type])
+
+<span style="color: #0000FF;">def</span> <span style="color: #006699;">pour_dataset</span>(tap, computation_type, of_quantity):
+    <span style="color: #036A07;">"""..."""</span>
+    <span style="color: #BA36A5;">connsense_h5</span>, <span style="color: #BA36A5;">hdf_group</span> = tap.get_path(computation_type)
+    <span style="color: #BA36A5;">dataset</span> = <span style="color: #008000;">'/'</span>.join([hdf_group, of_quantity])
+
+    <span style="color: #0000FF;">with</span> h5py.File(tap._root, <span style="color: #008000;">'r'</span>) <span style="color: #0000FF;">as</span> <span style="color: #BA36A5;">hdf</span>:
+        <span style="color: #0000FF;">if</span> <span style="color: #008000;">"data"</span> <span style="color: #0000FF;">in</span> hdf[dataset]:
+            dataset = <span style="color: #008000;">'/'</span>.join([dataset, <span style="color: #008000;">"data"</span>])
+
+    <span style="color: #0000FF;">if</span> computation_type == <span style="color: #008000;">"extract-node-populations"</span>:
+        <span style="color: #0000FF;">return</span> matrices.get_store(connsense_h5, dataset, pd.DataFrame).toc
+
+    <span style="color: #0000FF;">if</span> computation_type == <span style="color: #008000;">"extract-edge-populations"</span>:
+        <span style="color: #0000FF;">return</span> read_toc_plus_payload((connsense_h5, dataset), <span style="color: #008000;">"extract-edge-populations"</span>)
+
+    <span style="color: #0000FF;">if</span> computation_type.startswith(<span style="color: #008000;">"analyze-"</span>):
+        <span style="color: #0000FF;">return</span> tap.pour_analyses(computation_type, of_quantity)
+
+    <span style="color: #0000FF;">return</span> read_dataset((connsense_h5, dataset), computation_type)
+
+<span style="color: #0000FF;">def</span> <span style="color: #006699;">pour</span>(tap, dataset):
+    <span style="color: #036A07;">"""For convenience, allow queries with tuples (computation_type, of_quantity).</span>
+<span style="color: #036A07;">    """</span>
+    <span style="color: #0000FF;">return</span> tap.pour_dataset(*dataset)
+
+</pre>
+</div>
+
+<p>
+Analyses <code>computation-type</code> should be of the form <code>analyze-phenomenon</code>. This allows us to have a method to <code>pour-analyses</code>,
+</p>
+<div class="org-src-container">
+<pre class="src src-python" id="org1d8dae9">
+<span style="color: #0000FF;">def</span> <span style="color: #006699;">decompose</span>(<span style="color: #0000FF;">self</span>, computation_type, of_quantity):
+    <span style="color: #036A07;">"""Some computations may have components.</span>
+<span style="color: #036A07;">    We need to strip computation keys from the config, and return the resulting dict.</span>
+<span style="color: #036A07;">    """</span>
+    <span style="color: #BA36A5;">parameters</span> = prl.parameterize(computation_type, of_quantity, <span style="color: #0000FF;">self</span>._config)
+    <span style="color: #0000FF;">return</span> {var: val <span style="color: #0000FF;">for</span> var, val <span style="color: #0000FF;">in</span> parameters.items() <span style="color: #0000FF;">if</span> var <span style="color: #0000FF;">not</span> <span style="color: #0000FF;">in</span> COMPKEYS}
+
+
+<span style="color: #0000FF;">def</span> <span style="color: #006699;">pour_analyses</span>(tap, computation_type, quantity):
+    <span style="color: #036A07;">"""Pour the results of running an analysis computation.</span>
+<span style="color: #036A07;">    """</span>
+    LOG.info(<span style="color: #008000;">"Pour analyses for %s"</span>, computation_type)
+    <span style="color: #BA36A5;">connsense_h5</span>, <span style="color: #BA36A5;">hdf_group</span> = tap.get_path(computation_type)
+    <span style="color: #BA36A5;">dataset</span> = <span style="color: #008000;">'/'</span>.join([hdf_group, quantity])
+    <span style="color: #BA36A5;">paramkey</span> = tap.get_paramkey(computation_type)
+
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">pour_component</span>(c, parameters):
+        <span style="color: #036A07;">"""..."""</span>
+        LOG.info(<span style="color: #008000;">"Pour %s %s component %s: \n%s\n from store %s"</span>, computation_type, quantity, c, pformat(parameters),
+                 (connsense_h5, <span style="color: #008000;">'/'</span>.join([dataset, c])))
+        <span style="color: #BA36A5;">store</span> = matrices.get_store(connsense_h5, <span style="color: #008000;">'/'</span>.join([dataset, c]), parameters[<span style="color: #008000;">"output"</span>], in_mode=<span style="color: #008000;">'r'</span>)
+        <span style="color: #0000FF;">return</span> store.toc <span style="color: #0000FF;">if</span> store <span style="color: #0000FF;">else</span> <span style="color: #D0372D;">None</span>
+
+    components = tap.decompose(computation_type, quantity)
+    <span style="color: #0000FF;">if</span> <span style="color: #0000FF;">not</span> components:
+        parameters = tap.parameters[computation_type][paramkey][quantity]
+        store = matrices.get_store(connsense_h5, dataset, parameters[<span style="color: #008000;">"output"</span>], in_mode=<span style="color: #008000;">'r'</span>)
+        <span style="color: #0000FF;">return</span> store.toc <span style="color: #0000FF;">if</span> store <span style="color: #0000FF;">else</span> <span style="color: #D0372D;">None</span>
+
+    <span style="color: #0000FF;">return</span> {<span style="color: #008000;">'/'</span>.join([quantity, c]): pour_component(c, parameters) <span style="color: #0000FF;">for</span> c, parameters <span style="color: #0000FF;">in</span> components.items()}
+
+
+</pre>
+</div>
+
+
+<p>
+With methods to pour datasets from a <code>connsense-TAP</code>, we can provide some convenient interfaces to get subtargets, nodes, adjacencies, analyses. In its H5 data, <code>connsense-TAP</code> will index the computations using the configuration entry for <code>parameters/create-index</code>,
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python" id="org2cbe02b"><span style="color: #0000FF;">def</span> <span style="color: #006699;">create_index</span>(tap, variable):
+    <span style="color: #036A07;">"""..."""</span>
+    <span style="color: #BA36A5;">described</span> = tap._config[<span style="color: #008000;">"parameters"</span>][<span style="color: #008000;">"create-index"</span>][<span style="color: #008000;">"variables"</span>][variable]
+
+    <span style="color: #0000FF;">if</span> <span style="color: #006FE0;">isinstance</span>(described, pd.Series):
+        <span style="color: #BA36A5;">values</span> = descibed.values
+    <span style="color: #0000FF;">elif</span> <span style="color: #006FE0;">isinstance</span>(described, Mapping):
+        <span style="color: #0000FF;">try</span>:
+            dataset = described[<span style="color: #008000;">"dataset"</span>]
+        <span style="color: #0000FF;">except</span> <span style="color: #6434A3;">KeyError</span> <span style="color: #0000FF;">as</span> kerr:
+            LOG.error(<span style="color: #008000;">"Cannot create an index for %s of no dataset in config."</span>, variable)
+            <span style="color: #0000FF;">raise</span> ConfigurationError(<span style="color: #008000;">"No create-index %s dataset"</span>, variable)
+        <span style="color: #0000FF;">return</span> tap.pour(dataset)
+    <span style="color: #0000FF;">elif</span> <span style="color: #006FE0;">isinstance</span>(described, Iterable):
+        <span style="color: #BA36A5;">values</span> = <span style="color: #006FE0;">list</span>(described)
+    <span style="color: #0000FF;">else</span>:
+        <span style="color: #0000FF;">raise</span> ConfigurationError(f<span style="color: #008000;">"create-index %s using config \n%s"</span>, pformat(described))
+
+    <span style="color: #0000FF;">return</span> pd.Series(values, name=variable, index=pd.RangeIndex(<span style="color: #D0372D;">0</span>, <span style="color: #006FE0;">len</span>(values), <span style="color: #D0372D;">1</span>, name=f<span style="color: #008000;">"</span>{variable}<span style="color: #008000;">_id"</span>))
+
+
+</pre>
+</div>
+
+<div class="org-src-container">
+<pre class="src src-python" id="org8db72f0"><span style="color: #6434A3;">@lazy</span>
+<span style="color: #0000FF;">def</span> <span style="color: #006699;">subtargets</span>(tap):
+    <span style="color: #036A07;">"""Subtargets in connsense-TAP</span>
+<span style="color: #036A07;">    """</span>
+    <span style="color: #BA36A5;">definitions</span> = tap.describe(<span style="color: #008000;">"define-subtargets"</span>)
+    <span style="color: #BA36A5;">pour_subtargets</span> = <span style="color: #0000FF;">lambda</span> dataset: tap.pour((<span style="color: #008000;">"define-subtargets"</span>, dataset))
+
+    <span style="color: #0000FF;">if</span> <span style="color: #006FE0;">len</span>(definitions) == <span style="color: #D0372D;">0</span>:
+        LOG.warning(<span style="color: #008000;">"No subtargets configured!"</span>)
+        <span style="color: #0000FF;">return</span> <span style="color: #D0372D;">None</span>
+
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">of_</span>(definition):
+        <span style="color: #036A07;">"""..."""</span>
+        LOG.info(<span style="color: #008000;">"Load dataset %s: \n%s"</span>, definition[<span style="color: #008000;">"dataset"</span>], pformat(definition[<span style="color: #008000;">"description"</span>]))
+        <span style="color: #BA36A5;">_</span>, <span style="color: #BA36A5;">group</span> = definition[<span style="color: #008000;">"dataset"</span>]
+        <span style="color: #BA36A5;">subtargets</span> = pour_subtargets(f<span style="color: #008000;">"</span>{group}<span style="color: #008000;">/name"</span>)
+        <span style="color: #BA36A5;">info</span> = pour_subtargets(f<span style="color: #008000;">"</span>{group}<span style="color: #008000;">/info"</span>)
+        <span style="color: #0000FF;">return</span> pd.concat([subtargets, info], axis=<span style="color: #D0372D;">1</span>)
+
+    <span style="color: #0000FF;">if</span> <span style="color: #006FE0;">len</span>(definitions) == <span style="color: #D0372D;">1</span>:
+        <span style="color: #0000FF;">return</span> of_(definitions[<span style="color: #D0372D;">0</span>])
+    <span style="color: #0000FF;">return</span> {definition[<span style="color: #008000;">"dataset"</span>][<span style="color: #D0372D;">1</span>]: of_(definition) <span style="color: #0000FF;">for</span> definition <span style="color: #0000FF;">in</span> definitions}
+
+
+</pre>
+</div>
+
+<div class="org-src-container">
+<pre class="src src-python" id="orgf0d0f58"><span style="color: #6434A3;">@lazy</span>
+<span style="color: #0000FF;">def</span> <span style="color: #006699;">nodes</span>(tap):
+    <span style="color: #036A07;">"""Nodes in connsense-TAP</span>
+<span style="color: #036A07;">    """</span>
+    <span style="color: #BA36A5;">populations</span> = tap.describe(<span style="color: #008000;">"extract-node-populations"</span>)
+
+    <span style="color: #0000FF;">if</span> <span style="color: #006FE0;">len</span>(populations) == <span style="color: #D0372D;">0</span>:
+        LOG.warning(<span style="color: #008000;">"No populations configured!"</span>)
+        <span style="color: #0000FF;">return</span> <span style="color: #D0372D;">None</span>
+
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">of_</span>(population):
+        <span style="color: #036A07;">"""..."""</span>
+        LOG.info(<span style="color: #008000;">"Load dataset %s: \n%s"</span>, population[<span style="color: #008000;">"dataset"</span>], pformat(population[<span style="color: #008000;">"description"</span>]))
+        <span style="color: #0000FF;">return</span> TapDataset(tap, population[<span style="color: #008000;">"dataset"</span>])
+
+    <span style="color: #0000FF;">if</span> <span style="color: #006FE0;">len</span>(populations) == <span style="color: #D0372D;">1</span>:
+        <span style="color: #0000FF;">return</span> of_(populations[<span style="color: #D0372D;">0</span>])
+    <span style="color: #0000FF;">return</span> {population[<span style="color: #008000;">"dataset"</span>][<span style="color: #D0372D;">1</span>]: of_(population) <span style="color: #0000FF;">for</span> population <span style="color: #0000FF;">in</span> populations}
+
+
+</pre>
+</div>
+
+
+<div class="org-src-container">
+<pre class="src src-python" id="org624da24">
+
+<span style="color: #0000FF;">class</span> <span style="color: #6434A3;">TapDataset</span>:
+    <span style="color: #036A07;">"""A dataset computed by connsense-TAP.</span>
+<span style="color: #036A07;">    """</span>
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">__init__</span>(<span style="color: #0000FF;">self</span>, tap, dataset):
+        <span style="color: #036A07;">"""..."""</span>
+        <span style="color: #0000FF;">self</span>.<span style="color: #BA36A5;">_tap</span> = tap
+        <span style="color: #0000FF;">self</span>.<span style="color: #BA36A5;">_dataset</span> = dataset
+
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">index_ids</span>(<span style="color: #0000FF;">self</span>, variable):
+        <span style="color: #036A07;">"""..."""</span>
+        <span style="color: #0000FF;">try</span>:
+            series = <span style="color: #0000FF;">self</span>._tap.create_index(variable)
+        <span style="color: #0000FF;">except</span> <span style="color: #6434A3;">KeyError</span>:
+            LOG.warn(<span style="color: #008000;">"No values for %s in TAP at %s"</span>, variable, tap._root)
+            <span style="color: #0000FF;">return</span> <span style="color: #D0372D;">None</span>
+
+        <span style="color: #0000FF;">return</span> pd.Series(series.index.values, name=f<span style="color: #008000;">"</span>{series.name}<span style="color: #008000;">_id"</span>,
+                         index=pd.Index(series.values, name=series.name))
+
+    <span style="color: #6434A3;">@lazy</span>
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">id_subtargets</span>(<span style="color: #0000FF;">self</span>):
+        <span style="color: #036A07;">"""..."""</span>
+        <span style="color: #0000FF;">return</span> <span style="color: #0000FF;">self</span>.index_ids(<span style="color: #008000;">"subtarget"</span>)
+    <span style="color: #6434A3;">@lazy</span>
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">id_circuits</span>(<span style="color: #0000FF;">self</span>):
+        <span style="color: #036A07;">"""..."""</span>
+        <span style="color: #0000FF;">return</span> <span style="color: #0000FF;">self</span>.index_ids(<span style="color: #008000;">"circuit"</span>)
+    <span style="color: #6434A3;">@lazy</span>
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">id_connectomes</span>(<span style="color: #0000FF;">self</span>):
+        <span style="color: #036A07;">"""..."""</span>
+        <span style="color: #0000FF;">return</span> <span style="color: #0000FF;">self</span>.index_ids(<span style="color: #008000;">"connectome"</span>)
+
+    @<span style="color: #006FE0;">property</span>
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">dataset</span>(<span style="color: #0000FF;">self</span>):
+        <span style="color: #036A07;">"""..."""</span>
+        <span style="color: #0000FF;">return</span> <span style="color: #0000FF;">self</span>._tap.pour(<span style="color: #0000FF;">self</span>._dataset).sort_index()
+
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">index</span>(<span style="color: #0000FF;">self</span>, subtarget, circuit=<span style="color: #D0372D;">None</span>, connectome=<span style="color: #D0372D;">None</span>):
+        <span style="color: #036A07;">"""Get `connsense-TAP`index for the arguments.</span>
+<span style="color: #036A07;">        """</span>
+        subtarget_id = <span style="color: #0000FF;">self</span>.id_subtargets.loc[subtarget]
+
+        <span style="color: #0000FF;">if</span> <span style="color: #0000FF;">not</span> circuit:
+            <span style="color: #0000FF;">assert</span> <span style="color: #0000FF;">not</span> connectome, f<span style="color: #008000;">"connectome must be of a circuit"</span>
+            <span style="color: #0000FF;">return</span> (subtarget_id,)
+
+        circuit_id = <span style="color: #0000FF;">self</span>.id_circuits.loc[circuit]
+
+        <span style="color: #0000FF;">if</span> <span style="color: #0000FF;">not</span> connectome:
+            <span style="color: #0000FF;">return</span> (subtarget_id, circuit_id)
+
+        connectome_id = <span style="color: #0000FF;">self</span>.id_connectomes.loc[connectome]
+        <span style="color: #0000FF;">return</span> (subtarget_id, circuit_id, connectome_id)
+
+
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">__call__</span>(<span style="color: #0000FF;">self</span>, subtarget, circuit=<span style="color: #D0372D;">None</span>, connectome=<span style="color: #D0372D;">None</span>):
+        <span style="color: #036A07;">"""Call to get data using the names for (subtarget, circuit, connectome).</span>
+<span style="color: #036A07;">        """</span>
+        result = <span style="color: #0000FF;">self</span>.dataset.loc[<span style="color: #0000FF;">self</span>.index(subtarget, circuit, connectome)]
+
+        <span style="color: #0000FF;">try</span>:
+            evaluate = result.get_value
+        <span style="color: #0000FF;">except</span> <span style="color: #6434A3;">AttributeError</span>:
+            <span style="color: #0000FF;">pass</span>
+        <span style="color: #0000FF;">else</span>:
+            <span style="color: #0000FF;">return</span> evaluate()
+
+        <span style="color: #0000FF;">if</span> <span style="color: #006FE0;">len</span>(result) == <span style="color: #D0372D;">1</span>:
+            <span style="color: #0000FF;">return</span> result.iloc[<span style="color: #D0372D;">0</span>].get_value()
+        <span style="color: #0000FF;">return</span> result
+
+
+</pre>
+</div>
+
+<pre class="example">
+None
+</pre>
+
+
+
+<div class="org-src-container">
+<pre class="src src-python" id="org50a97f7"><span style="color: #6434A3;">@lazy</span>
+<span style="color: #0000FF;">def</span> <span style="color: #006699;">adjacency</span>(tap):
+    <span style="color: #036A07;">"""Adjacency matrices of subtargets in connsense-TAP</span>
+<span style="color: #036A07;">    """</span>
+    <span style="color: #BA36A5;">populations</span> = tap.describe(<span style="color: #008000;">"extract-edge-populations"</span>)
+
+    <span style="color: #0000FF;">if</span> <span style="color: #006FE0;">len</span>(populations) == <span style="color: #D0372D;">0</span>:
+        LOG.warning(<span style="color: #008000;">"No populations configured!"</span>)
+        <span style="color: #0000FF;">return</span> <span style="color: #D0372D;">None</span>
+
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">of_</span>(population):
+        <span style="color: #036A07;">"""..."""</span>
+        LOG.info(<span style="color: #008000;">"Load dataset %s: \n%s"</span>, population[<span style="color: #008000;">"dataset"</span>], pformat(population[<span style="color: #008000;">"description"</span>]))
+        <span style="color: #0000FF;">return</span> TapDataset(tap, population[<span style="color: #008000;">"dataset"</span>])
+
+    <span style="color: #0000FF;">if</span> <span style="color: #006FE0;">len</span>(populations) == <span style="color: #D0372D;">1</span>:
+        <span style="color: #0000FF;">return</span> of_(populations[<span style="color: #D0372D;">0</span>])
+    <span style="color: #0000FF;">return</span> {population[<span style="color: #008000;">"dataset"</span>][<span style="color: #D0372D;">1</span>]: of_(population) <span style="color: #0000FF;">for</span> population <span style="color: #0000FF;">in</span> populations}
+
+</pre>
+</div>
+
+
+<p>
+For analyses we have an additional level, of phenomenon.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python" id="org649aa1b"><span style="color: #0000FF;">def</span> <span style="color: #006699;">get_phenomenon</span>(tap, computation_type):
+    <span style="color: #036A07;">"""..."""</span>
+    <span style="color: #BA36A5;">analysis</span> = computation_type.split(<span style="color: #008000;">'-'</span>)
+    <span style="color: #0000FF;">if</span> analysis[<span style="color: #D0372D;">0</span>] != <span style="color: #008000;">"analyze"</span>:
+        LOG.warn(<span style="color: #008000;">"%s is not an analysis"</span>, computaiton_tyoe)
+        <span style="color: #0000FF;">return</span> <span style="color: #D0372D;">None</span>
+
+    <span style="color: #0000FF;">return</span> <span style="color: #008000;">'-'</span>.join(analysis[<span style="color: #D0372D;">1</span>:])
+
+<span style="color: #0000FF;">def</span> <span style="color: #006699;">find_analyses</span>(tap, phenomenon=<span style="color: #D0372D;">None</span>):
+    <span style="color: #036A07;">"""Find all analyses of phenomenon in the config.</span>
+<span style="color: #036A07;">    """</span>
+
+    <span style="color: #0000FF;">if</span> phenomenon:
+        analyzed = tap.parameters[f<span style="color: #008000;">"analyze-</span>{phenomenon}<span style="color: #008000;">"</span>]
+        <span style="color: #0000FF;">return</span> analyzed[<span style="color: #008000;">"analyses"</span>]
+
+    <span style="color: #0000FF;">return</span> {p: tap.find_analyses(phenomenon=p) <span style="color: #0000FF;">for</span> p <span style="color: #0000FF;">in</span> tap.phenomena}
+
+@<span style="color: #006FE0;">property</span>
+<span style="color: #0000FF;">def</span> <span style="color: #006699;">phenomena</span>(tap):
+    <span style="color: #036A07;">"""The analyze phenomena.</span>
+<span style="color: #036A07;">    """</span>
+    <span style="color: #0000FF;">return</span> [tap.get_phenomenon(computation_type=c) <span style="color: #0000FF;">for</span> c <span style="color: #0000FF;">in</span> tap.parameters <span style="color: #0000FF;">if</span> c.startswith(<span style="color: #008000;">"analyze-"</span>)]
+
+<span style="color: #0000FF;">def</span> <span style="color: #006699;">describe_analyses</span>(tap, phenomenon=<span style="color: #D0372D;">None</span>):
+    <span style="color: #036A07;">"""..."""</span>
+    analyze = <span style="color: #008000;">"analyze-{}"</span>.<span style="color: #006FE0;">format</span>
+    <span style="color: #0000FF;">if</span> phenomenon:
+        <span style="color: #0000FF;">return</span> tap.describe(analyze(phenomenon))
+    <span style="color: #0000FF;">return</span> {p: tap.describe(analyze(p)) <span style="color: #0000FF;">for</span> p <span style="color: #0000FF;">in</span> tap.phenomena}
+
+<span style="color: #6434A3;">@lazy</span>
+<span style="color: #0000FF;">def</span> <span style="color: #006699;">analyses</span>(tap):
+    <span style="color: #036A07;">"""..."""</span>
+    analyses = tap.describe_analyses()
+    <span style="color: #0000FF;">return</span> {phenomenon: {q[<span style="color: #008000;">"dataset"</span>][<span style="color: #D0372D;">1</span>]: TapDataset(tap, q[<span style="color: #008000;">"dataset"</span>])}
+            <span style="color: #0000FF;">for</span> phenomenon, quantities <span style="color: #0000FF;">in</span> analyses.items() <span style="color: #0000FF;">for</span> q <span style="color: #0000FF;">in</span> quantities}
+
+</pre>
+</div>
+
+<div class="org-src-container">
+<pre class="src src-python">
+
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">describe_analyses</span>(<span style="color: #0000FF;">self</span>, phenomenon):
+        <span style="color: #036A07;">"""Describe analyses..."""</span>
+        <span style="color: #BA36A5;">computation_type</span> = f<span style="color: #008000;">"analyze-</span>{phenomenon}<span style="color: #008000;">"</span>
+        <span style="color: #0000FF;">raise</span> <span style="color: #6434A3;">NotImplementedError</span>(<span style="color: #008000;">"INPROGRESS"</span>)
+
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">find_datasets</span>(<span style="color: #0000FF;">self</span>, computation_type=<span style="color: #D0372D;">None</span>, of_quantity=<span style="color: #D0372D;">None</span>, available=<span style="color: #D0372D;">False</span>):
+        <span style="color: #036A07;">"""Show datasets, either the configured ones, or those that have been computed</span>
+
+<span style="color: #036A07;">        computation_type: name of the computation to show datasets for,</span>
+<span style="color: #036A07;">        ~                 or all of the datasets</span>
+<span style="color: #036A07;">        of_quantity: name of the quantity in the entries of computation_type to show datasets,</span>
+<span style="color: #036A07;">        ~            or all the datasets of `computation_type`</span>
+<span style="color: #036A07;">        available: show only the datasets that have been computed.</span>
+<span style="color: #036A07;">        """</span>
+        <span style="color: #0000FF;">if</span> available:
+            <span style="color: #0000FF;">raise</span> <span style="color: #6434A3;">NotImplementedError</span>(<span style="color: #008000;">"INPROGRESS"</span>)
+
+        <span style="color: #0000FF;">if</span> computation_type:
+            <span style="color: #0000FF;">if</span> of_quantity:
+                description = <span style="color: #0000FF;">self</span>.describe(computation_type, of_quantity)
+                <span style="color: #0000FF;">return</span> description.get(<span style="color: #008000;">"description"</span>, <span style="color: #D0372D;">None</span>)
+
+            description = <span style="color: #0000FF;">self</span>.describe(computation_type)
+            <span style="color: #0000FF;">return</span> [((computation_type, q), <span style="color: #0000FF;">self</span>.find_datasets(computation_type, q))
+                    <span style="color: #0000FF;">for</span> q <span style="color: #0000FF;">in</span> description[PARAMKEY[computation_type]]]
+
+        <span style="color: #0000FF;">assert</span> <span style="color: #0000FF;">not</span> of_quantity, f<span style="color: #008000;">"Missing computation-type </span>{of_quantity}<span style="color: #008000;">"</span>
+
+        description = <span style="color: #0000FF;">self</span>.describe()
+        <span style="color: #0000FF;">return</span> {c: <span style="color: #0000FF;">self</span>.find_datasets(computation_type=c) <span style="color: #0000FF;">for</span> c <span style="color: #0000FF;">in</span> <span style="color: #0000FF;">self</span>.describe()}
+
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">find_analyses</span>(<span style="color: #0000FF;">self</span>, phenomenon, quantity):
+        <span style="color: #036A07;">"""Show datasets for anayses of a phenomenon, quantity.</span>
+<span style="color: #036A07;">        connsense-TAP will look for analyses configured for dataset reference [analyze-phenomenon, quantity]</span>
+<span style="color: #036A07;">        """</span>
+        <span style="color: #0000FF;">return</span> find_datasets(f<span style="color: #008000;">"analyze-</span>{phenomenon}<span style="color: #008000;">"</span>, quantity)
+
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">get_path</span>(<span style="color: #0000FF;">self</span>, computation_type):
+        <span style="color: #036A07;">"""..."""</span>
+        <span style="color: #0000FF;">return</span> (<span style="color: #0000FF;">self</span>._root, <span style="color: #0000FF;">self</span>._groups[computation_type])
+
+    <span style="color: #6434A3;">@lazy</span>
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">analysis_phenomena</span>(<span style="color: #0000FF;">self</span>):
+        <span style="color: #036A07;">"""..."""</span>
+        <span style="color: #0000FF;">return</span> [<span style="color: #008000;">'-'</span>.join(key.split(<span style="color: #008000;">'-'</span>)[<span style="color: #D0372D;">1</span>:]) <span style="color: #0000FF;">for</span> key <span style="color: #0000FF;">in</span> <span style="color: #0000FF;">self</span>.parameters <span style="color: #0000FF;">if</span> key.startswith(<span style="color: #008000;">"analyze-"</span>)]
+
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">pour_analyses</span>(<span style="color: #0000FF;">self</span>, phenomenon, quantity=<span style="color: #D0372D;">None</span>):
+        <span style="color: #036A07;">"""..."""</span>
+        <span style="color: #0000FF;">if</span> phenomenon <span style="color: #0000FF;">not</span> <span style="color: #0000FF;">in</span> <span style="color: #0000FF;">self</span>.analysis_phenomena:
+            LOG.error(f<span style="color: #008000;">"Unknown analyze-</span>{phenomenon}<span style="color: #008000;">. Update connsense-TAP, or choose from \n%s"</span>,
+                      pformat(<span style="color: #0000FF;">self</span>.analysis_phenomena))
+            <span style="color: #0000FF;">raise</span> NotConfiguredError(f<span style="color: #008000;">"analyze-</span>{phenomenon}<span style="color: #008000;">"</span>)
+
+        computation_type = f<span style="color: #008000;">"analyze-</span>{phenomenon}<span style="color: #008000;">"</span>
+        dataset = <span style="color: #0000FF;">lambda</span> q: [computation_type, q]
+
+
+        <span style="color: #0000FF;">raise</span> <span style="color: #6434A3;">NotImplementedError</span>
+
+    <span style="color: #6434A3;">@lazy</span>
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">analyses</span>(<span style="color: #0000FF;">self</span>):
+        <span style="color: #036A07;">"""Datasets for configured analyses."""</span>
+        <span style="color: #0000FF;">return</span> {p: <span style="color: #0000FF;">self</span>.pour_analyses(phenomenon=p) <span style="color: #0000FF;">for</span> p <span style="color: #0000FF;">in</span> <span style="color: #0000FF;">self</span>.analysis_phenomena}
+
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">pour_dataset</span>(<span style="color: #0000FF;">self</span>, computation, of_quantity):
+        <span style="color: #036A07;">"""..."""</span>
+        h5, group = <span style="color: #0000FF;">self</span>.get_path(computation)
+
+        <span style="color: #0000FF;">if</span> computation.startswith(<span style="color: #008000;">"analyze-"</span>):
+            dataset = <span style="color: #0000FF;">self</span>.analyses[<span style="color: #008000;">'-'</span>.join(computation.split(<span style="color: #008000;">'-'</span>)[<span style="color: #D0372D;">1</span>:])].get(of_quantity, <span style="color: #D0372D;">None</span>)
+        <span style="color: #0000FF;">elif</span> computation == <span style="color: #008000;">"extract-node-populations"</span>:
+            dataset = matrices.get_store(h5, group+<span style="color: #008000;">'/'</span>+of_quantity, pd.DataFrame).toc
+        <span style="color: #0000FF;">elif</span> computation == <span style="color: #008000;">"extract-edge-populations"</span>:
+            dataset = read_toc_plus_payload(h5, group+<span style="color: #008000;">'/'</span>+of_quantity, computation).sort_index()
+        <span style="color: #0000FF;">else</span>:
+            <span style="color: #0000FF;">raise</span> <span style="color: #6434A3;">KeyError</span>(f<span style="color: #008000;">"Unknown </span>{computation}<span style="color: #008000;">"</span>)
+        <span style="color: #0000FF;">return</span> dataset
+
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">pour</span>(<span style="color: #0000FF;">self</span>, dataset):
+        <span style="color: #036A07;">"""Pour a dataset loaded from the H5 store.</span>
+
+<span style="color: #036A07;">        dataset: (computation_type, of_quantity)</span>
+<span style="color: #036A07;">        """</span>
+        <span style="color: #0000FF;">from</span> connsense.pipeline.parallelization <span style="color: #0000FF;">import</span> parallelization <span style="color: #0000FF;">as</span> prl
+        computation_type, of_quantity = prl.describe(dataset)
+
+        <span style="color: #0000FF;">with</span> h5py.File(<span style="color: #0000FF;">self</span>._root, <span style="color: #008000;">'r'</span>) <span style="color: #0000FF;">as</span> hdf_store:
+            _, group = <span style="color: #0000FF;">self</span>.get_path(computation_type)
+            key = <span style="color: #008000;">'/'</span>.join([group, of_quantity])
+            datakey = of_quantity + <span style="color: #008000;">"/data"</span> <span style="color: #0000FF;">if</span> <span style="color: #008000;">"data"</span> <span style="color: #0000FF;">in</span> hdf_store[key] <span style="color: #0000FF;">else</span> of_quantity
+
+        <span style="color: #0000FF;">return</span> <span style="color: #0000FF;">self</span>.pour_dataset(computation_type, datakey)
+
+</pre>
+</div>
+
+<p>
+We want to get the datasets without a knowledge of what is in the config. We can etpose the common computation types as <code>tap-attributes</code>, with helpful logging and error-messages. All the configured computations follow a convention that allows us to define a <code>TapDataset</code>,
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python" id="org737f281"><span style="color: #6434A3;">@lazy</span>
+<span style="color: #0000FF;">def</span> <span style="color: #006699;">nodes</span>(tap):
+    <span style="color: #036A07;">"""Nodes that were extracted</span>
+<span style="color: #036A07;">    """</span>
+    <span style="color: #0000FF;">return</span> TapDataset(<span style="color: #0000FF;">self</span>, <span style="color: #008000;">"extract-node-populations"</span>)
+</pre>
+</div>
+
+
+<p>
+Finally, let us collect the code in a module,
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #036A07;">"""Interface to the HD5-store where the pipeline stores it's data.</span>
+<span style="color: #036A07;">"""</span>
+<span style="color: #0000FF;">from</span> collections.abc <span style="color: #0000FF;">import</span> Iterable, Mapping
+<span style="color: #0000FF;">from</span> collections <span style="color: #0000FF;">import</span> OrderedDict, defaultdict
+<span style="color: #0000FF;">from</span> copy <span style="color: #0000FF;">import</span> deepcopy
+<span style="color: #0000FF;">from</span> pprint <span style="color: #0000FF;">import</span> pformat
+<span style="color: #0000FF;">from</span> lazy <span style="color: #0000FF;">import</span> lazy
+<span style="color: #0000FF;">from</span> pathlib <span style="color: #0000FF;">import</span> Path
+<span style="color: #0000FF;">import</span> h5py
+
+<span style="color: #0000FF;">import</span> pandas <span style="color: #0000FF;">as</span> pd
+
+<span style="color: #0000FF;">from</span> connsense <span style="color: #0000FF;">import</span> plugins
+<span style="color: #0000FF;">from</span> connsense.define_subtargets.config <span style="color: #0000FF;">import</span> SubtargetsConfig
+<span style="color: #0000FF;">from</span> connsense <span style="color: #0000FF;">import</span> analyze_connectivity <span style="color: #0000FF;">as</span> anzconn
+<span style="color: #0000FF;">from</span> connsense.analyze_connectivity <span style="color: #0000FF;">import</span> matrices
+<span style="color: #0000FF;">from</span> connsense.io <span style="color: #0000FF;">import</span> read_config
+<span style="color: #0000FF;">from</span> connsense.io.write_results <span style="color: #0000FF;">import</span> (read <span style="color: #0000FF;">as</span> read_dataset,
+                                        read_subtargets,
+                                        read_node_properties,
+                                        read_toc_plus_payload)
+<span style="color: #0000FF;">from</span> connsense.io <span style="color: #0000FF;">import</span> logging
+<span style="color: #0000FF;">from</span> connsense.pipeline <span style="color: #0000FF;">import</span> ConfigurationError, NotConfiguredError, COMPKEYS
+<span style="color: #0000FF;">from</span> connsense.pipeline.parallelization <span style="color: #0000FF;">import</span> parallelization <span style="color: #0000FF;">as</span> prl
+
+<span style="color: #BA36A5;">LOG</span> = logging.get_logger(<span style="color: #006FE0;">__name__</span>)
+
+<span style="color: #0000FF;">def</span> <span style="color: #006699;">locate_store</span>(config, in_connsense_h5=<span style="color: #D0372D;">None</span>):
+    <span style="color: #036A07;">"""..."""</span>
+    <span style="color: #0000FF;">if</span> <span style="color: #0000FF;">not</span> in_connsense_h5:
+        <span style="color: #0000FF;">return</span> Path(config[<span style="color: #008000;">"paths"</span>][<span style="color: #008000;">"input"</span>][<span style="color: #008000;">"store"</span>])
+    <span style="color: #0000FF;">return</span> Path(in_connsense_h5)
+
+
+<span style="color: #0000FF;">def</span> <span style="color: #006699;">group_steps</span>(config):
+    <span style="color: #036A07;">"""..."""</span>
+    inputs = config[<span style="color: #008000;">"paths"</span>][<span style="color: #008000;">"input"</span>][<span style="color: #008000;">"steps"</span>]
+    <span style="color: #0000FF;">return</span> {step: group <span style="color: #0000FF;">for</span> step, (_, group) <span style="color: #0000FF;">in</span> inputs.items()}
+
+
+SUBTARGET_ID = <span style="color: #008000;">"subtarget_id"</span>
+CIRCUIT_ID = <span style="color: #008000;">"circuit_id"</span>
+CONNECTOME_ID = <span style="color: #008000;">"connectome_id"</span>
+MTYPE_ID = <span style="color: #008000;">"mtype_id"</span>
+MORPHOLOGY_ID = <span style="color: #008000;">"morphology_id"</span>
+
+<span style="color: #0000FF;">from</span> connsense.pipeline <span style="color: #0000FF;">import</span> COMPKEYS, PARAMKEY, ConfigurationError, NotConfiguredError
+
+
+
+<span style="color: #0000FF;">class</span> <span style="color: #6434A3;">TapDataset</span>:
+    <span style="color: #036A07;">"""A dataset computed by connsense-TAP.</span>
+<span style="color: #036A07;">    """</span>
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">__init__</span>(<span style="color: #0000FF;">self</span>, tap, dataset):
+        <span style="color: #036A07;">"""..."""</span>
+        <span style="color: #0000FF;">self</span>._tap = tap
+        <span style="color: #0000FF;">self</span>._dataset = dataset
+
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">index_ids</span>(<span style="color: #0000FF;">self</span>, variable):
+        <span style="color: #036A07;">"""..."""</span>
+        <span style="color: #0000FF;">try</span>:
+            series = <span style="color: #0000FF;">self</span>._tap.create_index(variable)
+        <span style="color: #0000FF;">except</span> <span style="color: #6434A3;">KeyError</span>:
+            LOG.warn(<span style="color: #008000;">"No values for %s in TAP at %s"</span>, variable, tap._root)
+            <span style="color: #0000FF;">return</span> <span style="color: #D0372D;">None</span>
+
+        <span style="color: #0000FF;">return</span> pd.Series(series.index.values, name=f<span style="color: #008000;">"</span>{series.name}<span style="color: #008000;">_id"</span>,
+                         index=pd.Index(series.values, name=series.name))
+
+    <span style="color: #6434A3;">@lazy</span>
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">id_subtargets</span>(<span style="color: #0000FF;">self</span>):
+        <span style="color: #036A07;">"""..."""</span>
+        <span style="color: #0000FF;">return</span> <span style="color: #0000FF;">self</span>.index_ids(<span style="color: #008000;">"subtarget"</span>)
+    <span style="color: #6434A3;">@lazy</span>
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">id_circuits</span>(<span style="color: #0000FF;">self</span>):
+        <span style="color: #036A07;">"""..."""</span>
+        <span style="color: #0000FF;">return</span> <span style="color: #0000FF;">self</span>.index_ids(<span style="color: #008000;">"circuit"</span>)
+    <span style="color: #6434A3;">@lazy</span>
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">id_connectomes</span>(<span style="color: #0000FF;">self</span>):
+        <span style="color: #036A07;">"""..."""</span>
+        <span style="color: #0000FF;">return</span> <span style="color: #0000FF;">self</span>.index_ids(<span style="color: #008000;">"connectome"</span>)
+
+    @<span style="color: #006FE0;">property</span>
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">dataset</span>(<span style="color: #0000FF;">self</span>):
+        <span style="color: #036A07;">"""..."""</span>
+        <span style="color: #0000FF;">return</span> <span style="color: #0000FF;">self</span>._tap.pour(<span style="color: #0000FF;">self</span>._dataset).sort_index()
+
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">index</span>(<span style="color: #0000FF;">self</span>, subtarget, circuit=<span style="color: #D0372D;">None</span>, connectome=<span style="color: #D0372D;">None</span>):
+        <span style="color: #036A07;">"""Get `connsense-TAP`index for the arguments.</span>
+<span style="color: #036A07;">        """</span>
+        subtarget_id = <span style="color: #0000FF;">self</span>.id_subtargets.loc[subtarget]
+
+        <span style="color: #0000FF;">if</span> <span style="color: #0000FF;">not</span> circuit:
+            <span style="color: #0000FF;">assert</span> <span style="color: #0000FF;">not</span> connectome, f<span style="color: #008000;">"connectome must be of a circuit"</span>
+            <span style="color: #0000FF;">return</span> (subtarget_id,)
+
+        circuit_id = <span style="color: #0000FF;">self</span>.id_circuits.loc[circuit]
+
+        <span style="color: #0000FF;">if</span> <span style="color: #0000FF;">not</span> connectome:
+            <span style="color: #0000FF;">return</span> (subtarget_id, circuit_id)
+
+        connectome_id = <span style="color: #0000FF;">self</span>.id_connectomes.loc[connectome]
+        <span style="color: #0000FF;">return</span> (subtarget_id, circuit_id, connectome_id)
+
+
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">__call__</span>(<span style="color: #0000FF;">self</span>, subtarget, circuit=<span style="color: #D0372D;">None</span>, connectome=<span style="color: #D0372D;">None</span>):
+        <span style="color: #036A07;">"""Call to get data using the names for (subtarget, circuit, connectome).</span>
+<span style="color: #036A07;">        """</span>
+        result = <span style="color: #0000FF;">self</span>.dataset.loc[<span style="color: #0000FF;">self</span>.index(subtarget, circuit, connectome)]
+
+        <span style="color: #0000FF;">try</span>:
+            evaluate = result.get_value
+        <span style="color: #0000FF;">except</span> <span style="color: #6434A3;">AttributeError</span>:
+            <span style="color: #0000FF;">pass</span>
+        <span style="color: #0000FF;">else</span>:
+            <span style="color: #0000FF;">return</span> evaluate()
+
+        <span style="color: #0000FF;">if</span> <span style="color: #006FE0;">len</span>(result) == <span style="color: #D0372D;">1</span>:
+            <span style="color: #0000FF;">return</span> result.iloc[<span style="color: #D0372D;">0</span>].get_value()
+        <span style="color: #0000FF;">return</span> result
+
+
+
+<span style="color: #0000FF;">class</span> <span style="color: #6434A3;">HDFStore</span>:
+    <span style="color: #036A07;">"""An interface to the H5 data extracted by connsense-TAP.</span>
+<span style="color: #036A07;">    """</span>
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">__init__</span>(<span style="color: #0000FF;">self</span>, config, in_connsense_h5=<span style="color: #D0372D;">None</span>):
+        <span style="color: #036A07;">"""Initialize an instance of connsense-TAP HDFStore.</span>
+
+<span style="color: #036A07;">        config: Path to a YAML / JSON file that configures the pipeline, or a Mapping resulting from reading</span>
+<span style="color: #036A07;">        ~       such a config file.</span>
+<span style="color: #036A07;">        in_consense_h5: Path to the connsense-TAP H5 store if different from the one configured</span>
+<span style="color: #036A07;">        ~               This can be used for testing the data produced in individual compute-nodes during</span>
+<span style="color: #036A07;">        ~               a pipeline run.</span>
+<span style="color: #036A07;">        """</span>
+        <span style="color: #0000FF;">self</span>._config = read_config.read(config) <span style="color: #0000FF;">if</span> <span style="color: #0000FF;">not</span> <span style="color: #006FE0;">isinstance</span>(config, Mapping) <span style="color: #0000FF;">else</span> config
+        <span style="color: #0000FF;">self</span>._root = locate_store(<span style="color: #0000FF;">self</span>._config, in_connsense_h5)
+        <span style="color: #0000FF;">self</span>._groups = group_steps(<span style="color: #0000FF;">self</span>._config)
+
+
+    <span style="color: #6434A3;">@lazy</span>
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">parameters</span>(tap):
+        <span style="color: #036A07;">"""Section `parameters` of the config, loaded without `create-index`.</span>
+<span style="color: #036A07;">        """</span>
+        <span style="color: #0000FF;">return</span> {param: config <span style="color: #0000FF;">for</span> param, config <span style="color: #0000FF;">in</span> tap._config[<span style="color: #008000;">"parameters"</span>].items() <span style="color: #0000FF;">if</span> param != <span style="color: #008000;">"create-index"</span>}
+    
+
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">get_paramkey</span>(tap, computation_type):
+        <span style="color: #036A07;">"""..."""</span>
+        <span style="color: #0000FF;">return</span> PARAMKEY[computation_type]
+    
+
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">describe</span>(tap, computation_type=<span style="color: #D0372D;">None</span>, of_quantity=<span style="color: #D0372D;">None</span>):
+        <span style="color: #036A07;">"""...Describe the dataset associated with a `(computation_type, of_quantity)`.</span>
+<span style="color: #036A07;">    </span>
+<span style="color: #036A07;">        computation_type: should be an entry in the configuration section parameters,</span>
+<span style="color: #036A07;">        ~                 if not provided, all computation-types</span>
+<span style="color: #036A07;">        of_quantity: should be an entry under argued `computation_type`</span>
+<span style="color: #036A07;">        ~            if not provided, all quantities under `computation_type`</span>
+<span style="color: #036A07;">        """</span>
+        <span style="color: #0000FF;">if</span> <span style="color: #0000FF;">not</span> computation_type:
+            <span style="color: #0000FF;">assert</span> <span style="color: #0000FF;">not</span> of_quantity, <span style="color: #008000;">"because a quantity without a computation-type does not make sense."</span>
+            <span style="color: #0000FF;">return</span> {c: tap.describe(computation_type=c) <span style="color: #0000FF;">for</span> c <span style="color: #0000FF;">in</span> tap.parameters}
+    
+        <span style="color: #0000FF;">try</span>:
+            config = tap.parameters[computation_type]
+        <span style="color: #0000FF;">except</span> <span style="color: #6434A3;">KeyError</span> <span style="color: #0000FF;">as</span> kerr:
+            LOG.error(<span style="color: #008000;">"computation-type %s not configured! Update the config, or choose from \n%s"</span>,
+                      computation_type, pformat(tap.parameters.keys()))
+            <span style="color: #0000FF;">raise</span> NotConfiguredError(computation_type) <span style="color: #0000FF;">from</span> kerr
+    
+        paramkey = tap.get_paramkey(computation_type)
+        <span style="color: #0000FF;">try</span>:
+            config = config[paramkey]
+        <span style="color: #0000FF;">except</span> <span style="color: #6434A3;">KeyError</span> <span style="color: #0000FF;">as</span> kerr:
+            LOG.error(<span style="color: #008000;">"Missing %s entries in %s config."</span>, paramkey, computation_type)
+            <span style="color: #0000FF;">raise</span> ConfigurationError(f<span style="color: #008000;">"</span>{paramkey}<span style="color: #008000;"> entries for </span>{computation_type}<span style="color: #008000;">"</span>)
+    
+        <span style="color: #0000FF;">def</span> <span style="color: #006699;">describe_quantity</span>(q):
+            <span style="color: #0000FF;">return</span> {<span style="color: #008000;">"description"</span>: config[q].get(<span style="color: #008000;">"description"</span>, <span style="color: #D0372D;">None</span>), <span style="color: #008000;">"dataset"</span>: (computation_type, q)}
+    
+        <span style="color: #0000FF;">if</span> <span style="color: #0000FF;">not</span> of_quantity:
+            <span style="color: #0000FF;">return</span> [describe_quantity(q) <span style="color: #0000FF;">for</span> q <span style="color: #0000FF;">in</span> config]
+    
+        <span style="color: #0000FF;">return</span> describe_quantity(q=of_quantity)
+    
+    
+
+    
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">get_path</span>(tap, computation_type):
+        <span style="color: #036A07;">"""..."""</span>
+        <span style="color: #0000FF;">return</span> (tap._root, tap._groups[computation_type])
+    
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">pour_dataset</span>(tap, computation_type, of_quantity):
+        <span style="color: #036A07;">"""..."""</span>
+        connsense_h5, hdf_group = tap.get_path(computation_type)
+        dataset = <span style="color: #008000;">'/'</span>.join([hdf_group, of_quantity])
+    
+        <span style="color: #0000FF;">with</span> h5py.File(tap._root, <span style="color: #008000;">'r'</span>) <span style="color: #0000FF;">as</span> hdf:
+            <span style="color: #0000FF;">if</span> <span style="color: #008000;">"data"</span> <span style="color: #0000FF;">in</span> hdf[dataset]:
+                dataset = <span style="color: #008000;">'/'</span>.join([dataset, <span style="color: #008000;">"data"</span>])
+    
+        <span style="color: #0000FF;">if</span> computation_type == <span style="color: #008000;">"extract-node-populations"</span>:
+            <span style="color: #0000FF;">return</span> matrices.get_store(connsense_h5, dataset, pd.DataFrame).toc
+    
+        <span style="color: #0000FF;">if</span> computation_type == <span style="color: #008000;">"extract-edge-populations"</span>:
+            <span style="color: #0000FF;">return</span> read_toc_plus_payload((connsense_h5, dataset), <span style="color: #008000;">"extract-edge-populations"</span>)
+    
+        <span style="color: #0000FF;">if</span> computation_type.startswith(<span style="color: #008000;">"analyze-"</span>):
+            <span style="color: #0000FF;">return</span> tap.pour_analyses(computation_type, of_quantity)
+    
+        <span style="color: #0000FF;">return</span> read_dataset((connsense_h5, dataset), computation_type)
+    
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">pour</span>(tap, dataset):
+        <span style="color: #036A07;">"""For convenience, allow queries with tuples (computation_type, of_quantity).</span>
+<span style="color: #036A07;">        """</span>
+        <span style="color: #0000FF;">return</span> tap.pour_dataset(*dataset)
+    
+
+    
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">decompose</span>(<span style="color: #0000FF;">self</span>, computation_type, of_quantity):
+        <span style="color: #036A07;">"""Some computations may have components.</span>
+<span style="color: #036A07;">        We need to strip computation keys from the config, and return the resulting dict.</span>
+<span style="color: #036A07;">        """</span>
+        parameters = prl.parameterize(computation_type, of_quantity, <span style="color: #0000FF;">self</span>._config)
+        <span style="color: #0000FF;">return</span> {var: val <span style="color: #0000FF;">for</span> var, val <span style="color: #0000FF;">in</span> parameters.items() <span style="color: #0000FF;">if</span> var <span style="color: #0000FF;">not</span> <span style="color: #0000FF;">in</span> COMPKEYS}
+    
+    
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">pour_analyses</span>(tap, computation_type, quantity):
+        <span style="color: #036A07;">"""Pour the results of running an analysis computation.</span>
+<span style="color: #036A07;">        """</span>
+        LOG.info(<span style="color: #008000;">"Pour analyses for %s"</span>, computation_type)
+        connsense_h5, hdf_group = tap.get_path(computation_type)
+        dataset = <span style="color: #008000;">'/'</span>.join([hdf_group, quantity])
+        paramkey = tap.get_paramkey(computation_type)
+    
+        <span style="color: #0000FF;">def</span> <span style="color: #006699;">pour_component</span>(c, parameters):
+            <span style="color: #036A07;">"""..."""</span>
+            LOG.info(<span style="color: #008000;">"Pour %s %s component %s: \n%s\n from store %s"</span>, computation_type, quantity, c, pformat(parameters),
+                     (connsense_h5, <span style="color: #008000;">'/'</span>.join([dataset, c])))
+            store = matrices.get_store(connsense_h5, <span style="color: #008000;">'/'</span>.join([dataset, c]), parameters[<span style="color: #008000;">"output"</span>], in_mode=<span style="color: #008000;">'r'</span>)
+            <span style="color: #0000FF;">return</span> store.toc <span style="color: #0000FF;">if</span> store <span style="color: #0000FF;">else</span> <span style="color: #D0372D;">None</span>
+    
+        components = tap.decompose(computation_type, quantity)
+        <span style="color: #0000FF;">if</span> <span style="color: #0000FF;">not</span> components:
+            parameters = tap.parameters[computation_type][paramkey][quantity]
+            store = matrices.get_store(connsense_h5, dataset, parameters[<span style="color: #008000;">"output"</span>], in_mode=<span style="color: #008000;">'r'</span>)
+            <span style="color: #0000FF;">return</span> store.toc <span style="color: #0000FF;">if</span> store <span style="color: #0000FF;">else</span> <span style="color: #D0372D;">None</span>
+    
+        <span style="color: #0000FF;">return</span> {<span style="color: #008000;">'/'</span>.join([quantity, c]): pour_component(c, parameters) <span style="color: #0000FF;">for</span> c, parameters <span style="color: #0000FF;">in</span> components.items()}
+    
+    
+
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">create_index</span>(tap, variable):
+        <span style="color: #036A07;">"""..."""</span>
+        described = tap._config[<span style="color: #008000;">"parameters"</span>][<span style="color: #008000;">"create-index"</span>][<span style="color: #008000;">"variables"</span>][variable]
+    
+        <span style="color: #0000FF;">if</span> <span style="color: #006FE0;">isinstance</span>(described, pd.Series):
+            values = descibed.values
+        <span style="color: #0000FF;">elif</span> <span style="color: #006FE0;">isinstance</span>(described, Mapping):
+            <span style="color: #0000FF;">try</span>:
+                dataset = described[<span style="color: #008000;">"dataset"</span>]
+            <span style="color: #0000FF;">except</span> <span style="color: #6434A3;">KeyError</span> <span style="color: #0000FF;">as</span> kerr:
+                LOG.error(<span style="color: #008000;">"Cannot create an index for %s of no dataset in config."</span>, variable)
+                <span style="color: #0000FF;">raise</span> ConfigurationError(<span style="color: #008000;">"No create-index %s dataset"</span>, variable)
+            <span style="color: #0000FF;">return</span> tap.pour(dataset)
+        <span style="color: #0000FF;">elif</span> <span style="color: #006FE0;">isinstance</span>(described, Iterable):
+            values = <span style="color: #006FE0;">list</span>(described)
+        <span style="color: #0000FF;">else</span>:
+            <span style="color: #0000FF;">raise</span> ConfigurationError(f<span style="color: #008000;">"create-index %s using config \n%s"</span>, pformat(described))
+    
+        <span style="color: #0000FF;">return</span> pd.Series(values, name=variable, index=pd.RangeIndex(<span style="color: #D0372D;">0</span>, <span style="color: #006FE0;">len</span>(values), <span style="color: #D0372D;">1</span>, name=f<span style="color: #008000;">"</span>{variable}<span style="color: #008000;">_id"</span>))
+    
+    
+
+    <span style="color: #6434A3;">@lazy</span>
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">subtargets</span>(tap):
+        <span style="color: #036A07;">"""Subtargets in connsense-TAP</span>
+<span style="color: #036A07;">        """</span>
+        definitions = tap.describe(<span style="color: #008000;">"define-subtargets"</span>)
+        pour_subtargets = <span style="color: #0000FF;">lambda</span> dataset: tap.pour((<span style="color: #008000;">"define-subtargets"</span>, dataset))
+    
+        <span style="color: #0000FF;">if</span> <span style="color: #006FE0;">len</span>(definitions) == <span style="color: #D0372D;">0</span>:
+            LOG.warning(<span style="color: #008000;">"No subtargets configured!"</span>)
+            <span style="color: #0000FF;">return</span> <span style="color: #D0372D;">None</span>
+    
+        <span style="color: #0000FF;">def</span> <span style="color: #006699;">of_</span>(definition):
+            <span style="color: #036A07;">"""..."""</span>
+            LOG.info(<span style="color: #008000;">"Load dataset %s: \n%s"</span>, definition[<span style="color: #008000;">"dataset"</span>], pformat(definition[<span style="color: #008000;">"description"</span>]))
+            _, group = definition[<span style="color: #008000;">"dataset"</span>]
+            subtargets = pour_subtargets(f<span style="color: #008000;">"</span>{group}<span style="color: #008000;">/name"</span>)
+            info = pour_subtargets(f<span style="color: #008000;">"</span>{group}<span style="color: #008000;">/info"</span>)
+            <span style="color: #0000FF;">return</span> pd.concat([subtargets, info], axis=<span style="color: #D0372D;">1</span>)
+    
+        <span style="color: #0000FF;">if</span> <span style="color: #006FE0;">len</span>(definitions) == <span style="color: #D0372D;">1</span>:
+            <span style="color: #0000FF;">return</span> of_(definitions[<span style="color: #D0372D;">0</span>])
+        <span style="color: #0000FF;">return</span> {definition[<span style="color: #008000;">"dataset"</span>][<span style="color: #D0372D;">1</span>]: of_(definition) <span style="color: #0000FF;">for</span> definition <span style="color: #0000FF;">in</span> definitions}
+    
+    
+
+    <span style="color: #6434A3;">@lazy</span>
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">nodes</span>(tap):
+        <span style="color: #036A07;">"""Nodes in connsense-TAP</span>
+<span style="color: #036A07;">        """</span>
+        populations = tap.describe(<span style="color: #008000;">"extract-node-populations"</span>)
+    
+        <span style="color: #0000FF;">if</span> <span style="color: #006FE0;">len</span>(populations) == <span style="color: #D0372D;">0</span>:
+            LOG.warning(<span style="color: #008000;">"No populations configured!"</span>)
+            <span style="color: #0000FF;">return</span> <span style="color: #D0372D;">None</span>
+    
+        <span style="color: #0000FF;">def</span> <span style="color: #006699;">of_</span>(population):
+            <span style="color: #036A07;">"""..."""</span>
+            LOG.info(<span style="color: #008000;">"Load dataset %s: \n%s"</span>, population[<span style="color: #008000;">"dataset"</span>], pformat(population[<span style="color: #008000;">"description"</span>]))
+            <span style="color: #0000FF;">return</span> TapDataset(tap, population[<span style="color: #008000;">"dataset"</span>])
+    
+        <span style="color: #0000FF;">if</span> <span style="color: #006FE0;">len</span>(populations) == <span style="color: #D0372D;">1</span>:
+            <span style="color: #0000FF;">return</span> of_(populations[<span style="color: #D0372D;">0</span>])
+        <span style="color: #0000FF;">return</span> {population[<span style="color: #008000;">"dataset"</span>][<span style="color: #D0372D;">1</span>]: of_(population) <span style="color: #0000FF;">for</span> population <span style="color: #0000FF;">in</span> populations}
+    
+    
+
+    <span style="color: #6434A3;">@lazy</span>
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">adjacency</span>(tap):
+        <span style="color: #036A07;">"""Adjacency matrices of subtargets in connsense-TAP</span>
+<span style="color: #036A07;">        """</span>
+        populations = tap.describe(<span style="color: #008000;">"extract-edge-populations"</span>)
+    
+        <span style="color: #0000FF;">if</span> <span style="color: #006FE0;">len</span>(populations) == <span style="color: #D0372D;">0</span>:
+            LOG.warning(<span style="color: #008000;">"No populations configured!"</span>)
+            <span style="color: #0000FF;">return</span> <span style="color: #D0372D;">None</span>
+    
+        <span style="color: #0000FF;">def</span> <span style="color: #006699;">of_</span>(population):
+            <span style="color: #036A07;">"""..."""</span>
+            LOG.info(<span style="color: #008000;">"Load dataset %s: \n%s"</span>, population[<span style="color: #008000;">"dataset"</span>], pformat(population[<span style="color: #008000;">"description"</span>]))
+            <span style="color: #0000FF;">return</span> TapDataset(tap, population[<span style="color: #008000;">"dataset"</span>])
+    
+        <span style="color: #0000FF;">if</span> <span style="color: #006FE0;">len</span>(populations) == <span style="color: #D0372D;">1</span>:
+            <span style="color: #0000FF;">return</span> of_(populations[<span style="color: #D0372D;">0</span>])
+        <span style="color: #0000FF;">return</span> {population[<span style="color: #008000;">"dataset"</span>][<span style="color: #D0372D;">1</span>]: of_(population) <span style="color: #0000FF;">for</span> population <span style="color: #0000FF;">in</span> populations}
+    
+
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">get_phenomenon</span>(tap, computation_type):
+        <span style="color: #036A07;">"""..."""</span>
+        analysis = computation_type.split(<span style="color: #008000;">'-'</span>)
+        <span style="color: #0000FF;">if</span> analysis[<span style="color: #D0372D;">0</span>] != <span style="color: #008000;">"analyze"</span>:
+            LOG.warn(<span style="color: #008000;">"%s is not an analysis"</span>, computaiton_tyoe)
+            <span style="color: #0000FF;">return</span> <span style="color: #D0372D;">None</span>
+    
+        <span style="color: #0000FF;">return</span> <span style="color: #008000;">'-'</span>.join(analysis[<span style="color: #D0372D;">1</span>:])
+    
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">find_analyses</span>(tap, phenomenon=<span style="color: #D0372D;">None</span>):
+        <span style="color: #036A07;">"""Find all analyses of phenomenon in the config.</span>
+<span style="color: #036A07;">        """</span>
+    
+        <span style="color: #0000FF;">if</span> phenomenon:
+            analyzed = tap.parameters[f<span style="color: #008000;">"analyze-</span>{phenomenon}<span style="color: #008000;">"</span>]
+            <span style="color: #0000FF;">return</span> analyzed[<span style="color: #008000;">"analyses"</span>]
+    
+        <span style="color: #0000FF;">return</span> {p: tap.find_analyses(phenomenon=p) <span style="color: #0000FF;">for</span> p <span style="color: #0000FF;">in</span> tap.phenomena}
+    
+    @<span style="color: #006FE0;">property</span>
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">phenomena</span>(tap):
+        <span style="color: #036A07;">"""The analyze phenomena.</span>
+<span style="color: #036A07;">        """</span>
+        <span style="color: #0000FF;">return</span> [tap.get_phenomenon(computation_type=c) <span style="color: #0000FF;">for</span> c <span style="color: #0000FF;">in</span> tap.parameters <span style="color: #0000FF;">if</span> c.startswith(<span style="color: #008000;">"analyze-"</span>)]
+    
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">describe_analyses</span>(tap, phenomenon=<span style="color: #D0372D;">None</span>):
+        <span style="color: #036A07;">"""..."""</span>
+        analyze = <span style="color: #008000;">"analyze-{}"</span>.<span style="color: #006FE0;">format</span>
+        <span style="color: #0000FF;">if</span> phenomenon:
+            <span style="color: #0000FF;">return</span> tap.describe(analyze(phenomenon))
+        <span style="color: #0000FF;">return</span> {p: tap.describe(analyze(p)) <span style="color: #0000FF;">for</span> p <span style="color: #0000FF;">in</span> tap.phenomena}
+    
+    <span style="color: #6434A3;">@lazy</span>
+    <span style="color: #0000FF;">def</span> <span style="color: #006699;">analyses</span>(tap):
+        <span style="color: #036A07;">"""..."""</span>
+        analyses = tap.describe_analyses()
+        <span style="color: #0000FF;">return</span> {phenomenon: {q[<span style="color: #008000;">"dataset"</span>][<span style="color: #D0372D;">1</span>]: TapDataset(tap, q[<span style="color: #008000;">"dataset"</span>])}
+                <span style="color: #0000FF;">for</span> phenomenon, quantities <span style="color: #0000FF;">in</span> analyses.items() <span style="color: #0000FF;">for</span> q <span style="color: #0000FF;">in</span> quantities}
+    
+</pre>
+</div>
+
+<p>
+and also the notebook,
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [markdown]</span>
+<span style="color: #036A07;">"""Load a connsense-TAP to analyze topology of a circuit</span>
+<span style="color: #036A07;">"""</span>
+<span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [code]</span>
+
+<span style="color: #0000FF;">from</span> connsense.develop <span style="color: #0000FF;">import</span> topotap <span style="color: #0000FF;">as</span> topotap_store
+<span style="color: #006FE0;">reload</span>(topotap_store)
+<span style="color: #BA36A5;">topotap</span> = topotap_store.HDFStore(CONNSPACE/<span style="color: #008000;">"pipeline.yaml"</span>)
+<span style="color: #006FE0;">print</span>(<span style="color: #008000;">"Available analyses: "</span>)
+pprint(topotap.analyses)
+
+<span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [markdown]</span>
+<span style="color: #008000;">"""## Subtargets in connsense-TAP</span>
+<span style="color: #008000;">"""</span>
+<span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [code]</span>
+
+topotap.subtargets
+
+<span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [markdown]</span>
+<span style="color: #008000;">"""## Nodes in connsense-TAP</span>
+<span style="color: #008000;">"""</span>
+<span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [code]</span>
+
+topotap.nodes.dataset
+
+<span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [markdown]</span>
+<span style="color: #008000;">"""Contents of nodes</span>
+<span style="color: #008000;">"""</span>
+<span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [code]</span>
+
+topotap.nodes.dataset.iloc[<span style="color: #D0372D;">0</span>].get_value().info()
+
+<span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [markdown]</span>
+<span style="color: #008000;">"""Contents of nodes</span>
+<span style="color: #008000;">"""</span>
+<span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [code]</span>
+
+topotap.nodes(subtarget=<span style="color: #008000;">"R19;C0"</span>, circuit=<span style="color: #008000;">"Bio_M"</span>).info()
+
+<span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [markdown]</span>
+<span style="color: #008000;">"""Nodes of a subtarget</span>
+<span style="color: #008000;">"""</span>
+<span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [code]</span>
+
+topotap.nodes(subtarget=<span style="color: #008000;">"R19;C0"</span>).info()
+
+<span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [markdown]</span>
+<span style="color: #008000;">"""## Adjacency datasets</span>
+<span style="color: #008000;">"""</span>
+<span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [code]</span>
+topotap.adjacency.dataset
+
+<span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [markdown]</span>
+<span style="color: #008000;">""" Adjacency of a subtarget</span>
+<span style="color: #008000;">"""</span>
+<span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [code]</span>
+topotap.adjacency.dataset
+topotap.adjacency(<span style="color: #008000;">"R19;C0"</span>)
+
+<span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [markdown]</span>
+<span style="color: #008000;">"""## Analyses</span>
+<span style="color: #008000;">"""</span>
+<span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [code]</span>
+pprint(topotap.analyses)
+
+<span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [markdown]</span>
+<span style="color: #008000;">"""Simplex counts</span>
+<span style="color: #008000;">"""</span>
+<span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [code]</span>
+simplex_counts = topotap.analyses[<span style="color: #008000;">"connectivity"</span>][<span style="color: #008000;">"simplex-counts"</span>]
+simplex_counts.dataset
+
+<span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [markdown]</span>
+<span style="color: #008000;">"""Simplex counts</span>
+<span style="color: #008000;">"""</span>
+<span style="color: #8D8D84;"># </span><span style="color: #8D8D84; font-style: italic;">%% [code]</span>
+simplex_counts = topotap.analyses[<span style="color: #008000;">"connectivity"</span>][<span style="color: #008000;">"simplex-counts"</span>]
+simplex_counts(<span style="color: #008000;">"R19;C0"</span>)
+
+</pre>
+</div>
+</div>
+</div>
+</div>
+<div id="postamble" class="status">
+<p class="author">Author: Vishal Sood</p>
+<p class="date">Created: 2022-10-11 Tue 14:59</p>
+</div>
+</body>
+</html>

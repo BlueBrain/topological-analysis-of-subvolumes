@@ -72,7 +72,7 @@ class TopologicalAnalysis:
                             if step in configured_steps])
 
     @classmethod
-    def read_config(cls, c, raw=False, return_location=True):
+    def read_config(cls, c, raw=False, return_location=False):
         """..."""
         from connsense.io import read_config
 

@@ -1,0 +1,840 @@
+<<ee6791fb>>
+* Subtargets
+:PROPERTIES:
+:CUSTOM_ID: subtargets
+:END:
+To analyze the SSCx circuit topologically, we want to compare columnar
+targets distributed across the circuit's flatmap. Such columns are
+comparable to the microcircuit columns that we have studied before.
+Becauseathe term /target/ alreadt means a lot of things, we shall call
+such columnar targets as /subtargets/, reserving the term /target/ to
+name any group of cells.
+
+In this study, we discuss the development of a tool to generate such
+subtargets.
+
+*NOTE* This is a work-in-progress. In its final form, this notebook, and
+others like it are intended to be an scientific introduction as well as
+documentation to the code in this repository.
+
+#+begin_src jupyter-python
+#load tools to compose an article of analysis.
+
+import os
+import importlib
+from importlib import reload
+from pathlib import Path
+import logging
+
+from bluepy import Circuit, Cell
+
+import pandas as pd
+import numpy as np
+from matplotlib import pyplot as plt
+import matplotlib
+import seaborn as sbn
+
+import flatmap_utility as fmutil
+#from scripts import read_config
+from flatmap_utility import tessellate, hexgrid
+
+LOG = logging.getLogger("Generate flatmap subtargets")
+
+GOLDEN = (1. + np.sqrt(5)) / 2.
+#+end_src
+
+#+begin_src jupyter-python
+reload(tessellate)
+tritille = tessellate.TriTille(1.,  origin=np.array([5., 5.]), angle=0.)
+
+figure = plt.figure(figsize=(12,12))
+axes = figure.add_subplot(111, aspect=1.)
+
+tritille.display(10, origin=np.array([0., 0.]), hexgrid=True,
+                 graphic=(figure, axes))
+#+end_src
+
+#+RESULTS:
+: (<Figure size 864x864 with 1 Axes>, <AxesSubplot:>)
+
+[[file:c050a707a4fa79acf22fba880b721034cfc07476.png]]
+
+<<09a30e37>>
+* Circuit
+:PROPERTIES:
+:CUSTOM_ID: circuit
+:END:
+We will use the SSCx Dissemination circuits, beginning with the mean
+circuit:
+
+#+begin_src jupyter-python
+path_circuit = "/gpfs/bbp.cscs.ch/project/proj83/circuits/Bio_M/20200805/"
+circuit = Circuit(path_circuit + "CircuitConfig")
+#+end_src
+
+<<7406401a>>
+** Distribution in circuit space
+:PROPERTIES:
+:CUSTOM_ID: distribution-in-circuit-space
+:END:
+We will flatmap all cells in the circuit, and begin by looking at the
+distribution of cells in the circuit's 3D space.
+
+#+begin_src jupyter-python
+all_xyzs = circuit.cells.get(properties=list("xyz"))
+all_xyzs.agg(["min", "mean", "std", "median", "mad", "max"])
+#+end_src
+
+#+RESULTS:
+:                   x            y            z
+: min     1636.498786 -3620.430569 -5799.639750
+: mean    3977.616282  -513.576258 -2854.465128
+: std     1079.429535  1680.214350  1167.609554
+: median  3928.476528  -573.242794 -2744.288764
+: mad      894.354522  1415.559634   998.183553
+: max     6934.594844  3119.181656  -378.683296
+#+begin_src jupyter-python
+long_pos = (pd.concat([all_xyzs.x, all_xyzs.y, all_xyzs.z], axis=0,
+                      keys=["x", "y", "z"], names=["axis"])
+            .rename("value").reset_index())
+
+long_pos.head()
+#+end_src
+
+#+RESULTS:
+:   axis  gid        value
+: 0    x    1  4877.122429
+: 1    x    2  5383.917646
+: 2    x    3  5038.520009
+: 3    x    4  4873.650857
+: 4    x    5  4470.542212
+#+begin_src jupyter-python
+figure = plt.figure(figsize=(12, 12 / GOLDEN))
+axes = figure.add_subplot(111, aspect="auto")
+axes = sbn.histplot(long_pos, x="value", hue="axis", stat="percent")
+_=axes.set_xlabel("value / $\mu m$")
+_=axes.set_ylabel("%-cells")
+#+end_src
+
+[[file:98e283f4e74e19d0c4d2652a096d2a4e7ec37cf0.png]]
+
+<<79e9d847>>
+
+<<93d70de7>>
+** Distribution in the flatspace.
+:PROPERTIES:
+:CUSTOM_ID: distribution-in-the-flatspace
+:END:
+Each cell's position is mapped to a 2D flatspace.
+
+*TODO*: briefly describe what flatspace, meanwhile the reader may read
+the release report.
+
+The flatmap we have has a finite resolution estimated to be about
+\(34um\) (ask MR). We can enhance this pixel level resolution to
+sub-pixel values using the MR's =flatmap_utility=. We have intergrated
+=flatmap_utility= into the repository associated with these /topological
+analyses of subvolumes/:
+[[https://bbpgitlab.epfl.ch/conn/structural/topological-analysis-of-subvolumes]]
+
+However, only 94% of the cells are covered by the flatmap. Remaining 6%
+of the cells could not be /flatmapped/ to a valid pixel.
+
+*TODO* Where are these 6% cells that could not be /flatmapped/.
+
+#+begin_src jupyter-python
+reload(hexgrid)
+fmap_spxl = hexgrid.get_flatmap(circuit)
+frac_cells_covered = fmap_spxl.shape[0] / circuit.cells.count()
+LOG.warning("Fraction of cells covered by the  flatmap: %s", frac_cells_covered)
+fmap_spxl.agg(["count", "min", "mean", "std", "median", "mad", "max"])
+#+end_src
+
+#+begin_example
+Fraction of cells covered by the  flatmap: 0.9397068994545127
+#+end_example
+
+#+RESULTS:
+:                    x             y
+: count   3.979592e+06  3.979592e+06
+: min    -4.485253e+01 -3.258549e+01
+: mean    2.163639e+03  2.959550e+03
+: std     1.441468e+03  1.781704e+03
+: median  1.926028e+03  2.698222e+03
+: mad     1.141401e+03  1.515252e+03
+: max     6.300128e+03  6.529197e+03
+#+begin_src jupyter-python
+long_fmap = pd.concat([fmap_spxl.x, fmap_spxl.y], axis=0,
+                      keys=["x", "y"], names=["axis"]).rename("value")
+#+end_src
+
+#+begin_src jupyter-python
+figure = plt.figure(figsize=(12, 12 / GOLDEN))
+axes = figure.add_subplot(111, aspect="auto")
+
+axes = sbn.histplot(long_fmap.reset_index(), x="value", hue="axis",
+                    stat="percent")
+_=axes.set_xlabel("value / $\mu m$")
+_=axes.set_ylabel("%-cells")
+_=axes.set_title("Distribution of x and y coordinates of cell flatmap positions")
+#+end_src
+
+[[file:dbc77d1ab811a77d78e230e0e75dea137b75eb25.png]]
+
+<<d799789e>>
+
+<<e21d47e4>>
+* Subtarget Distribution
+:PROPERTIES:
+:CUSTOM_ID: subtarget-distribution
+:END:
+We use our =flatmap_utility='s tiling tool to generate subtargets and
+analyze them. Let us first generate a subtarget of radius \(230\mu m\)
+that has been used to generate columnar microcircuits in the past.
+
+#+begin_src jupyter-python
+subtargets_r230 = hexgrid.generate_subtargets(circuit, fmap_spxl, radius=230)
+print(subtargets_r230.shape)
+print(subtargets_r230[["i", "j", "x", "y"]].agg(["count", "mean", "std",
+                                                 "median", "mad"]))
+print(subtargets_r230[["i", "j", "x", "y"]].agg(["min", "max"]))
+#+end_src
+
+#+begin_example
+(3979592, 5)
+                   i             j             x             y
+count   3.979592e+06  3.979592e+06  3.979592e+06  3.979592e+06
+mean   -7.435328e+00  1.829765e+01  2.163621e+03  2.959293e+03
+std     9.142086e+00  7.950076e+00  1.445533e+03  1.784894e+03
+median -6.000000e+00  1.800000e+01  1.991858e+03  2.760000e+03
+mad     7.920058e+00  6.682280e+00  1.144228e+03  1.518652e+03
+      i   j            x       y
+min -28   2  -199.185843     0.0
+max  12  38  6373.946972  6555.0
+#+end_example
+
+#+begin_src jupyter-python
+subtarget_r230__positions = (pd.concat([subtargets_r230.x, subtargets_r230.y],
+                                       axis=0, keys=["x", "y"], names=["axis"])
+                             .rename("value"))
+subtarget_r230__positions.head(mpo)
+#+end_src
+
+#+RESULTS:
+: axis  subtarget
+: x     R19;C0       199.185843
+:       R19;C0       199.185843
+:       R19;C0       199.185843
+:       R19;C0       199.185843
+:       R19;C0       199.185843
+: Name: value, dtype: float64
+
+<<e4149a1b>>
+Subtargets are created by binning individual cell flatmap positions to
+centers of hexagonal grids. Thus the distribution of =(x, y)= values in
+subtarget bins for cells should follow the same distribution as the
+unbinned positions. Let us test this.
+
+#+begin_src jupyter-python
+figure = plt.figure(figsize=(12, 12 / GOLDEN))
+axes = figure.add_subplot(111, aspect="auto")
+
+axes = sbn.histplot(subtarget_r230__positions.reset_index(), x="value", hue="axis",
+                    stat="percent")
+_=axes.set_xlabel("value / $\mu m$")
+_=axes.set_ylabel("%-cells")
+_=axes.set_title("Hexgrid bin positions for circuit cell flatmap values")
+#+end_src
+
+[[file:24b0c7f4217e6db6e4fa0ce29a64d3b792c93ea7.png]]
+
+<<68f2924f>>
+We can visualize the subtargets.
+
+#+begin_src jupyter-python
+reload(tessellate); reload(hexgrid)
+tritille_r230 = tessellate.TriTille(230.)
+hexmap_r230 = tritille_r230.bin_hexagonally(fmap_spxl,
+                                            use_columns_row_indexing=False)
+print(hexmap_r230.shape)
+hexmap_r230.head()
+#+end_src
+
+#+begin_example
+(3979592, 2)
+#+end_example
+
+#+RESULTS:
+:          i  j
+: gid          
+: 30973   -6  6
+: 80068   -6  6
+: 373496  -6  6
+: 3618315 -7  8
+: 3658565 -7  8
+
+<<3e6af816>>
+There are too many cells. To show the shape of the hexgrid in the
+flatspace we can plot a small fraction of all positions.
+
+#+begin_src jupyter-python
+figure = plt.figure(figsize=(12, 12))
+axes = figure.add_subplot(111, aspect=1.)
+fpos = hexgrid.get_flatmap(circuit, sample=None)
+print("available values ", 1. - fpos.isna().sum() / fpos.shape[0])
+fpos.dropna()
+print(fpos.head())
+graphic = tritille_r230.display(7000, graphic=(figure, axes))
+graphic = tritille_r230.plot_hextiles(fpos.dropna(), graphic=graphic,
+                                      annotate=False, with_grid=False,
+                                      pointmarker=".", pointmarkersize=0.05)
+#grid = tritille.locate_grid(tiles)
+#print(grid.shape)
+#grid = grid[np.logical_and(grid.x > -1.e6, grid.y > -1.e6)]
+#plt.scatter(grid["x"], grid["y"], c="red", s=80)
+#+end_src
+
+#+begin_example
+available values  x    1.0
+y    1.0
+dtype: float64
+                 x            y
+gid                            
+30973    29.910201  1580.957942
+80068    20.648030  1591.144575
+373496   26.567832  1558.500571
+3618315  18.095272  1603.279187
+3658565  25.725519  1616.660220
+#+end_example
+
+[[file:d1c55357bd7d72a456da20d098d9c146ceecdd5e.png]]
+
+#+begin_src jupyter-python
+figure.savefig("./hexgrids_r230.png")
+#+end_src
+
+#+begin_src jupyter-python
+pwd
+#+end_src
+
+#+RESULTS:
+: '/gpfs/bbp.cscs.ch/project/proj83/home/sood/analyses/manuscript/define_subtargets/notebooks'
+#+begin_src jupyter-python
+print(tiles.shape)
+tiles.head()
+#+end_src
+
+#+begin_example
+(38, 2)
+#+end_example
+
+#+RESULTS:
+:          i  j
+: gid          
+: 474998  -2  3
+: 576456  -1  6
+: 1615391  2  9
+: 68352    0  2
+: 1999115  2  5
+#+begin_src jupyter-python
+fpos = hexgrid.get_flatmap(circuit, sample=2.e-5)
+print(fpos.shape)
+print(1 - fpos.isna().sum() / fpos.shape[0])
+fpos = fpos.dropna()
+#tiles = tritille.bin_rhombically(fpos)
+tiles = tritille.bin_trinagularly(fpos)
+grid = tritille.locate_grid(tiles)
+bins = tiles.value_counts().sort_index()
+#+end_src
+
+#+begin_example
+(85, 2)
+x    0.988235
+y    0.988235
+dtype: float64
+#+end_example
+
+#+begin_src jupyter-python
+figure = plt.figure(figsize=(12, 12))
+axes = figure.add_subplot(111, aspect=1.)
+
+graphic = tritille.display(7000, graphic=(figure, axes))
+
+plt.scatter(fpos.x, fpos.y)
+
+plt.scatter(grid.x, grid.y, c="black", s=160)
+
+annotate = tritille.annotate(grid)
+for row in grid.assign(annotation=annotate).itertuples():
+    axes.annotate(row.annotation, (row.x - 200, row.y + 200), fontsize=20)
+
+def plot_bin(i, j, c, s):
+    try:
+        qgids = tiles[np.logical_and(tiles.i == i, tiles.j == j)].index.values
+    except KeyError:
+        pass
+    else:
+        qpos = circuit.flatmap_positions.loc[qgids]
+        plt.scatter(qpos.x, qpos.y, c=c, s=s)
+
+plot_bin(-4, 5, "maroon", 80)
+plot_bin(-4, 6, "red", 80)
+plot_bin(-4, 7, "orange", 80)
+
+plot_bin(-3, 5, "green", 80)
+plot_bin(-3, 4, "limegreen", 80)
+
+plot_bin(-5, 6, "cyan", 80)
+plot_bin(-1, 3, "cyan", 80)
+#tiles = tritille.bin_hexagonally(fpos, use_columns_row_indexing=False)
+#print(tiles.shape)
+#print(1 - tiles.isna().sum() / tiles.shape[0])
+#tiles.head()
+#+end_src
+
+[[file:34f5f5d22109f0ae71c07df1a738ebc91371df2b.png]]
+
+#+begin_src jupyter-python
+htiles = tritille.bin_hexagonally(fpos)
+htiles.loc[tiles[np.logical_and(tiles.i == -1, tiles.j == 3)].index]
+#+end_src
+
+#+RESULTS:
+:          i  j
+: gid          
+: 1322672  0  3
+: 2804353  0  3
+: 2683403  0  3
+#+begin_src jupyter-python
+reload(hexgrid)
+sample_frac = 1.e-3
+radius, subtargets = hexgrid.generate_subtargets(circuit, size=30000,
+                                                 sample=sample_frac)
+#+end_src
+
+#+begin_src jupyter-python
+print(radius, subtargets.shape[0])
+subtargets.head()
+#+end_src
+
+#+begin_example
+5.535858154296875 3986
+#+end_example
+
+#+RESULTS:
+:             i   j      gid          x         y
+: subtarget                                      
+: R11;C4    -12  21      515  43.147744  91.34166
+: R11;C4    -12  21  3586913  43.147744  91.34166
+: R11;C4    -12  21   186505  43.147744  91.34166
+: R11;C4    -12  21  2519138  43.147744  91.34166
+: R11;C4    -12  21  4103866  43.147744  91.34166
+#+begin_src jupyter-python
+subtarget_sizes = subtargets.groupby("subtarget").size() / sample_frac
+print(subtarget_sizes.agg(["min", "mean", "std", "median", "mad", "max"]))
+#+end_src
+
+#+begin_example
+min        1000.000000
+mean      30196.969697
+std       15653.909296
+median    33000.000000
+mad       13200.413223
+max       59000.000000
+dtype: float64
+#+end_example
+
+#+begin_src jupyter-python
+subtargets.gid.min()
+#+end_src
+
+#+RESULTS:
+: 289
+
+<<99ceced9>>
+** Using a config
+:PROPERTIES:
+:CUSTOM_ID: using-a-config
+:END:
+We can use a configuration to define subtargets.
+
+#+begin_src jupyter-python
+import read_config
+reload(hexgrid)
+path_config = "topological-analysis-of-subvolumes/reduced_example_config.json"
+config = hexgrid.SubtargetConfig(path_config, reader=read_config)
+print(config.input_circuit.keys())
+config.output, config.target_radius, config.mean_target_size
+#+end_src
+
+#+begin_example
+dict_keys(['Bio_M'])
+#+end_example
+
+#+RESULTS:
+: (('/gpfs/bbp.cscs.ch/project/proj83/home/sood/analyses/manuscript/define_subtargets/notebooks/results/topological_sampling.h5',
+:   'subtargets'),
+:  230.0,
+:  None)
+#+begin_src jupyter-python
+reload(hexgrid)
+sample_frac = None
+
+subtargets_wide = hexgrid.define_subtargets(config,
+                                            sample_frac=sample_frac,
+                                            format="wide")
+#+end_src
+
+#+begin_example
+GENERATE subtargets for circuit Bio_M
+DONE 3979592 subtargets for circuit Bio_M
+#+end_example
+
+#+begin_src jupyter-python
+fpos = (subtargets_wide.apply(len).rename("number").reset_index()
+        .rename(columns={"flat_x": "x", "flat_y": "y"})
+        .set_index(["circuit", "subtarget"]))
+fpos_valid = fpos[np.logical_and(fpos.x > 0, fpos.y > 0)]
+fpos_valid.head()
+#+end_src
+
+#+RESULTS:
+:                               x       y  number
+: circuit subtarget                              
+: Bio_M   R10;C0     2.112516e-13  3450.0    7641
+:         R10;C1     3.983717e+02  3450.0   25260
+:         R10;C12    4.780460e+03  3450.0      12
+:         R10;C13    5.178832e+03  3450.0    5374
+:         R10;C14    5.577204e+03  3450.0   19645
+#+begin_src jupyter-python
+fpos.number / fpos.number.mean()
+#+end_src
+
+#+RESULTS:
+: circuit  subtarget
+: Bio_M    R0;C10       0.417026
+:          R0;C11       0.204261
+:          R0;C12       0.011544
+:          R0;C2        0.000248
+:          R0;C3        0.158642
+:                         ...   
+:          R9;C4        1.459498
+:          R9;C5        1.480290
+:          R9;C6        1.347281
+:          R9;C7        0.500195
+:          R9;C8        0.001179
+: Name: number, Length: 247, dtype: float64
+#+begin_src jupyter-python
+reload(hexgrid)
+figure = plt.figure(figsize=(12, 12))
+axes = figure.add_subplot(111, aspect=1.)
+    
+graphic = (figure, axes)
+#graphic = tritille_r230.display(7000, graphic=(figure, axes))
+graphic = tritille_r230.plot_hextiles(fpos[["x", "y"]], graphic=graphic,
+                                      annotate=False, with_grid=False,
+                                      pointmarker="o",
+                                      pointmarkersize=700*fpos.number / fpos.number.mean()),
+#grid = tritille.locate_grid(tiles)
+#print(grid.shape)
+#grid = grid[np.logical_and(grid.x > -1.e6, grid.y > -1.e6)]
+#plt.scatter(grid["x"], grid["y"], c="red", s=80)
+#+end_src
+
+[[file:3fec0c349d412c5284c6e6568c96c33d7832ffc9.png]]
+
+#+begin_src jupyter-python
+pwd
+#+end_src
+
+#+RESULTS:
+: '/gpfs/bbp.cscs.ch/project/proj83/home/sood/analyses/manuscript/define_subtargets/notebooks'
+#+begin_src jupyter-python
+figure.savefig("hexgrid_r230_sizes.png", dpi=200)
+#+end_src
+
+#+begin_src jupyter-python
+hexmap = tritille.bin_hexagonally(flatmap, use_columns_row_indexing=False)
+print(hexmap.shape)
+hexmap.head()
+#+end_src
+
+#+begin_example
+(3979592, 2)
+#+end_example
+
+#+RESULTS:
+:       i    j
+: gid         
+: 1    -9   78
+: 2    -1   86
+: 3     2   35
+: 4    -2   37
+: 5   -20  103
+#+begin_src jupyter-python
+grid = tritille.locate_grid(hexmap)
+print(grid.shape)
+grid.head()
+#+end_src
+
+#+begin_example
+(3298, 2)
+#+end_example
+
+#+RESULTS:
+:                  x     y
+: i   j                   
+: -9  78   69.755753  53.5
+: -1  86   83.612159  53.5
+:  2  35   42.042940  26.5
+: -2  37   40.310889  29.5
+: -20 103  81.880109  71.5
+#+begin_src jupyter-python
+annotation = tritille.annotate(grid, using_column_row=True)
+print(annotation.shape)
+annotation.head()
+#+end_src
+
+#+begin_example
+(3298,)
+#+end_example
+
+#+RESULTS:
+: i    j  
+: -9   78     R29;C34
+: -1   86     R29;C42
+:  2   35     R11;C18
+: -2   37     R13;C17
+: -20  103    R41;C41
+: dtype: object
+#+begin_src jupyter-python
+gids_by_gridpoint = hexmap.reset_index().set_index(["i", "j"])
+print(gids_by_gridpoint.shape)
+gids_by_gridpoint.head()
+#+end_src
+
+#+begin_example
+(3979592, 1)
+#+end_example
+
+#+RESULTS:
+:          gid
+: i   j       
+: -9  78     1
+: -1  86     2
+:  2  35     3
+: -2  37     4
+: -20 103    5
+#+begin_src jupyter-python
+annotated_grid = grid.assign(subtarget=annotation.loc[grid.index])
+print(annotated_grid.shape)
+annotated_grid.head()
+#+end_src
+
+#+begin_example
+(3298, 3)
+#+end_example
+
+#+RESULTS:
+:                  x     y subtarget
+: i   j                             
+: -9  78   69.755753  53.5   R29;C34
+: -1  86   83.612159  53.5   R29;C42
+:  2  35   42.042940  26.5   R11;C18
+: -2  37   40.310889  29.5   R13;C17
+: -20 103  81.880109  71.5   R41;C41
+#+begin_src jupyter-python
+q = gids_by_gridpoint.join(annotated_grid).reset_index().set_index("subtarget")
+print(q.shape)
+q.head()
+#+end_src
+
+#+begin_example
+(3979592, 5)
+#+end_example
+
+#+RESULTS:
+:             i    j     gid          x     y
+: subtarget                                  
+: R55;C17   -65  100    9210  40.310889  92.5
+: R55;C17   -65  100   79774  40.310889  92.5
+: R55;C17   -65  100   98105  40.310889  92.5
+: R55;C17   -65  100  124131  40.310889  92.5
+: R55;C17   -65  100  183562  40.310889  92.5
+#+begin_src jupyter-python
+q.gid.agg(["mean", "min", "median", "max", "std", "mad"])
+#+end_src
+
+#+RESULTS:
+: mean      2.119484e+06
+: min       1.000000e+00
+: median    2.132972e+06
+: max       4.234929e+06
+: std       1.225370e+06
+: mad       1.062646e+06
+: Name: gid, dtype: float64
+
+<<7cf624fe>>
+* Supersampling
+:PROPERTIES:
+:CUSTOM_ID: supersampling
+:END:
+
+#+begin_src jupyter-python
+import flatmap_utility as fmut
+from voxcell.voxel_data import OrientationField, VoxelData
+#+end_src
+
+#+begin_src jupyter-python
+reload(fmut)
+flatmap = circuit.atlas.load_data("flatmap")
+orientations = circuit.atlas.load_data("orientation", cls=OrientationField)
+#q = fmut.supersampled_neuron_locations(circuit, flatmap, orientations)
+                                              
+#+end_src
+
+#+begin_src jupyter-python
+reload(fmut)
+flatmap = circuit.atlas.load_data("flatmap")
+orientations_vd = circuit.atlas.load_data("orientation", cls=VoxelData)
+#q = fmut.supersampled_neuron_locations(circuit, flatmap, orientations_vd)
+                                              
+#+end_src
+
+#+begin_src jupyter-python
+zeros
+#+end_src
+
+#+RESULTS:
+: (array([  0,   0,   0, ..., 408, 408, 408]),
+:  array([  0,   0,   0, ..., 607, 607, 607]),
+:  array([  0,   1,   2, ..., 283, 284, 285]))
+#+begin_src jupyter-python
+oarray = orientations.raw
+norms = np.linalg.norm(oarray, axis=3)
+zeros = np.where(np.isclose(norms, 0.))
+oarray[zeros[0:5]]
+#+end_src
+
+#+RESULTS:
+: array([[0, 0, 0, 0],
+:        [0, 0, 0, 0],
+:        [0, 0, 0, 0],
+:        ...,
+:        [0, 0, 0, 0],
+:        [0, 0, 0, 0],
+:        [0, 0, 0, 0]], dtype=int8)
+#+begin_src jupyter-python
+#zeros_index = list(zip(*zeros))
+#zeros_index
+zeros_poses = orientations.indices_to_positions(zeros_index[0:10])
+#+end_src
+
+#+begin_src jupyter-python
+zeros_poses[0]
+#+end_src
+
+#+RESULTS:
+: array([-8124.92919922, -7919.99853516,  -144.3999939 ])
+#+begin_src jupyter-python
+orientations.lookup(zeros_poses[0])
+#+end_src
+
+#+RESULTS:
+: array([[[1., 0., 0.],
+:         [0., 1., 0.],
+:         [0., 0., 1.]]])
+#+begin_src jupyter-python
+vxl_frame = fmut.voxel_flat_coordinate_frame(flatmap)
+print(vxl_frame.shape)
+vxl_frame.head()
+#+end_src
+
+#+begin_example
+(1257014, 3)
+#+end_example
+
+#+RESULTS:
+:                    x            y            z
+: f_x f_y                                       
+: 2   111  1636.240005  1686.231476 -1848.731125
+:     111  1636.240005  1686.231476 -1887.465923
+:     110  1636.240005  1686.231476 -1926.200722
+:     112  1636.240005  1724.966274 -1771.261528
+:     111  1636.240005  1724.966274 -1809.996326
+#+begin_src jupyter-python
+per_pixel = vxl_frame.groupby(["f_x", "f_y"])
+
+per_pixel_negative_center = per_pixel.apply(lambda x: -np.mean(x.values, axis=0))
+
+print(per_pixel_negative_center.shape)
+per_pixel_negative_center.head()
+#+end_src
+
+#+begin_example
+(12702,)
+#+end_example
+
+#+RESULTS:
+: f_x  f_y
+: 0    27     [-3370.367135267991, 2684.8415471590483, 1941....
+:      28     [-3381.7783688484355, 2658.6591056661405, 1907...
+:      29     [-3426.1954277440122, 2622.505181262368, 1832....
+:      30     [-3333.242931365967, 2546.3304176330566, 1922....
+:      31     [-3354.343509250217, 2504.012941148546, 1859.9...
+: dtype: object
+#+begin_src jupyter-python
+per_pixel_orient = (per_pixel_negative_center
+                    .apply(lambda x: orientations.lookup(-x)))
+print(per_pixel_orient.shape)
+per_pixel_orient.head()
+#+end_src
+
+#+begin_example
+(12702,)
+#+end_example
+
+#+RESULTS:
+: f_x  f_y
+: 0    27     [[[0.4922209136552408, 0.6426579061550858, -0....
+:      28     [[[0.4922209136552408, 0.6426579061550858, -0....
+:      29     [[[0.5040609771335749, 0.6376358865425465, -0....
+:      30     [[[0.5412120091239752, 0.6167313975710498, -0....
+:      31     [[[0.5412120091239752, 0.6167313975710498, -0....
+: dtype: object
+#+begin_src jupyter-python
+per_pixel_orient_vd = (per_pixel_negative_center
+                       .apply(lambda x: orientations_vd.lookup(-x)))
+print(per_pixel_orient.shape)
+per_pixel_orient.head()
+#+end_src
+
+#+begin_example
+---------------------------------------------------------------------------
+NameError                                 Traceback (most recent call last)
+<ipython-input-40-766b638f1cc6> in <module>
+----> 1 per_pixel_orient_vd = (per_pixel_negative_center
+      2                        .apply(lambda x: orientations_vd.lookup(-x)))
+      3 print(per_pixel_orient.shape)
+      4 per_pixel_orient.head()
+
+~/.vmgr_repo/py39/lib/python3.9/site-packages/pandas/core/series.py in apply(self, func, convert_dtype, args, **kwds)
+   4136             else:
+   4137                 values = self.astype(object)._values
+-> 4138                 mapped = lib.map_infer(values, f, convert=convert_dtype)
+   4139 
+   4140         if len(mapped) and isinstance(mapped[0], Series):
+
+pandas/_libs/lib.pyx in pandas._libs.lib.map_infer()
+
+<ipython-input-40-766b638f1cc6> in <lambda>(x)
+      1 per_pixel_orient_vd = (per_pixel_negative_center
+----> 2                        .apply(lambda x: orientations_vd.lookup(-x)))
+      3 print(per_pixel_orient.shape)
+      4 per_pixel_orient.head()
+
+NameError: name 'orientations_vd' is not defined
+#+end_example
+
+#+begin_src jupyter-python
+#+end_src

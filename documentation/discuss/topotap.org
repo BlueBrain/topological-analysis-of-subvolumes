@@ -1,17 +1,58 @@
-#+PROPERTY: header-args:jupyter-python :session ~/jupyter-run/active-1-ssh.json
-#+PROPERTY: header-args:jupyter :session ~/jupyter-run/active-1-ssh.json
-
 #+STARTUP: overview
 #+STARTUP: logdrawer
 #+STARTUP: hideblocks
 
+#+PROPERTY: header-args: :eval never-export
+
+#+PROPERTY: header-args:jupyter-python :session ~/jupyter-run/active-83-ssh.json
+#+PROPERTY: header-args:jupyter: :exports both
+
+#+PROPERTY: header-args:jupyter :session ~/jupyter-run/active-83-ssh.json
+#+PROPERTY: header-args:jupyter-python: :exports both
+
+#+PROPERTY: header-args:bash: :exports code
+
+#+PROPERTY: header-args:elisp: :exports both
+
+#+PROPERTY: header-args:bibtex :exports none
+#+PROPERTY: header-args:bibtex :tangle "./refs.bib"
+#+BIBLIOGRAPHY: "./refs.bib"
+#+BIBLIOGRAPHY: "~/observations/org/resources/bibliography/refs.bib"
+
+#+LATEX_CLASS: article
+#+LATEX_CLASS_OPTIONS: [a4paper,12pt]
+#+LATEX_HEADER: \usepackage[utf8]{inputenc}
+#+LATEX_HEADER: \usepackage{booktabs} % for much better looking tables
+#+LATEX_HEADER: \usepackage{g\usepackage{babel}
+#+LATEX_HEADER: \usepackage{babel}
+#+LATEX_HEADER: \usepackage[up,bf,raggedright]{titlesec}
+#+LATEX_HEADER: \usepackage{paralist} % very flexible & customisable lists (eg. enumerate/itemize, etc.)
+#+LATEX_HEADER: \usepackage{subfig} % make it possible to include more than one captioned figure/table in a single float
+#+LATEX_HEADER: \usepackage[labelfont=bf,font=small]{caption}
+#+LATEX_HEADER: \usepackage[hidelinks]{hyperref}% for adding urls
+#+LATEX_HEADER: \usepackage{sectsty}
+#+LATEX_HEADER: \allsectionsfont{\sffamily\mdseries\upshape} % (See the fntguide.pdf for font help)
+#+LATEX_HEADER: \sectionfont{\bfseries\Large\raggedright}
+#+LATEX_HEADER \usepackage[natbib=true]{biblatex} \DeclareFieldFormat{apacase}{#1} \addbibresource{~/org/resources/bibliography/refs.bib}
+#+LATEX_HEADER: \usepackage{parskip}
+#+LATEX_HEADER: \usepackage{amsmath}%To cleanly write equations and math text
+
+
+#+OPTIONS: <:nil c:nil todo:nil H:5
+
+Let us load the ~Python~ environment that we will need for our discussion,
+#+begin_src elisp :results silent
+(pyvenv-activate "~/.vmgr_repo/py39/")
+#+end_src
+
 Let us setup an interactive ~Python~ session where we can run the code developed here.
-#+BEGIN_SRC jupyter
+#+begin_src jupyter
 print("Welcome to EMACS Jupyter")
-#+END_SRC
+#+end_src
 
 #+RESULTS:
 : Welcome to EMACS Jupyter
+
 
 #+title: Topological analyses of brain circuits
 
@@ -81,38 +122,38 @@ circuit
 
 #+RESULTS: notebook-connsense-tap
 :RESULTS:
-:  2023-03-14 09:29:23,557: Load circuit Bio_M
+:  2023-07-03 13:33:45,669: Load circuit Bio_M
 : Available analyses:
-: {'connectivity': {'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7fff5c2bf2e0>,
-:                   'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7fff5c2bf3d0>}}
-: <bluepy.circuit.Circuit at 0x7fffbb6b6550>
+: {'connectivity': {'cross-col-k-indegree': <connsense.develop.topotap.TapDataset object at 0x7ffee4f8c070>,
+:                   'model-params-dd2': <connsense.develop.topotap.TapDataset object at 0x7ffee4f8c160>,
+:                   'node-participation': <connsense.develop.topotap.TapDataset object at 0x7ffee4f8c310>,
+:                   'simplex-counts': <connsense.develop.topotap.TapDataset object at 0x7fff2c9c4c40>,
+:                   'thalamic-innervation': <connsense.develop.topotap.TapDataset object at 0x7ffee4f8c4c0>,
+:                   'wm-innervation': <connsense.develop.topotap.TapDataset object at 0x7ffee4f8c550>}}
+: <bluepy.circuit.Circuit at 0x7fff2c68fc10>
 :END:
 
 ** Emacs specific :noexport:
 We can get all figures displayed 95% so that we can work with them in front of us in an Emacs buffer. Here is a method that does that witb an example. This code is here only to see how much we use it. It should find a way to a place in our ~doom-config~.
 
 #+NAME: fit-display-defun
-#+BEGIN_SRC emacs-lisp
+#+BEGIN_SRC emacs-lisp :results silent
 (defun fit-display-of (figure width height)
-    (concat "#+attr_html: :width " width " :height " height (string ?\n) figure))
+    (concat "#+attr_org: :width " width " :height " height (string ?\n) figure))
 #+END_SRC
 
-#+RESULTS: fit-display-defun
-: fit-display-of
-
 #+NAME: plot-display
-#+HEADER: :var figure="" :var width="95%" :var height="95%"
-#+BEGIN_SRC emacs-lisp
+#+HEADER: :var figure="this-should-be-path.png" :var width="95%" :var height="95%"
+#+BEGIN_SRC emacs-lisp :results silent
 (fit-display-of figure width height)
 #+END_SRC
 
-#+RESULTS: plot-display
-: #+attr_html: :width 95% :height 95%
-
-
-#+HEADER: :post plot-display(*this*) :session return
-#+BEGIN_SRC jupyter-python :exports both :file ./test-fit-fig.png
-#+BEGIN_SRC jupyter-python :post attr-wrap(data=*this*) :session return :exports both :file ./test-fit-fig.png
+That we can use with ~:post~,
+#+name: test-plot-display
+#+HEADER: :results value file :file ./test-fit-fig.png
+#+HEADER: :exports both :session return
+#+HEADER: :post plot-display(figure=*this*)
+#+BEGIN_SRC jupyter-python :post plot-display(figure=*this*)
 import pandas as pd
 from matplotlib import pyplot as plt
 import seaborn as sbn
@@ -125,11 +166,58 @@ fig = plt.figure(figsize=(15, 12))
 ax = sbn.histplot(x="Petal_Length", hue="Class", data=irisies, ax=fig.add_subplot())
 #+END_SRC
 
+#+RESULTS: test-plot-display
+#+attr_org: :width 95% :height 95%
+[[file:./test-fit-fig.png]]
+
+We can also ~wrap~ with a function,
+#+BEGIN_SRC emacs-lisp :results silent
+(defun display-fig (&optional label caption attributes)
+  "A wrap function for src blocks."
+  (concat
+   "ORG\n"
+   "#+attr_org: :width 95%\n"
+   (when caption
+     (format "#+CAPTION: %s\n" caption))
+   (when label
+     (format "#+NAME: %s" label))
+   (when caption
+     (format "#+caption: %s" caption))))
+#+END_SRC
+
+and use it with ~:wrap~,
+#+HEADER: :wrap (display-fig "fig-sin" "A sin wave.")
+#+name: figure-sin-wave
+#+BEGIN_SRC jupyter-python :session return
+import numpy as np
+import matplotlib.pyplot as plt
+from pathlib import Path
+
+x = np.linspace(0, 4 * np.pi, 1000)
+y = np.sin(x)
+
+fig = plt.figure(figsize=(15, 12))
+axes = plt.plot(x, y)
+p = Path.home() / 'work/workspaces/scratch/sin.png'
+#plt.savefig(p)
+#+END_SRC
+
+#+RESULTS: figure-sin-wave
+#+begin_ORG
+#+attr_org: :width 95%
+#+CAPTION: A sin wave.
+#+NAME: fig-sin#+caption: A sin wave.
+[[file:./.ob-jupyter/37a491009ff10b8f7c166bd48b8b9c748f68a9bf.png]]
+#+end_ORG
+
 #+NAME: fit-display
 #+HEADER: :var figure="" :var attr_value="95%" :var attr_name="#+attr_html: :width "
 #+BEGIN_SRC emacs-lisp
 (concat attr_name attr_value (string ?\n) figure)
 #+END_SRC
+
+#+RESULTS: fit-display
+: #+attr_html: :width 95%
 
 #+NAME: attr-wrap
 #+BEGIN_SRC sh :var figure="" :var width="95%" :results output
@@ -137,16 +225,44 @@ echo "#+attr_html: :width $width"
 echo "$figure"
 #+END_SRC
 
+#+RESULTS: attr-wrap
+: #+attr_html: :width 95%
+:
+
 * Introduction
 We will study flatmap columns. In the circuit's flatmap we have the following grid,
-#+HEADER: :post plot-display(figure=*this*) :session return
+
 #+BEGIN_SRC jupyter-python :file ./figures/flatmap.png :exports both
 from flatmap_utility import subtargets as fmst
 fmst.fmap_positions(circuit, over_flatmap_voxels=None, with_orientations=None,
                     to_subpixel_resolution=True, dropna=True)
 #+END_SRC
 
-#+HEADER: :plot-display(figure=*this*)
+#+RESULTS:
+:RESULTS:
+: /gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/topological-analysis-of-subvolumes/flatmap_utility/flatmap_utility.py:199: UserWarning: Optimal rotation is not uniquely or poorly defined for the given sets of vectors.
+:   res = Rotation.align_vectors(vtgt, vv)
+: Rotation errors: min: 0.0, median: 0.09387602600937707, mean: 0.1362824184485066, std: 0.15664142313770807, max: 2.0
+#+begin_example
+                   x            y
+gid
+1        2070.254580  2941.901129
+2        2716.594415  2687.716832
+3        1383.068384  1163.944134
+4        1265.374093  1331.794667
+5        2228.382838  4131.306090
+...              ...          ...
+4234925  2402.376474   534.494432
+4234926  5337.546887  3190.549809
+4234927   773.076963  6266.401067
+4234928  1469.443366  4804.540715
+4234929   207.636525  1589.479125
+
+[3979592 rows x 2 columns]
+#+end_example
+:END:
+
+#+HEADER: :post plot-display(figure=*this*)
 #+BEGIN_SRC jupyter-python :file ./figures/flatmap.png :exports both
 from flatmap_utility import subtargets as fmst, tessellate
 flat_xys = fmst.fmap_positions(in_data=circuit)
@@ -157,13 +273,8 @@ graphic_fmap_cells[0]
 #+END_SRC
 
 #+RESULTS:
-#+attr_html: :width 95%
-:RESULTS:
-: /gpfs/bbp.cscs.ch/project/proj83/analyses/topological-analysis-subvolumes/proj83/topological-analysis-of-subvolumes/flatmap_utility/flatmap_utility.py:199: UserWarning: Optimal rotation is not uniquely or poorly defined for the given sets of vectors.
-:   res = Rotation.align_vectors(vtgt, vv)
-: Rotation errors: min: 0.0, median: 0.09387602600937707, mean: 0.1362824184485066, std: 0.15664142313770807, max: 2.0
+#+attr_org: :width 95% :height 95%
 [[file:./figures/flatmap.png]]
-:END:
 
 * Pipeline: TODO
 * TAP CLI
@@ -173,47 +284,6 @@ We have information about subtargets in ~tap~,
 #+BEGIN_SRC jupyter-python :tangle no
 display(tap.subtargets)
 #+END_SRC
-
-#+RESULTS:
-:RESULTS:
-:  2023-03-06 10:53:26,327: Load dataset ('define-subtargets', 'flatmap-columns'):
-: ('Hexaongal prism like columns oriented along cortical layers, from '
-:  'white-matter to pia.  The data is loaded from an NRRD file that maps each '
-:  'circuit voxel to a subtarget ids corresponding to a flatmap column.The '
-:  'subtarget ids should be mapped to the subtargets they refer to in a '
-:  'dataframe provided as the input `info`.')
-#+begin_example
-             subtarget  flat_i  flat_j        flat_x  flat_y  conicality  \
-subtarget_id
-1               R18;C0     -27      27  3.802528e-13  6210.0         NaN
-2               R19;C0     -28      29  1.991858e+02  6555.0         NaN
-3               R18;C1     -26      28  3.983717e+02  6210.0   -0.001376
-4               R19;C1     -27      30  5.975575e+02  6555.0         NaN
-5               R16;C0     -24      24  3.380025e-13  5520.0         NaN
-...                ...     ...     ...           ...     ...         ...
-236             R4;C12       6      18  4.780460e+03  1380.0         NaN
-237             R9;C15       2      29  6.174761e+03  3105.0         NaN
-238            R15;C13      -9      36  5.378018e+03  5175.0         NaN
-239             R3;C11       7      16  4.581274e+03  1035.0         NaN
-240            R15;C15      -7      38  6.174761e+03  5175.0         NaN
-
-                    volume       height
-subtarget_id
-1                      NaN          NaN
-2                      NaN          NaN
-3             2.049209e+08  1640.357801
-4                      NaN          NaN
-5                      NaN          NaN
-...                    ...          ...
-236                    NaN          NaN
-237                    NaN          NaN
-238                    NaN          NaN
-239                    NaN          NaN
-240                    NaN          NaN
-
-[240 rows x 8 columns]
-#+end_example
-:END:
 
 Each one is a straight up cylinderical column in the flatmap-space, and a conical column in circuit's physical space. Each ~subtarget~ is associated with a list of gids,
 #+HEADER: :comments both :exports both :var width="95%" :results output :post plot-display(figure=*this*)
@@ -618,3 +688,6 @@ M = circuit_models.circuit_matrix_between_groups(circ, base_group,
 #+HEADER: :comments both  :exports both :file ./figures/file-name-for-figure.png
 #+BEGIN_SRC jupyter-python :tangle no
 #+END_SRC
+* Meetings
+** <2023-06-27 Tue>
+The manuscripts, physiology has taken shape, and structural is being redone.

@@ -28,10 +28,14 @@ def read_subtargets(info):
 def assign_cells(in_circuit, to_subtargets_in_nrrd):
     """..."""
     LOG.info("Load cells with subtarget-id using NRRD: %s", to_subtargets_in_nrrd)
-    loader_cfg = {"loading": {"properties": ["x", "y", "z", "layer", "synapse_class"],
-                              "atlas": [{"data": to_subtargets_in_nrrd, "properties": ["column-id"]}]}}
-    neurons = load_group_filter(in_circuit, loader_cfg).rename(columns={"column-id": "subtarget_id"})
-
+    loader_cfg = {
+        "loading": {
+            "properties": ["x", "y", "z", "layer", "synapse_class"],
+            "atlas": [{"data": to_subtargets_in_nrrd, "properties": ["column-id"]}]
+        }
+    }
+    neurons = (load_group_filter(in_circuit, loader_cfg)
+               .rename(columns={"column-id": "subtarget_id"}))
     that_were_assigned_to_voxels = neurons.subtarget_id > 0
     return neurons[that_were_assigned_to_voxels].set_index("subtarget_id").sort_index()
 
