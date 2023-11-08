@@ -4,10 +4,10 @@
 
 #+PROPERTY: header-args: :eval never-export
 
-#+PROPERTY: header-args:jupyter-python :session ~/jupyter-run/active-ssh.json
+#+PROPERTY: header-args:jupyter-python :session ~/jupyter-run/active-159-ssh.json
 #+PROPERTY: header-args:jupyter: :exports both
 
-#+PROPERTY: header-args:jupyter :session ~/jupyter-run/active-ssh.json
+#+PROPERTY: header-args:jupyter :session ~/jupyter-run/active-159-ssh.json
 #+PROPERTY: header-args:jupyter-python: :exports both
 
 #+PROPERTY: header-args:bash: :exports code
@@ -255,7 +255,7 @@ from conntility.flatmapping import supersample_flatmap
 #+begin_src jupyter-python :tangle ./develop/subtargets.py
 #+end_src
 * Subtargets
-We define a /geometric/ subtarget as the sub-population of all neurons whose soma are located in an atlas ~subvolume~. Working in the circuit's ~flatspace~, we will place the ~flat-coordinates~ of each voxel in a grid of regular tiles. The grid's ~resolution~ is then the length of tile's sides, and inter-tile distance twice it's value.
+We define a /geometric/ subtarget as the sub-population of all neurons whose soma are located in an atlas ~subvolume~. Working in the circuit's ~flatspace~, we will place the ~flat-coordinates~ of each voxel in a grid of regular tiles. The grid's ~resolution~ is then the length of a tile's sides, and inter-tile distance twice it's value.
 
 Let us begin by placing the flatmap positions in a grid. We will need a method to get flatmap positions from the circuit.
 #+name: fmap-coords
@@ -265,20 +265,25 @@ VOXEL_INDICES = ["i", "j", "k"]
 FLAT_XY = ["flat_x", "flat_y"]
 FLAT_DEPTH = "depth"
 
-def flatmap_coords(circuit, regions):
+def flatmap_coords(circuit, regions=None):
     """...Get flatmap coordinates of a circuit's regions."""
     pixelated = circuit.atlas.load_data("flatmap")
     orientations = circuit.atlas.load_data("orientation")
     fmap = supersample_flatmap(pixelated, orientations).raw
-    fmap_depth = supersample_flatmap(pixelated, orientations, include_depth=True).raw[:, :, :, 1]
-
+    fmap_depth = (supersample_flatmap(pixelated, orientations, include_depth=True)
+                  .raw[:, :, :, 1])
     voxels_valid = np.all(fmap >= 0, axis=-1)
-    voxels_modeled = mask_volume(circuit, regions)
-    voxels_mask = voxels_valid & voxels_modeled
+    voxels_mask = filter_mask(circuit, regions, voxels_valid)
 
     by_voxel = pd.MultiIndex.from_arrays(np.nonzero(voxels_mask), names=VOXEL_INDICES)
     flat_xy = pd.DataFrame(fmap[voxels_mask], columns=FLAT_XY, index=by_voxel)
     return flat_xy.assign(depth=fmap_depth[voxels_mask])
+
+def filter_mask(circuit, regions, voxels):
+    """..."""
+    if regions is None:
+        return voxels
+    return (voxels if regions is None else voxels_valid & mask_volume(circuit, regions))
 
 def mask_volume(circuit, regions):
     """Get volumetric data coverging the circuit's atlas volume that intersects regions."""

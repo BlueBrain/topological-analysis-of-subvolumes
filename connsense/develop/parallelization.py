@@ -1638,6 +1638,7 @@ PARALLEL_BATCHES = "parallel-batches"
 def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
                      batching=SERIAL_BATCHES, slicing=None):
     """..."""
+    import time
     from connsense.develop.topotap import HDFStore
     on_compute_node = run_cleanup(on_compute_node)
 
@@ -1662,6 +1663,8 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
                                             circuit_kwargs.get("connectome")) if v)
 
     kwargs = load_kwargs(parameters, HDFStore(in_config), on_compute_node)
+
+    timeout = kwargs.pop("timeout", None)
 
     inputs = generate_inputs(of_computation, in_config, slicing, circuit_args,
                              **circuit_kwargs)
@@ -1760,18 +1763,45 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
             bowl = manager.dict()
             processes = []
 
-            for batch, subtargets in batches.groupby("batch"):
+            for b, subtargets in batches.groupby("batch"):
                 LOG.info("Spawn Compute Node %s process %s / %s batches",
-                         on_compute_node, batch, n_batches)
+                         on_compute_node, b, n_batches)
                 p = Process(target=serial_batch,
                             args=(inputs.loc[subtargets.index],),
-                            kwargs={"index": batch, "in_bowl": bowl})
+                            kwargs={"index": b, "in_bowl": bowl})
                 p.start()
-                processes.append(p)
+                processes.append((b, p))
 
             LOG.info("LAUNCHED %s processes", n_batches)
 
-            for p in processes:
+            if timeout:
+                start = time.time()
+                in_run = pd.Series([p.is_alive() for _, p in processes], name="running",
+                                   index=pd.Index([b for b, _ in processes], name="batch"))
+
+                while (in_run.sum() > 0) and (time.time() - start < timeout):
+                    in_run = pd.Series([p.is_alive() for _, p in processes], name="running",
+                                       index=pd.Index([b for b, _ in processes],
+                                                      name="batch"))
+                    LOG.info("RUNNING PROCESSES (timeout at %s)", timeout)
+                    LOG.info("at time %s processing still running: %s/%s\n%s",
+                             time.time() - start, in_run.sum(), len(processes),
+                             batches[in_run.reindex(batches.batch.values)
+                                     .fillna(False).values]
+                             .droplevel("compute_node").reset_index())
+
+                    if in_run.sum() > 0:
+                        time.sleep(60)
+                    else:
+                        break
+                else:
+                    LOG.info(("TIMEOUT: terminating %s alive of %s processes:"
+                              " computation time %s exceeded."),
+                             in_run.sum(), len(processes), timeout)
+                    for _,p in processes:
+                        p.terminate()
+
+            for _,p in processes:
                 p.join()
 
             LOG.info("Parallel computation %s results %s", of_computation, len(bowl))
@@ -1999,6 +2029,7 @@ def get_executable(computation, in_config, slicing=None):
 
     analysis_kwargs = load_kwargs(parameters, of_tap)
     def execute_one(circuit_kwargs, subtarget_kwargs):
+        LOG.info("Execute %s for a single subtarget", ex.__name__)
         return ex(**circuit_kwargs, **subtarget_kwargs, **analysis_kwargs)
 #    def execute_one(*circuit_args, **subtarget_kwargs):
 #        return ex(*circuit_args, **subtarget_kwargs, **analysis_kwargs)

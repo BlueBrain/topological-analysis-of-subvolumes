@@ -2,6 +2,7 @@
 """
 from lazy import lazy
 from pathlib import Path
+from pprint import pformat
 
 import numpy as np
 import pandas as pd
@@ -288,10 +289,13 @@ class DataFrameHelper:
         at_path = in_hdf_store_at_path
         #under_key = under_group + "/" + dataset
         under_key = lambda key: '/'.join([under_group, dataset, key])
+        LOG.info("Read DataFrame for %s at path %s, under group %s",
+                 dataset, at_path, under_group)
+
         columns = pd.read_hdf(at_path, under_key("columns"))
         index = pd.read_hdf(at_path, under_key("index"))
-        LOG.debug("read dataset %s under group %s at path %s", dataset, under_group, in_hdf_store_at_path)
         if len(index.columns) == 1:
+            LOG.debug("TAP dataset entry index:\n %s \n\t column:\n %s", pformat(index), pformat(columns))
             return columns.set_index(pd.Index(index[index.columns[0]]))
         return columns.set_index(pd.MultiIndex.from_frame(index))
 
@@ -950,6 +954,8 @@ def type_series_store(for_matrices):
 
 
     if issubclass(matrix_type, Series): return DataFrame
+
+    if issubclass(matrix_type, DataFrame): return DataFrame
 
     if issubclass(matrix_type, SeriesOfMatrices): return FrameOfMatricesStore
 

@@ -13,8 +13,7 @@ print("Welcome to EMACS Jupyter")
 #+RESULTS:
 : Welcome to EMACS Jupyter
 
-#+title: Computation
-
+#+title: Computing Analyses of Brain Phenomena
 A ~connsense-TAP~ wraps a ~computation-method~ with metadata that it can use to load inputs and run on a cluster, save the results, and provide them on query. The ~HDFStore~ will need values for the ~hdf-group~ and name of the ~dataset~ to store results of a ~computation~. Considering a computation of a quantity that measures a phenomenon, we can define
 
 A computational study could produce several outputs, analyze them in a ~lab~, the results culminating in a ~portal~, /i.e./ a resource that indexes the result of the study along with the inputs and other metadata.
@@ -209,7 +208,6 @@ Validate and set <connsense.develop.computation.Computation object at 0x7fff5cf8
 
 * Random thoughts
 We can get ~emacs~ to process the text in a buffer, to produce a ~config-form~.
-
 #+name: define-computation-elisp
 #+begin_src elisp
 (defun computation (step phenomenon quantity method)
@@ -226,7 +224,6 @@ In clojure we should be able to actually run the computations,
 #+end_src
 
 A ~connsense-TAP-study~ constitutes of a collection of a ~computations~,
-
 #+name: define-study-clojure
 #+begin_src clojure
 (defn study [system topical phenomena]
@@ -235,29 +232,27 @@ A ~connsense-TAP-study~ constitutes of a collection of a ~computations~,
 #+end_src
 
 How do we list the phenomena to study? Let us try ~YAML~,
-
 #+name: define-study-yaml
 #+begin_src yaml
 study:
   parameters:
     - step: "analyze"
-        quantity: "simplex-counts"
-        phenomenon: "connectivity"
-        computation:
-          source: "/path/to/analyses.py"
-          method: "count_simplices"
+      phenomenon: "connectivity"
+      quantity: "simplex-counts"
+      computation:
+        source: "/path/to/analyses.py"
+        method: "count_simplices"
     - step: "extract"
-        quantity: "adjacency"
-        phenomenon: "connectivity"
-        computation:
-          source: "/path/to/extractions.py"
-          method: "extract_adjacency"
+      phenomenon: "connectivity"
+      quantity: "adjacency"
+      computation:
+        source: "/path/to/extractions.py"
+        method: "extract_adjacency"
 #+end_src
 
 That is an easy to read config. The simplicity comes at the price of having to infer the input datasets and output types from the method themselves.
 
 Consider that we implement ~count_simplices~ as,
-
 #+name: example-count-simplices-python
 #+begin_src python
 def count_simplices(adjacency: scipy.sparse.matrix, max_dim: int=10) -> pd.Series:
@@ -455,7 +450,7 @@ Here we use ~noweb~ to include the code written there.
 : <bluepy.circuit.Circuit at 0x7fff8920e280>
 :END:
 
-* Appendix
+* Scratch
 ** Interaction with the shell in EMACS
 
 #+begin_src sh :results output
@@ -520,3 +515,6 @@ Let's test it by asking RMS:
 #+RESULTS:
 | Hi,    | vishalsoodmuchu! | What    | operating | system | are | you | using? |
 | You're | using            | Darwin! |           |        |     |     |        |
+
+** ~conntility~ and ~connalysis~
+To interface

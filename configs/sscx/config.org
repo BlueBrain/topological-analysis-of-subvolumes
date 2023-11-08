@@ -83,7 +83,7 @@ We define ~flatmap-columns~ which are prism like columns orientated along cortic
           circuit:
           - "Bio_M"
         kwargs:
-          path: "/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/column_identities.nrrd"
+          annotation: "/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/column_identities.nrrd"
           info: "/gpfs/bbp.cscs.ch/project/proj83/home/reimann/subvolumes/voxel-based-hex-grid-info-with-conicality.h5"
         loader:
           source: connsense.define_subtargets.flatmap

@@ -9,7 +9,9 @@ import yaml
 import numpy as np
 import pandas as pd
 
-from bluepy import Circuit
+from bluepysnap import Circuit as SnapCircuit
+
+from bluepy import Circuit as BPCircuit
 from bluepy.exceptions import BluePyError
 from voxcell.voxel_data import VoxelData
 
@@ -71,6 +73,8 @@ class SubtargetsConfig:
     def load_circuit(with_maybe_config, label=None, with_depths=False):
         """..."""
         LOG.info("Load circuit %s", label)
+
+        Circuit = SnapCircuit if str(with_maybe_config).endswith(".json") else BPCircuit
         try:
             circuit = Circuit(with_maybe_config)
         except BluePyError:
@@ -83,14 +87,20 @@ class SubtargetsConfig:
         if isinstance(circuit, str):
             return self.attribute_depths(self.input_circuit[circuit])
 
+        try:
+            atlas = circuit.atlas
+        except AttributeError:
+            LOG.error("Cannot attribute depths without circuit atlas.")
+            return circuit
+
         from voxcell import VoxcellError
         LOG.info("RUN neuron depths extraction")
         from flatmap_utility import supersampled_neuron_locations
         #  TODO: Use config-provided flatmap, if possible
         #  TODO: Could offer diffent ways to get the depths values here, such as, using [PH]y
-        orient = circuit.atlas.load_data("orientation")
+        orient = atlas.load_data("orientation")
         try:
-            flatmap = circuit.atlas.load_data("flatmap")
+            flatmap = atlas.load_data("flatmap")
         except VoxcellError as err:
             LOG.warning("No flatmap found for circuit %s", circuit.variant)
             return circuit

@@ -364,24 +364,24 @@ def extract_subtargets(definition, in_config, tap):
         return (members, info, subtargets)
 
 
-    if "path" not in kwargs:
-        assert len(circuits) == 1, ("This will work for only one circuit, "
-                                    "as do many other parts of the code, for now")
-        circuit = circuits.iloc[0]; circuit.variant = circuits.index[0]
-        grid_info, subvolumes, subtargets = load(circuit, **kwargs)
-        info = grid_info.reset_index().set_index("subtarget_id").drop(columns="subtarget")
-        members = grid_info.reset_index().set_index("subtarget_id").subtarget
-        subtargets = (pd.concat([subtargets], keys=[circuit.variant], names=["circuit_id"])
-                      .reorder_levels([1,0]))
+    if "conntility_loader_cfg" in kwargs:
+        assert len(circuits) == 1,\
+            "unique cell-based subtargets can be defined only for a single circuit analysis"
+        circuit = circuits.iloc[0]
+        members, info, subtargets = load(circuit, **kwargs)
+        subtargets = (pd.concat([subtargets], keys=circuits.index.values,
+                                names=[circuits.index.name])
+                      .reorder_levels(["subtarget_id", "circuit_id"]))
         return (members, info, subtargets)
 
-    assert "info" in kwargs, "Missing subtarget info"
+    assert "annotation" in "kwargs" and "info" in kwargs, "Missing subtarget info"
 
     from .flatmap import read_subtargets, load_nrrd
     subtargets_with_info = read_subtargets(kwargs["info"])
     members = subtargets_with_info["subtarget"]
     info = subtargets_with_info.drop(columns="subtarget")
-    subtargets = (pd.concat([load(circuit=c, path=kwargs["path"]).reindex(members.index, fill_value=[])
+    subtargets = (pd.concat([(load(circuit=c, path=kwargs["annotation"])
+                              .reindex(members.index, fill_value=[]))
                                 for c in circuits], axis=0,
                             keys=circuits.index.values, names=circuits.index.names)
                     .reorder_levels(["subtarget_id", "circuit_id"]))
