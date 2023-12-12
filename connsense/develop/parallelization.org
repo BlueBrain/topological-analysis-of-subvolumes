@@ -8,7 +8,7 @@
 #+title: Parallelization
 
 We have a parallelization scheme in place that we used to parallelize the computations of analyses.
-With multi-population nodes and edges, and to start the support of multiple circuit variants, definitions of subtargets, extraction of neuron properties, and extraction of connectivity should also be parallelized. Here we develop a scheme for parallelization of computations per subtarget.
+With multi-population nodes and edges, and to start the support of multiple circuit variants, definitions of subtargets, extraction of neuron properties, and extraction of connectivity should also be parallelized. Here we develop a scheme for parallelization of computations per subtarget    .
 
 * Setup :noexport:
 In our discussion we will develop scientific concepts to measure the circuit, and implement Python functions to compute them. Here we setup a notebook template to test and explore, and the structure of a ~Python~ package for our methods.
@@ -631,6 +631,8 @@ def load_dataset(tap, variable, values):
     """...Load a configured `computation-variable` from `connsense-TAP`
        values: as configured
     """
+    properties = values.get("properties", None)
+
     def unpack_value(v):
         """..."""
         try:
@@ -642,8 +644,9 @@ def load_dataset(tap, variable, values):
             get = v.get_value
         except AttributeError:
             return v
-        return get()
 
+        data = get()
+        return data if properties is None else data[properties]
 
     try:
         dset = values["dataset"]
@@ -783,7 +786,6 @@ summarize_sources:
       method: "that_provides_a_dataframe_of_annotations_to_summarize_sources.py"
 #+end_src
 which will allow us to provide special methods to customize inputs to our analyses beyond what the ~connsense-index~ allows us to do. However, the details are hidden away in the method called. If properly documented ~connsense-doc~ can even load the ~docstrings~ of the reported methods and build a long description of the pipeline.
-
 
 *** dataset
 A ~connsense-dataset~ must be in the ~TapStore~,
@@ -2430,9 +2432,58 @@ def prepare_parallelization(of_computation, in_config, using_runtime):
     LOG.info("\t Configure \n%s", pformat(configured))
     n_compute_nodes, n_parallel_batches =  read_njobs(to_parallelize=configured,
                                                       computation_of=quantity)
-    order_complexity = configured[quantity].get("order_complexity", -1)
+    #order_complexity = configured[quantity].get("order_complexity", -1)
+    order_complexity = _read_runtime("order_complexity",
+                                     to_parallelize=configured, computation_of=quantity,
+                                     default=-1)
     return (n_compute_nodes, n_parallel_batches, order_complexity)
 
+
+def _read_runtime(key, to_parallelize, computation_of, default=None):
+    """..."""
+    if not to_parallelize:
+        return default
+    try:
+        q = computation_of.name
+    except AttributeError:
+        q = computation_of
+
+    try:
+        p = to_parallelize[q]
+    except KeyError:
+        if '/' in q:
+            try:
+                q0, q1 = q.split('/')
+            except ValueError:
+                return default
+            else:
+                try:
+                    p0 = to_parallelize[q0]
+                except KeyError:
+                    return default
+                else:
+                    try:
+                        p = p0[q1]
+                    except KeyError:
+                        return default
+                    else:
+                        pass
+        else:
+            return default
+
+    return p.get(key, default)
+
+def read_njobs(to_parallelize, computation_of):
+    """..."""
+    compute_nodes = _read_runtime("number-compute-nodes", to_parallelize, computation_of,
+                                  default=1)
+    tasks = _read_runtime("number-tasks-per-node", to_parallelize, computation_of,
+                          default=1)
+    return (compute_nodes, compute_nodes * tasks)
+#+end_src
+
+Here is an older version to read number of jobs.
+#+begin_src jupyter-python
 
 def read_njobs(to_parallelize, computation_of):
     """..."""
@@ -2470,6 +2521,7 @@ def read_njobs(to_parallelize, computation_of):
     compute_nodes = p["number-compute-nodes"]
     tasks = p["number-tasks-per-node"]
     return (compute_nodes, compute_nodes * tasks)
+
 
 #+end_src
 
@@ -3154,7 +3206,8 @@ def load_kwargs(parameters, to_tap, on_compute_node=None, consider_input=False):
         return kwargs
 
     if isinstance(workdir, str):
-        path = Path(workdir)/on_compute_node.relative_to(to_tap._root.parent)
+        path = (Path(workdir)/on_compute_node.relative_to(to_tap._root.parent)
+                if on_compute_node else Path(workdir))
         path.parent.mkdir(parents=True, exist_ok=True)
 
         if path.exists():
@@ -3180,11 +3233,12 @@ def load_kwargs(parameters, to_tap, on_compute_node=None, consider_input=False):
 
         path.mkdir(parents=False, exist_ok=True)
 
-        try:
-            on_compute_node.joinpath("workdir").symlink_to(path)
-        except FileExistsError as ferr:
-            LOG.warn("Symlink to workdir compute-node %s already exists, most probably from a previous run"
-                        " Please cleanup before re-run", str(on_compute_node))
+        if on_compute_node:
+            try:
+                on_compute_node.joinpath("workdir").symlink_to(path)
+            except FileExistsError as ferr:
+                LOG.warn("Symlink to workdir compute-node %s already exists, most probably from a previous run"
+                         " Please cleanup before re-run", str(on_compute_node))
 
         kwargs["workdir"] = path
         return kwargs

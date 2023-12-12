@@ -398,6 +398,8 @@ def load_dataset(tap, variable, values):
     """...Load a configured `computation-variable` from `connsense-TAP`
        values: as configured
     """
+    properties = values.get("properties", None)
+
     def unpack_value(v):
         """..."""
         try:
@@ -409,8 +411,9 @@ def load_dataset(tap, variable, values):
             get = v.get_value
         except AttributeError:
             return v
-        return get()
 
+        data = get()
+        return data if properties is None else data[properties]
 
     try:
         dset = values["dataset"]
@@ -931,15 +934,17 @@ def prepare_parallelization(of_computation, in_config, using_runtime):
     LOG.info("\t Configure \n%s", pformat(configured))
     n_compute_nodes, n_parallel_batches =  read_njobs(to_parallelize=configured,
                                                       computation_of=quantity)
-    order_complexity = configured[quantity].get("order_complexity", -1)
+    #order_complexity = configured[quantity].get("order_complexity", -1)
+    order_complexity = _read_runtime("order_complexity",
+                                     to_parallelize=configured, computation_of=quantity,
+                                     default=-1)
     return (n_compute_nodes, n_parallel_batches, order_complexity)
 
 
-def read_njobs(to_parallelize, computation_of):
+def _read_runtime(key, to_parallelize, computation_of, default=None):
     """..."""
     if not to_parallelize:
-        return (1, 1)
-
+        return default
     try:
         q = computation_of.name
     except AttributeError:
@@ -951,27 +956,32 @@ def read_njobs(to_parallelize, computation_of):
         if '/' in q:
             try:
                 q0, q1 = q.split('/')
-            except ValueError: #TODO: log something
-                return (1, 1)
+            except ValueError:
+                return default
             else:
                 try:
                     p0 = to_parallelize[q0]
                 except KeyError:
-                    return (1, 1)
+                    return default
                 else:
                     try:
                         p = p0[q1]
                     except KeyError:
-                        return (1, 1)
+                        return default
                     else:
                         pass
         else:
-            return (1, 1)
+            return default
 
-    compute_nodes = p["number-compute-nodes"]
-    tasks = p["number-tasks-per-node"]
+    return p.get(key, default)
+
+def read_njobs(to_parallelize, computation_of):
+    """..."""
+    compute_nodes = _read_runtime("number-compute-nodes", to_parallelize, computation_of,
+                                  default=1)
+    tasks = _read_runtime("number-tasks-per-node", to_parallelize, computation_of,
+                          default=1)
     return (compute_nodes, compute_nodes * tasks)
-
 
 def write_description(of_computation, in_config, at_dirpath):
     """..."""
@@ -1966,7 +1976,8 @@ def load_kwargs(parameters, to_tap, on_compute_node=None, consider_input=False):
         return kwargs
 
     if isinstance(workdir, str):
-        path = Path(workdir)/on_compute_node.relative_to(to_tap._root.parent)
+        path = (Path(workdir)/on_compute_node.relative_to(to_tap._root.parent)
+                if on_compute_node else Path(workdir))
         path.parent.mkdir(parents=True, exist_ok=True)
 
         if path.exists():
@@ -1992,11 +2003,12 @@ def load_kwargs(parameters, to_tap, on_compute_node=None, consider_input=False):
 
         path.mkdir(parents=False, exist_ok=True)
 
-        try:
-            on_compute_node.joinpath("workdir").symlink_to(path)
-        except FileExistsError as ferr:
-            LOG.warn("Symlink to workdir compute-node %s already exists, most probably from a previous run"
-                        " Please cleanup before re-run", str(on_compute_node))
+        if on_compute_node:
+            try:
+                on_compute_node.joinpath("workdir").symlink_to(path)
+            except FileExistsError as ferr:
+                LOG.warn("Symlink to workdir compute-node %s already exists, most probably from a previous run"
+                         " Please cleanup before re-run", str(on_compute_node))
 
         kwargs["workdir"] = path
         return kwargs
