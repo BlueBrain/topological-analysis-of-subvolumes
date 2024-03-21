@@ -52,10 +52,22 @@ def import_module(from_path, with_method=None):
         spec.loader.exec_module(module)
 
     if with_method:
-        if not hasattr(module, with_method):
-            LOG.warning("No method %s among module: \n%s", with_method, pformat(dir(module)))
-            raise TypeError(f"No method to {with_method}")
-        return (module, getattr(module, with_method))
+        maybe_class_method = with_method.split('.')
+        assert len(maybe_class_method) in (1, 2)
+        isa_class_method = len(maybe_class_method) == 2
+
+        if not isa_class_method:
+            if not hasattr(module, with_method):
+                LOG.warning("No method %s among module: \n%s", with_method, pformat(dir(module)))
+                raise TypeError(f"No method to {with_method}")
+            return (module, getattr(module, with_method))
+        else:
+            class_name, method_name = maybe_class_method
+            class_ = getattr(module, class_name)
+            return (class_, getattr(class_, method_name))
+
+        if not class_method[1]:
+            class_ = getattr(module, class_method[0])
 
     return module
 
