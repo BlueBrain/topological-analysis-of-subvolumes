@@ -2022,7 +2022,7 @@ def load_kwargs(parameters, to_tap, on_compute_node=None, consider_input=False):
     raise NotImplementedError(f"What to do with workdir type {type(workdir)}")
 
 
-def get_executable(computation, in_config, slicing=None):
+def get_executable(computation, in_config, on_compute_node=None, slicing=None):
     """..."""
     from connsense.develop.topotap import HDFStore
 
@@ -2039,7 +2039,7 @@ def get_executable(computation, in_config, slicing=None):
 
     of_tap = HDFStore(in_config)
 
-    analysis_kwargs = load_kwargs(parameters, of_tap)
+    analysis_kwargs = load_kwargs(parameters, of_tap, on_compute_node)
     def execute_one(circuit_kwargs, subtarget_kwargs):
         LOG.info("Execute %s for a single subtarget", ex.__name__)
         return ex(**circuit_kwargs, **subtarget_kwargs, **analysis_kwargs)
@@ -2153,7 +2153,7 @@ def configure_execution(computation, in_config, on_compute_node, slicing=None):
     _, output_paths = read_pipeline.check_paths(in_config, step=computation_type)
     _, in_hdf_group = output_paths["steps"][computation_type]
 
-    execute, parameters = get_executable(computation, in_config, slicing)
+    execute, parameters = get_executable(computation, in_config, on_compute_node, slicing)
 
     if computation_type == "extract-node-populations":
         assert not slicing, "Does not apply"
