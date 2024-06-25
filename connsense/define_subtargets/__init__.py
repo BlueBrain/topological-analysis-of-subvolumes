@@ -1,6 +1,4 @@
 """Targets defined using the circuit's flatmap.
-ad_n
-
 
 NOTE: As of today (20220207), this file is under a refactor towards a uniform configuration
 ~     each pipeline step.
@@ -363,32 +361,40 @@ def extract_subtargets(definition, in_config, tap):
                       .reorder_levels(["subtarget_id", "circuit_id"]))
         return (members, info, subtargets)
 
-
     if "conntility_loader_cfg" in kwargs:
         assert len(circuits) == 1,\
             "unique cell-based subtargets can be defined only for a single circuit analysis"
         circuit = circuits.iloc[0]
+
         members, info, subtargets = load(circuit, **kwargs)
         subtargets = (pd.concat([subtargets], keys=circuits.index.values,
                                 names=[circuits.index.name])
                       .reorder_levels(["subtarget_id", "circuit_id"]))
         return (members, info, subtargets)
 
-    assert "annotation" in "kwargs" and "info" in kwargs, "Missing subtarget info"
+    if "annotation" in kwargs:
+        assert "info" in kwargs, "Missing subtarget info"
 
-    from .flatmap import read_subtargets, load_nrrd
-    subtargets_with_info = read_subtargets(kwargs["info"])
-    members = subtargets_with_info["subtarget"]
-    info = subtargets_with_info.drop(columns="subtarget")
-    subtargets = (pd.concat([(load(circuit=c, path=kwargs["annotation"])
-                              .reindex(members.index, fill_value=[]))
-                                for c in circuits], axis=0,
-                            keys=circuits.index.values, names=circuits.index.names)
-                    .reorder_levels(["subtarget_id", "circuit_id"]))
+        from .flatmap import read_subtargets, load_nrrd
+        subtargets_with_info = read_subtargets(kwargs["info"])
+        members = subtargets_with_info["subtarget"]
+        info = subtargets_with_info.drop(columns="subtarget")
+        subtargets = (pd.concat([(load(circuit=c, path=kwargs["annotation"])
+                                  .reindex(members.index, fill_value=[]))
+                                 for c in circuits], axis=0,
+                                keys=circuits.index.values, names=circuits.index.names)
+                      .reorder_levels(["subtarget_id", "circuit_id"]))
+        return (members, info, subtargets)
+
+    assert len(circuits) == 1,\
+        "unique cell-based subtargets can be defined only for a single circuit analysis"
+    circuit = circuits.iloc[0]
+    members, info, gidses = load(circuit, **kwargs)
+    subtargets = (pd.concat([gidses], keys=circuits.index.values, names=[circuits.index.name])
+                  .reorder_levels(["subtarget_id", "circuit_id"]))
     return (members, info, subtargets)
 
-
-    raise NotImplementedError(f"NOT-YET when members of type {type(members)}")
+#    raise NotImplementedError(f"NOT-YET when members of type {type(members)}")
 
 
 def run(config, substep=None, in_mode=None, output=None, **kwargs):

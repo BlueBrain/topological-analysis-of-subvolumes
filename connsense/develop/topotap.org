@@ -1235,20 +1235,23 @@ A ~TapDataset~ can use ~self._tap: HDFStore~ to pour datasets, taking care of ea
                 return pd.concat(dataset.values, keys=dataset.index)
 
             slicing_args = list(prl.flatten_slicing(next(slices)).keys())
-            sliced = pd.concat([g.droplevel(slicing_args) for _,g in dataset.groupby(slicing_args)], axis=1,
-                                keys=[g for g,_ in dataset.groupby(slicing_args)], names=slicing_args)
-            return (sliced if isinstance(dataset, pd.Series) else
-                    sliced.reorder_levels(dataset.columns.names + slicing_args, axis=1))
+            sliced = pd.concat(
+                [g.droplevel(slicing_args) for _,g in dataset.groupby(slicing_args)], axis=1,
+                keys=[g for g,_ in dataset.groupby(slicing_args)], names=slicing_args)
+            return (
+                sliced if isinstance(dataset, pd.Series) else
+                sliced.reorder_levels(dataset.columns.names + slicing_args, axis=1))
 
         if not "slicing" in self.parameters:
             lazydset = self._tap.pour(self._dataset).sort_index()
             if not isinstance(lazydset, pd.Series):
-                raise TypeError(f"Unexpected type of TAP-dataset {type(lazydset)}.\n"
-                                "If you defined this TapDataset for measurement of a phenomenon/quantity,\n"
-                                "we are still figuring out how to handle that. We may remove such a "
-                                "possibility and define a TapDatasetGroup.\n "
-                                "Thus we will keep TapDataset to contain only a single type of data"
-                                "i.e. data that originates from a single TAP-computation")
+                raise TypeError(
+                    f"Unexpected type of TAP-dataset {type(lazydset)}.\n"
+                    "If you defined this TapDataset for measurement of a phenomenon/quantity,\n"
+                    "we are still figuring out how to handle that. We may remove such a "
+                    "possibility and define a TapDatasetGroup.\n "
+                    "Thus we will keep TapDataset to contain only a single type of data"
+                    "i.e. data that originates from a single TAP-computation")
 
             lazycalls = lazydset.apply(call)
             return lazycalls if self._belazy else lazycalls.apply(lambda l: l())

@@ -84,14 +84,22 @@ class SubtargetsConfig:
 
     def attribute_depths(self, circuit):
         """..."""
+        from voxcell.nexus.voxelbrain import LocalAtlas
+
         if isinstance(circuit, str):
             return self.attribute_depths(self.input_circuit[circuit])
 
         try:
             atlas = circuit.atlas
         except AttributeError:
-            LOG.error("Cannot attribute depths without circuit atlas.")
-            return circuit
+            LOG.error("Cannot attribute depths without circuit atlas.\n"
+                      "May be it is a SONATA circuit, that specifies a atlas dir path?")
+            try:
+                path = circuit.config["components"]["atlas_dir"]
+            except KeyError as kerr:
+                LOG.error("Cannot find an atlas dir path in circuit's config:\n%s", kerr)
+                return circuit
+            atlas = circuit.atlas = LocalAtlas(path)
 
         from voxcell import VoxcellError
         LOG.info("RUN neuron depths extraction")

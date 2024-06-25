@@ -75,7 +75,7 @@ def import_module(from_path, with_method=None):
 def import_module_with_name(n):
     """Must be in the environment."""
     if isinstance(n, ModuleType): return n
-    assert isinstance(n, str)
+    assert isinstance(n, str), n
     return importlib.import_module(n)
 
 

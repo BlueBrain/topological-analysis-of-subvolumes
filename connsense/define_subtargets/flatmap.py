@@ -24,7 +24,6 @@ def read_subtargets(info):
     reorder_columns = coord_columns + [c for c in info_columns if c not in coord_columns]
     return info_read[reorder_columns]
 
-
 def assign_cells(in_circuit, to_subtargets_in_nrrd):
     """..."""
     LOG.info("Load cells with subtarget-id using NRRD: %s", to_subtargets_in_nrrd)
@@ -39,13 +38,11 @@ def assign_cells(in_circuit, to_subtargets_in_nrrd):
     that_were_assigned_to_voxels = neurons.subtarget_id > 0
     return neurons[that_were_assigned_to_voxels].set_index("subtarget_id").sort_index()
 
-
 def load_nrrd(circuit, *, path):
     """...Load an NRRD of subtargets."""
     LOG.info("Define subtargets to be loaded from an NRRD")
     cells = assign_cells(circuit, to_subtargets_in_nrrd=path)
     return cells.groupby("subtarget_id").gid.apply(list).rename("gids")
-
 
 def ensure_list(xs):
     """..."""

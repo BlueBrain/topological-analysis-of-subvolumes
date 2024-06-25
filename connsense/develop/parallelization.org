@@ -1135,19 +1135,25 @@ We can use the configured information to reindex a ~connsense-TAP-dataset~. A ~c
 
 def reindex(tap, inputs, variables):
     """..."""
-    connsense_ids = {v: tap.index_variable(value) for v, value in variables.items()}
+    connsense_ids = {
+        v: tap.index_variable(value) for v, value in variables.items()}
+
     def index_ids(subtarget):
-        return pd.MultiIndex.from_frame(pd.DataFrame({f"{var}_id": connsense_ids[var].loc[values.values].values
-                                                      for var, values in subtarget.index.to_frame().items()}))
+        frame = pd.DataFrame({
+            f"{var}_id": connsense_ids[var].loc[values.values].values
+            for var, values in subtarget.index.to_frame().items()})
+        return pd.MultiIndex.from_frame(frame)
+
     reinputs = inputs.apply(lambda s: pd.DataFrame(s()).set_index(index_ids(subtarget=s())))
     frame = pd.concat(reinputs.values, keys=reinputs.index)
     groups_of_inner_frames = list(frame.groupby(frame.index.names))
-    return (pd.Series([d.reset_index(drop=True) for _, d in groups_of_inner_frames],
-                      index=pd.MultiIndex.from_tuples([i for i,_ in groups_of_inner_frames],
-                                                      names=frame.index.names))
-            .apply(DataCall))
 
-
+    return(
+        pd.Series(
+            [d.reset_index(drop=True) for _, d in groups_of_inner_frames],
+            index=pd.MultiIndex.from_tuples(
+                [i for i,_ in groups_of_inner_frames], names=frame.index.names))
+        .apply(DataCall))
 #+end_src
 
 ** Controls for inputs
