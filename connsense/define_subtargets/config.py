@@ -101,6 +101,14 @@ class SubtargetsConfig:
                 return circuit
             atlas = circuit.atlas = LocalAtlas(path)
 
+        if not isinstance(circuit, BPCircuit):
+            LOG.error(
+                "Flatmap based depths can be computed only for a BluepyCircuit"
+                " and not the type %s that we are using here.\n"
+                "For a SONATA circuit we will need the neuron population.",
+                type(circuit))
+            return circuit
+
         from voxcell import VoxcellError
         LOG.info("RUN neuron depths extraction")
         from flatmap_utility import supersampled_neuron_locations

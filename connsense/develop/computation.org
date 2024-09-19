@@ -250,8 +250,186 @@ study:
         method: "extract_adjacency"
 #+end_src
 
+or,
+#+begin_src yaml
+study:
+  - analyze:
+      phenomenon: "connectivity"
+      quantity: "simplex-counts"
+      computation:
+        source: "my_analyses"
+        method: "count_simplices"
+  - extract:
+      phenomenon: "connectivity"
+      quantity: "adjacency"
+      computation:
+        source: "my_extractions"
+        method: "extract_adj"
+   #+end_src
+
+or,
+#+begin_src  yaml
+study:
+
+  extract:
+    phenomena:
+      nodes:
+        - population: "default"
+          computation:
+            source: "my_extractions"
+            method: "extract_node_properties"
+          input:
+            subtarget:
+              dataset: ["define-subtargets", "flatmap-columns"]
+            circuit: "Bio_M"
+            cells: "S1nonbarrel_neurons"
+          params:
+            properties: ["x", "y", "z", "depth", "synapse_class", "mtype", "etype", "morphology"]
+
+      adjacency:
+        - population: "local"
+          quantity: "adjacency"
+          computation:
+            source: "my_extractions"
+            method: "extract_adj"
+          input:
+            subtarget: {"dataset": ["define-subtargets", "flatmap-columns"]}
+            circuit: "Bio_M"
+            synapses: "S1nonbarrel_neurons__S1nonbarrel_neurons__chemical"
+  analyze:
+    phenomena:
+      connectivity:
+        - quantity: "model-params-dd2"
+          computation:
+            source: "my_models"
+            method: "conn_prob_2nd_order_model"
+          input:
+            adjacency:
+              dataset: ["extract", "adjacency" "local"]
+            node_properties:
+              dataset: ["extract", "nodes", "default"]
+          params:
+            bin_size_um: 50
+            max_range_um: 1000
+            sample_size: null
+            coord_names: ["x", "y", "z"]
+
+        - quantity: "simplex-counts"
+          computation:
+            source: "my_analyses"
+            method: "count_simplices"
+          input:
+            adjacency:
+              dataset: ["extract", "synapses", "adjacency"]
+            node_properties:
+              dataset: ["extract", "cells", "properties"]
+            model_params_dd2:
+              dataset: ["analyze" "connectivity", "model-params-dd2"]
+          controls:
+            erdos-renyi:
+              seeds: [1,2,3,4,5]
+              algorithm:
+                source: "my_controls"
+                method: "ER_shuffle"
+            dd2:
+              seeds: [0,1,2,3,4,5]
+              algorithm:
+                source: "my_controls"
+                method: "run_DD2_model"
+   #+end_src
+
+
 That is an easy to read config. The simplicity comes at the price of having to infer the input datasets and output types from the method themselves.
 
+We can see what working code would look like in,
+#+begin_src hy
+(import my-extractions)
+(import my-analyses)
+
+(defn pipeline [study]
+  (configure
+    :extractions (extract
+                   :phenomena [(nodes :population "default"
+                                      :computation (plugin :source 'my-extractions
+                                                           :method 'extract-node-properties)
+                                      :input (tap :subtarget (dataset 'flatmap-columns)
+                                                  :circuit "Bio_M"
+                                                  :cells "S1nonbarrel_neurons")
+                                      :params (kwargs :properties ["xyz" "depth"
+                                                                   "synapse-class" "mtype" "etype" "morphology"]))
+                               (adjacency :population "local"
+                                          :computation (plugin :source 'my-extractions :method 'extract-adj)
+                                          :input (tap :subtarget (dataset 'flatmap-columns)
+                                                      :circuit "Bio_M"
+                                                      :synapses "S1nonbarrel_neurons__S1nonbarrel_neurons_chemical"))])
+    :analyses (analyze
+                :phenomena [(connectivity :quantity "model-params-dd2"
+                                          :computation (plugin :source 'my-models
+                                                               :method 'conn-prob-2nd-order-model)
+                                          :input (tap :adjacency (dataset (:local (:adjacency (:extractions study))))
+                                                      :node-properties (dataset :default (:nodes study)))
+                                          :params (kwargs :bin-size-um 50
+                                                          :max-range-um 1000
+                                                          :sample-size None
+                                                          :coord-names ["x", "y", "z"]))
+                            (connectivity :quantity "simplex-counts"
+                                          :computation (plugin :source 'my-analyses
+                                                               :method 'count-simplices)
+                                          :input (tap :adjacency (dataset :local (:adjacency (:extractions study)))
+                                                      :node-properties (dataset :default (:nodes (:extractions study))))
+                                          :slicing (groups :by "layer" :values [1 2 3 4 5 6]
+                                                           :computation (plugin :source 'my-cuts
+                                                                                :method 'slice-layers))
+                                          :controls [(randomization :algorithm "erdos-renyi"
+                                                                    :computation (plugin :source 'my-randomizations
+                                                                                         :method 'ER-shuffle)
+                                                                    :seeds [0, 1, 2, 3, 4])
+                                                     (randomization :algorithm "dd2"
+                                                                    :computation (plugin :source 'my-randomizations
+                                                                                         :method 'run-DD2-model))])]
+#+end_src
+
+Tighter,
+#+begin_src hy
+(pipeline
+  :extract [(nodes :population "default"
+                   :computation (plugin :source 'my-extractions
+                                        :method 'extract-node-properties)
+                   :input (tap :subtarget (dataset 'flatmap-columns)
+                               :circuit "Bio_M"
+                               :cells "S1nonbarrel_neurons")
+                   :params (kwargs :properties ["xyz" "depth"
+                                                "synapse-class" "mtype" "etype" "morphology"]))
+            (adjacency :population "local"
+                       :computation (plugin :source 'my-extractions :method 'extract-adj)
+                       :input (tap :subtarget (dataset 'flatmap-columns)
+                                   :circuit "Bio_M"
+                                   :synapses "S1nonbarrel_neurons__S1nonbarrel_neurons_chemical"))]
+  :analyze [(connectivity :quantity "model-params-dd2"
+                          :computation (plugin :source 'my-models
+                                               :method 'conn-prob-2nd-order-model)
+                          :input (tap :adjacency (dataset (:local (:adjacency (:extract study))))
+                                      :node-properties (dataset :default (:nodes (:extract study))))
+                          :params (kwargs :bin-size-um 50
+                                          :max-range-um 1000
+                                          :sample-size None
+                                          :coord-names ["x", "y", "z"]))
+            (connectivity :quantity "simplex-counts"
+                          :computation (plugin :source 'my-analyses
+                                               :method 'count-simplices)
+                          :input (tap :adjacency (dataset :local (:adjacency (:extractions study)))
+                                      :node-properties (dataset :default (:nodes (:extractions study))))
+                          :slicing (groups :by "layer" :values [1 2 3 4 5 6]
+                                           :computation (plugin :source 'my-cuts
+                                                                :method 'slice-layers))
+                          :controls [(randomization :algorithm "erdos-renyi"
+                                                    :computation (plugin :source 'my-randomizations
+                                                                         :method 'ER-shuffle)
+                                                    :seeds [0, 1, 2, 3, 4])
+                                     (randomization :algorithm "dd2"
+                                                    :computation (plugin :source 'my-randomizations
+                                                                         :method 'run-DD2-model))])])
+#+end_src
 Consider that we implement ~count_simplices~ as,
 #+name: example-count-simplices-python
 #+begin_src python

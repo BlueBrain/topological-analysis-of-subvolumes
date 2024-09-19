@@ -1,4 +1,4 @@
-
+# Results
 
 # Finally, let us collect the code in a module,
 
@@ -163,20 +163,23 @@ class TapDataset:
                 return pd.concat(dataset.values, keys=dataset.index)
 
             slicing_args = list(prl.flatten_slicing(next(slices)).keys())
-            sliced = pd.concat([g.droplevel(slicing_args) for _,g in dataset.groupby(slicing_args)], axis=1,
-                                keys=[g for g,_ in dataset.groupby(slicing_args)], names=slicing_args)
-            return (sliced if isinstance(dataset, pd.Series) else
-                    sliced.reorder_levels(dataset.columns.names + slicing_args, axis=1))
+            sliced = pd.concat(
+                [g.droplevel(slicing_args) for _,g in dataset.groupby(slicing_args)], axis=1,
+                keys=[g for g,_ in dataset.groupby(slicing_args)], names=slicing_args)
+            return (
+                sliced if isinstance(dataset, pd.Series) else
+                sliced.reorder_levels(dataset.columns.names + slicing_args, axis=1))
 
         if not "slicing" in self.parameters:
             lazydset = self._tap.pour(self._dataset).sort_index()
             if not isinstance(lazydset, pd.Series):
-                raise TypeError(f"Unexpected type of TAP-dataset {type(lazydset)}.\n"
-                                "If you defined this TapDataset for measurement of a phenomenon/quantity,\n"
-                                "we are still figuring out how to handle that. We may remove such a "
-                                "possibility and define a TapDatasetGroup.\n "
-                                "Thus we will keep TapDataset to contain only a single type of data"
-                                "i.e. data that originates from a single TAP-computation")
+                raise TypeError(
+                    f"Unexpected type of TAP-dataset {type(lazydset)}.\n"
+                    "If you defined this TapDataset for measurement of a phenomenon/quantity,\n"
+                    "we are still figuring out how to handle that. We may remove such a "
+                    "possibility and define a TapDatasetGroup.\n "
+                    "Thus we will keep TapDataset to contain only a single type of data"
+                    "i.e. data that originates from a single TAP-computation")
 
             lazycalls = lazydset.apply(call)
             return lazycalls if self._belazy else lazycalls.apply(lambda l: l())
@@ -847,39 +850,67 @@ class HDFStore:
         return {'/'.join([quantity, c]): pour_component(c, parameters)
                 for c, parameters in components.items()}
 
-    def create_index(tap, variable):
+    def create_index(tap, variable, definition=None):
         """..."""
-        described = tap._config["parameters"]["create-index"]["variables"][variable]
+        definition = (
+            definition or tap._config["parameters"]["create-index"]["variables"][variable])
     
-        if isinstance(described, pd.Series):
-            values = described.values
-        elif isinstance(described, Mapping):
+        def parse_dataset(definition):
             try:
-                dataset = described["dataset"]
-            except KeyError as kerr:
-                LOG.error("Cannot create an index for %s of no dataset in config.", variable)
-                raise ConfigurationError("No create-index %s dataset", variable)
-            return tap.pour(dataset)
-        elif isinstance(described, Iterable):
-            values = list(described)
+                dataset = definition["dataset"]
+            except (TypeError, KeyError) as err:
+                LOG.error(
+                    "NOT dataset variable %s definition:\n%s\n%s", variable,
+                    pformat(definition), err)
+                return None
+            return dataset
+    
+        if dataset := parse_dataset(definition): return tap.pour(dataset)
+    
+        def parse_computable(defintiion):
+            try:
+                computation = definition["computation"]
+            except (TypeError, KeyError) as err:
+                LOG.error(
+                    "NOT computable variable %s definition:\n%s\n%s", variable,
+                    pformat(definition), err)
+                return None
+            _, apply = plugins.import_module(computation)
+            return (apply, definition.get("kwargs", {}))
+    
+        if to_compute := parse_computable(definition):
+            apply, kwargs = to_compute
+            values = apply(**kwargs)
+        elif isinstance(definition, pd.Series):
+            values = definition.values
+        elif isinstance(definition, Iterable):
+            values = list(definition)
         else:
-            raise ConfigurationError(f"create-index %s using config \n%s", pformat(described))
+            raise ConfigurationError(f"create-index %s using config \n%s", pformat(definition))
     
-        return pd.Series(values, name=variable, index=pd.RangeIndex(0, len(values), 1, name=f"{variable}_id"))
+        return pd.Series(
+            values, name=variable,
+            index=pd.RangeIndex(0, len(values), 1, name=f"{variable}_id"))
     
-    
-    
-    def index_variable(tap, name, value=None):
-        """..."""
+    def index_variable(tap, reference, value=None):
+        """Create an index for a variable reference."""
         import numpy as np
     
-        index = tap.create_index(variable=name)
+        if isinstance(reference, Mapping):
+            assert len(reference) == 1,\
+                "AMBIGUOUS reference to a variable: \n%s"%(pformat(reference))
+            variable, definition = next(reference.items())
+        else:
+            variable = reference; definition = None
+    
+        index = tap.create_index(variable, definition)
     
         if value is not None and not isinstance(value, (list, np.ndarray)):
             idx = index.index.values[index == value]
             return idx[0] if len(idx) == 1 else idx
     
-        reverse = pd.Series(index.index.values, name=index.name, index=pd.Index(index.values, name=index.name))
+        reverse = pd.Series(
+            index.index.values, name=index.name, index=pd.Index(index.values, name=index.name))
         return reverse.reindex(value) if value is not None else reverse
     
 

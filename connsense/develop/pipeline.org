@@ -1136,7 +1136,6 @@ nodes:
       virtual_pom: Dataset(pandas.DataFrame)
 #+end_src
 
-
 ** Edges
 
 *** Edge type

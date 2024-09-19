@@ -113,7 +113,7 @@ def map_flat_space_positions(circuit_space_positions, using_flatmap, grouped=Fal
         circuit = circuit_space_positions
         xyzs = circuit.cells.get(properties=[Cell.X, Cell.Y, Cell.Z])
     else:
-        assert isinstance(circuit_space_positions, pandas.DataFrame)
+        assert isinstance(circuit_space_positions, pandas.DataFrame), f"Found {type(circuit_space_positions)}"
         xyzs = circuit_space_positions
 
     indexed = flat_coordinate_frame(xyzs.values, using_flatmap)

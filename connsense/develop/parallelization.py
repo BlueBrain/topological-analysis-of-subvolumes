@@ -1,7 +1,5 @@
 
 
-# #+RESULTS:
-
 # For development we can use a develop version,
 
 
@@ -115,7 +113,7 @@ def parameterize(computation_type, of_quantity, in_config):
 
 
 def batch_multinode(computation, of_inputs, in_config, at_dirpath, using_parallelization,
-                    single_submission=500,  with_weights=True, unit_weight=None,
+                    single_submission=250,  with_weights=True, unit_weight=None,
                     njobs_to_estimate_load=None, max_parallel_jobs=None):
     """...Just read the method definition above,
         and code below
@@ -141,7 +139,10 @@ def batch_multinode(computation, of_inputs, in_config, at_dirpath, using_paralle
 
     compute_nodes = ((n_compute_nodes * (np.cumsum(weights) / weights.sum() - 1.e-6))
                      .astype(int).rename("compute_node"))
-    LOG.info("Assign batches to compute node subtargets")
+    LOG.info(
+        "Assign batches to subtargets on %s compute_nodes: \n%s",
+        len(compute_nodes), pformat(compute_nodes))
+
 
     def weigh_one(compute_node):
         return weights.loc[compute_node.index]
@@ -157,13 +158,13 @@ def batch_multinode(computation, of_inputs, in_config, at_dirpath, using_paralle
         batch_values = list(range(n_parallel))
         batches = ((int(n_comp / n_parallel) + 1) * batch_values)[0:n_comp]
         return pd.Series(batches, name="batch", index=cn_weights.index)
-        #return  pd.Series(np.linspace(0, n_parallel - 1.e-6, len(cn_weights), dtype=int),
-        #                  name="batch",  index=cn_weights.index)
 
-    batches = ((pd.concat([batch(compute_nodes)], keys=[compute_nodes.unique()[0]], names=["compute_node"])
-                if compute_nodes.nunique() == 1
-                else pd.DataFrame(compute_nodes).groupby("compute_node").apply(batch))
-               .reorder_levels(compute_nodes.index.names + ["compute_node"]))
+    batches = (
+        pd.concat([batch(compute_nodes)], axis=0,
+                   keys=[compute_nodes.unique()[0]], names=["compute_node"])
+        if compute_nodes.nunique() == 1 else
+        pd.DataFrame(compute_nodes).groupby("compute_node").apply(batch)
+    ).reorder_levels(compute_nodes.index.names + ["compute_node"])
 
     if not with_weights:
         return batches
@@ -179,8 +180,16 @@ def batch_multinode(computation, of_inputs, in_config, at_dirpath, using_paralle
         else pd.DataFrame(compute_nodes).groupby("compute_node").apply(weigh_one)
     ).reorder_levels(compute_nodes.index.names + ["compute_node"])
 
-    assignment =  pd.concat([batches, cn_weights], axis=1) if with_weights else batches
-
+    assignment = pd.concat([batches, cn_weights], axis=1) if with_weights else batches
+    if len(compute_nodes) > single_submission:
+        LOG.info(
+            "Too many compute nodes (%s) for a single submission (upper limit %s)\n"
+            "Create multiple submissions.", len(compute_nodes), single_submission)
+        assignment = assignment.assign(
+            submission=(compute_nodes // single_submission).rename("submission"))
+        LOG.info(
+            "Submit %s compute nodes in %s submissions",
+            len(compute_nodes), assignment.submission.max())
     if at_dirpath:
         assignment_h5, dataset = COMPUTE_NODE_ASSIGNMENT
         assignment.to_hdf(at_dirpath/assignment_h5, key=dataset)
@@ -288,7 +297,7 @@ def multiprocess_load_estimate(order_complexity, inputs, njobs):
 
     def weigh(batch_inputs, *, in_bowl, index):
         """..."""
-        weight = batch_inputs.progress_apply(estimate_load(None))
+        weight = batch_inputs.progress_apply(estimate_load(order_complexity))
         in_bowl[index] = weight
         return weight
 
@@ -997,19 +1006,26 @@ def write_description(of_computation, in_config, at_dirpath):
 
 def reindex(tap, inputs, variables):
     """..."""
-    connsense_ids = {v: tap.index_variable(value) for v, value in variables.items()}
+    connsense_ids = {
+        v: tap.index_variable(value) for v, value in variables.items()}
+
     def index_ids(subtarget):
-        return pd.MultiIndex.from_frame(pd.DataFrame({f"{var}_id": connsense_ids[var].loc[values.values].values
-                                                      for var, values in subtarget.index.to_frame().items()}))
+        frame = pd.DataFrame({
+            f"{var}_id": connsense_ids[var].loc[values.values].values
+            for var, values in subtarget.index.to_frame().items()})
+        return pd.MultiIndex.from_frame(frame)
+
     reinputs = inputs.apply(lambda s: pd.DataFrame(s()).set_index(index_ids(subtarget=s())))
     frame = pd.concat(reinputs.values, keys=reinputs.index)
     groups_of_inner_frames = list(frame.groupby(frame.index.names))
-    return (pd.Series([d.reset_index(drop=True) for _, d in groups_of_inner_frames],
-                      index=pd.MultiIndex.from_tuples([i for i,_ in groups_of_inner_frames],
-                                                      names=frame.index.names))
-            .apply(DataCall))
 
-
+    return(
+        pd.Series(
+            data=[
+                d.reset_index(drop=True) for _, d in groups_of_inner_frames],
+            index=pd.MultiIndex.from_tuples(
+                [i for i,_ in groups_of_inner_frames], names=frame.index.names))
+        .apply(DataCall))
 
 
 class DataCall:
@@ -1218,10 +1234,10 @@ def control_inputs(of_computation, in_config, using_tap):
     assert controls, "Cannot be empty. Check your config."
 
     for_input = filter_datasets(params["input"])
-    return pd.concat([pour_datasets(using_tap, for_input,
-                                    and_additionally=to_tap).apply(datacall(shuffle))
-                      for _, shuffle, to_tap in controls], axis=0,
-                     keys=[control_label for control_label, _, _ in controls], names=["control"])
+    return pd.concat(
+        [pour_datasets(using_tap, for_input, and_additionally=to_tap).apply(datacall(shuffle))
+         for _, shuffle, to_tap in controls], axis=0,
+        keys=[control_label for control_label, _, _ in controls], names=["control"])
 
 
 def slice_inputs(of_computation, in_config, datasets=None, using_tap=None):
@@ -1410,21 +1426,23 @@ def setup_multinode(process, of_computation, in_config, using_runtime, *,
                 of_computation, inputs, in_config, at_dirpath,
                 unit_weight=unit_weight,
                 using_parallelization=(n_compute_nodes, n_parallel_jobs, o_complexity),
-                njobs_to_estimate_load=njobs_to_estimate_load
-            )
+                njobs_to_estimate_load=njobs_to_estimate_load)
+
             using_configs["slurm_params"] = (
                 configure_slurm(of_computation, in_config, using_runtime)
-                .get("sbatch", None)
-            )
+                .get("sbatch", None))
+
+            LOG.warn("Check batched %s", batched.columns)
             compute_nodes = {
                 c: setup_compute_node(c, of_computation, inputs, using_configs, at_dirpath,
                                       in_mode=in_mode, slicing=slicing)
-                for c, inputs in batched.groupby("compute_node")
-            }
-            return {"configs": using_configs,
-                    "number_compute_nodes": n_compute_nodes,
-                    "number_total_jobs": n_parallel_jobs,
-                    "setup": write_multinode_setup(compute_nodes, inputs, at_dirpath)}
+                for c, inputs in batched.groupby("compute_node")}
+
+            return {
+                "configs": using_configs,
+                "number_compute_nodes": n_compute_nodes,
+                "number_total_jobs": n_parallel_jobs,
+                "setup": write_multinode_setup(compute_nodes, inputs, at_dirpath)}
 
         if process == collect_results:
             batched = read_compute_nodes_assignment(at_dirpath)
@@ -1715,8 +1733,9 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
 
     def serial_batch(of_input, *, index, in_bowl=None):
         """..."""
-        LOG.info("Run %s batch %s of %s inputs args, and circuit %s, \n with kwargs %s slicing %s",
-                 of_computation,  index, len(of_input), circuit_args_values, pformat(kwargs), slicing)
+        LOG.info(
+            "Run %s batch %s of %s inputs args, and circuit %s, \n with kwargs %s slicing %s",
+            of_computation,  index, len(of_input), circuit_args_values, pformat(kwargs), slicing)
 
         def to_subtarget(s):
             """..."""
@@ -1834,7 +1853,7 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
                                 args=(s,), kwargs={"index": i, "bowl": bowl})
                     p.start()
                     process.append(p)
-                LOG.info("LAUNCHED %s process", i)
+                    LOG.info("LAUNCHED %s process", i)
 
                 for p in process:
                     p.join()
@@ -1861,6 +1880,7 @@ def input_circuit(labeled, in_config):
     """..."""
     if not labeled:
         return None
+
     sbtcfg = SubtargetsConfig(in_config)
     circuit = sbtcfg.attribute_depths(circuit=labeled)
 
@@ -1877,6 +1897,7 @@ def input_connectome(labeled, in_circuit):
 
     if labeled == "local":
         return in_circuit.connectome
+
     return in_circuit.projection[labeled]
 
 

@@ -282,7 +282,7 @@ Here is a newer version that should adjust the slicing's reduced load.
 #+begin_src python :noweb yes
 
 def batch_multinode(computation, of_inputs, in_config, at_dirpath, using_parallelization,
-                    single_submission=500,  with_weights=True, unit_weight=None,
+                    single_submission=250,  with_weights=True, unit_weight=None,
                     njobs_to_estimate_load=None, max_parallel_jobs=None):
     """...Just read the method definition above,
         and code below
@@ -308,7 +308,10 @@ def batch_multinode(computation, of_inputs, in_config, at_dirpath, using_paralle
 
     compute_nodes = ((n_compute_nodes * (np.cumsum(weights) / weights.sum() - 1.e-6))
                      .astype(int).rename("compute_node"))
-    LOG.info("Assign batches to compute node subtargets")
+    LOG.info(
+        "Assign batches to subtargets on %s compute_nodes: \n%s",
+        len(compute_nodes), pformat(compute_nodes))
+
 
     def weigh_one(compute_node):
         return weights.loc[compute_node.index]
@@ -324,13 +327,13 @@ def batch_multinode(computation, of_inputs, in_config, at_dirpath, using_paralle
         batch_values = list(range(n_parallel))
         batches = ((int(n_comp / n_parallel) + 1) * batch_values)[0:n_comp]
         return pd.Series(batches, name="batch", index=cn_weights.index)
-        #return  pd.Series(np.linspace(0, n_parallel - 1.e-6, len(cn_weights), dtype=int),
-        #                  name="batch",  index=cn_weights.index)
 
-    batches = ((pd.concat([batch(compute_nodes)], keys=[compute_nodes.unique()[0]], names=["compute_node"])
-                if compute_nodes.nunique() == 1
-                else pd.DataFrame(compute_nodes).groupby("compute_node").apply(batch))
-               .reorder_levels(compute_nodes.index.names + ["compute_node"]))
+    batches = (
+        pd.concat([batch(compute_nodes)], axis=0,
+                   keys=[compute_nodes.unique()[0]], names=["compute_node"])
+        if compute_nodes.nunique() == 1 else
+        pd.DataFrame(compute_nodes).groupby("compute_node").apply(batch)
+    ).reorder_levels(compute_nodes.index.names + ["compute_node"])
 
     if not with_weights:
         return batches
@@ -346,8 +349,16 @@ def batch_multinode(computation, of_inputs, in_config, at_dirpath, using_paralle
         else pd.DataFrame(compute_nodes).groupby("compute_node").apply(weigh_one)
     ).reorder_levels(compute_nodes.index.names + ["compute_node"])
 
-    assignment =  pd.concat([batches, cn_weights], axis=1) if with_weights else batches
-
+    assignment = pd.concat([batches, cn_weights], axis=1) if with_weights else batches
+    if len(compute_nodes) > single_submission:
+        LOG.info(
+            "Too many compute nodes (%s) for a single submission (upper limit %s)\n"
+            "Create multiple submissions.", len(compute_nodes), single_submission)
+        assignment = assignment.assign(
+            submission=(compute_nodes // single_submission).rename("submission"))
+        LOG.info(
+            "Submit %s compute nodes in %s submissions",
+            len(compute_nodes), assignment.submission.max())
     if at_dirpath:
         assignment_h5, dataset = COMPUTE_NODE_ASSIGNMENT
         assignment.to_hdf(at_dirpath/assignment_h5, key=dataset)
@@ -477,7 +488,7 @@ def multiprocess_load_estimate(order_complexity, inputs, njobs):
 
     def weigh(batch_inputs, *, in_bowl, index):
         """..."""
-        weight = batch_inputs.progress_apply(estimate_load(None))
+        weight = batch_inputs.progress_apply(estimate_load(order_complexity))
         in_bowl[index] = weight
         return weight
 
@@ -1150,7 +1161,34 @@ def reindex(tap, inputs, variables):
 
     return(
         pd.Series(
-            [d.reset_index(drop=True) for _, d in groups_of_inner_frames],
+            data=[
+                d.reset_index(drop=True) for _, d in groups_of_inner_frames],
+            index=pd.MultiIndex.from_tuples(
+                [i for i,_ in groups_of_inner_frames], names=frame.index.names))
+        .apply(DataCall))
+#+end_src
+#+name: develop-parallelization-inputs-reindex-datasets-0
+#+begin_src python
+
+def reindex(tap, inputs, variables):
+    """..."""
+    connsense_ids = {
+        v: tap.index_variable(value) for v, value in variables.items()}
+
+    def index_ids(subtarget):
+        frame = pd.DataFrame({
+            f"{var}_id": connsense_ids[var].loc[values.values].values
+            for var, values in subtarget.index.to_frame().items()})
+        return pd.MultiIndex.from_frame(frame)
+
+    reinputs = inputs.apply(lambda s: pd.DataFrame(s()).set_index(index_ids(subtarget=s())))
+    frame = pd.concat(reinputs.values, keys=reinputs.index)
+    groups_of_inner_frames = list(frame.groupby(frame.index.names))
+
+    return(
+        pd.Series(
+            data=[
+                d.reset_index(drop=True) for _, d in groups_of_inner_frames],
             index=pd.MultiIndex.from_tuples(
                 [i for i,_ in groups_of_inner_frames], names=frame.index.names))
         .apply(DataCall))
@@ -1820,7 +1858,8 @@ def generate_inputs_0(of_computation, in_config):
         references = deepcopy(for_inputs)
         if and_additionally:
             LOG.info("And additionally: \n%s", and_additionally)
-            references.update({key: {"dataset": ref} for key, ref in and_additionally.items()} or {})
+            references.update({
+                key: {"dataset": ref} for key, ref in and_additionally.items()} or {})
         datasets = pour(tap, datasets=references)
         return datasets.apply(lazy_keyword).apply(DataCall)
 
@@ -1834,7 +1873,8 @@ def generate_inputs_0(of_computation, in_config):
     try:
         randomizations = params["input"]["controls"]
     except KeyError:
-        LOG.warning("It seems no controls have been configured for the input of %s", of_computation)
+        LOG.warning(
+            "It seems no controls have been configured for the input of %s", of_computation)
         result = original
     else:
         controls = apply_controls()
@@ -1842,12 +1882,14 @@ def generate_inputs_0(of_computation, in_config):
         controls = load_control(randomizations, lazily=False)
         if controls:
             for_input = filter_datasets(params["input"])
-            controlled = pd.concat([tap_datasets(for_input, and_additionally=to_tap).apply(datacall(shuffle))
-                                    for _, shuffle, to_tap in controls], axis=0,
-                                keys=[control_label for control_label, _, _ in controls], names=["control"])
+            controlled = pd.concat(
+                [tap_datasets(for_input, and_additionally=to_tap).apply(datacall(shuffle))
+                 for _, shuffle, to_tap in controls], axis=0,
+                keys=[control_label for control_label, _, _ in controls], names=["control"])
             original = pd.concat([original], axis=0, keys=["original"], names=["control"])
             result = pd.concat([original, controlled])
-            result = result.reorder_levels([l for l in result.index.names if l != "control"] + ["control"])
+            result = result.reorder_levels(
+                [l for l in result.index.names if l != "control"] + ["control"])
         else:
             result = original
 
@@ -1904,10 +1946,10 @@ def control_inputs(of_computation, in_config, using_tap):
     assert controls, "Cannot be empty. Check your config."
 
     for_input = filter_datasets(params["input"])
-    return pd.concat([pour_datasets(using_tap, for_input,
-                                    and_additionally=to_tap).apply(datacall(shuffle))
-                      for _, shuffle, to_tap in controls], axis=0,
-                     keys=[control_label for control_label, _, _ in controls], names=["control"])
+    return pd.concat(
+        [pour_datasets(using_tap, for_input, and_additionally=to_tap).apply(datacall(shuffle))
+         for _, shuffle, to_tap in controls], axis=0,
+        keys=[control_label for control_label, _, _ in controls], names=["control"])
 
 #+end_src
 And a similar procedure for
@@ -1975,21 +2017,23 @@ def setup_multinode(process, of_computation, in_config, using_runtime, *,
                 of_computation, inputs, in_config, at_dirpath,
                 unit_weight=unit_weight,
                 using_parallelization=(n_compute_nodes, n_parallel_jobs, o_complexity),
-                njobs_to_estimate_load=njobs_to_estimate_load
-            )
+                njobs_to_estimate_load=njobs_to_estimate_load)
+
             using_configs["slurm_params"] = (
                 configure_slurm(of_computation, in_config, using_runtime)
-                .get("sbatch", None)
-            )
+                .get("sbatch", None))
+
+            LOG.warn("Check batched %s", batched.columns)
             compute_nodes = {
                 c: setup_compute_node(c, of_computation, inputs, using_configs, at_dirpath,
                                       in_mode=in_mode, slicing=slicing)
-                for c, inputs in batched.groupby("compute_node")
-            }
-            return {"configs": using_configs,
-                    "number_compute_nodes": n_compute_nodes,
-                    "number_total_jobs": n_parallel_jobs,
-                    "setup": write_multinode_setup(compute_nodes, inputs, at_dirpath)}
+                for c, inputs in batched.groupby("compute_node")}
+
+            return {
+                "configs": using_configs,
+                "number_compute_nodes": n_compute_nodes,
+                "number_total_jobs": n_parallel_jobs,
+                "setup": write_multinode_setup(compute_nodes, inputs, at_dirpath)}
 
         if process == collect_results:
             batched = read_compute_nodes_assignment(at_dirpath)
@@ -2014,7 +2058,6 @@ def setup_multinode(process, of_computation, in_config, using_runtime, *,
     circuit_kwargs = input_circuit_args(of_computation, in_config, load_circuit=True)
 
     full = generate_inputs(of_computation, in_config, circuit_args=circuit_args, **circuit_kwargs)
-
 
     if process == setup_compute_node:
         full_weights = (
@@ -2681,9 +2724,13 @@ def create_symlink(at_dirpath):
 def symlink_pipeline_base(configs, at_dirpath):
     """..."""
     symlink_to = create_symlink(at_dirpath)
-    return {"pipeline": {fmt: symlink_to(config_at_path=p) for fmt, p in configs["pipeline"].items() if p},
-            "runtime": {fmt: symlink_to(config_at_path=p) for fmt, p in configs["runtime"].items() if p}}
-
+    return {
+        "pipeline": {
+            fmt: symlink_to(config_at_path=p)
+            for fmt, p in configs["pipeline"].items() if p},
+        "runtime": {
+            fmt: symlink_to(config_at_path=p)
+            for fmt, p in configs["runtime"].items() if p}}
 #+end_src
 
 ** Collect results
@@ -2851,7 +2898,6 @@ def collect_analyze_step(setup, from_dirpath, in_connsense_store, slicing,
 #+end_src
 
 * Multiprocess on a single compute-node
-
 We have developed a parallelization setup to distribute a computation over multiple compute-nodes. Now we can develop how a multiprocess run on a single compute-node that the launchscripts generated in the setup will invoke.
 #+name: develop-parallelization-single-node-multiprocess
 #+begin_src python
@@ -2928,8 +2974,9 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
 
     def serial_batch(of_input, *, index, in_bowl=None):
         """..."""
-        LOG.info("Run %s batch %s of %s inputs args, and circuit %s, \n with kwargs %s slicing %s",
-                 of_computation,  index, len(of_input), circuit_args_values, pformat(kwargs), slicing)
+        LOG.info(
+            "Run %s batch %s of %s inputs args, and circuit %s, \n with kwargs %s slicing %s",
+            of_computation,  index, len(of_input), circuit_args_values, pformat(kwargs), slicing)
 
         def to_subtarget(s):
             """..."""
@@ -3047,7 +3094,7 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
                                 args=(s,), kwargs={"index": i, "bowl": bowl})
                     p.start()
                     process.append(p)
-                LOG.info("LAUNCHED %s process", i)
+                    LOG.info("LAUNCHED %s process", i)
 
                 for p in process:
                     p.join()
@@ -3071,6 +3118,9 @@ def run_multiprocess(of_computation, in_config, using_runtime, on_compute_node,
     return collected
 #+end_src
 
+#+RESULTS: develop-parallelization-single-node-multiprocess
+: None
+
 ** Circuit and connectome
 We may need a circuit to run on. The current ~connsense-TAP~ can be configured with multiple circuits, which we could support later. However for now we enforce that only one circuit is configured, and that all the extractors provided work on single circuits as well.
 
@@ -3083,6 +3133,7 @@ def input_circuit(labeled, in_config):
     """..."""
     if not labeled:
         return None
+
     sbtcfg = SubtargetsConfig(in_config)
     circuit = sbtcfg.attribute_depths(circuit=labeled)
 
@@ -3099,6 +3150,7 @@ def input_connectome(labeled, in_circuit):
 
     if labeled == "local":
         return in_circuit.connectome
+
     return in_circuit.projection[labeled]
 
 
@@ -3152,6 +3204,9 @@ def subtarget_circuit_args(computation, in_config,
     return {"circuit": circuit, "connectome": input_connectome(x, circuit) if load_connectome else x}
 
 #+end_src
+
+#+RESULTS: develop-parallelization-single-node-multiprocess-circuit
+: None
 
 ** Pipeline dataset inputs
 
@@ -3698,8 +3753,6 @@ class IllegalParallelComputationError(ValueError):
 
 #+end_src
 
-#+RESULTS:
-
 For development we can use a develop version,
 
 #+begin_src python :tangle "./parallelization.py" :noweb yes :comments org :padline true
@@ -4040,8 +4093,9 @@ def run_multinode(process_of, computation, in_config, using_runtime):
     if process_of == setup_compute_node:
         using_configs["slurm_params"] = configure_slurm(computation, in_config, using_runtime).get("sbatch", None)
 
-        compute_nodes = {c: setup_compute_node(c, inputs, (computation_type, of_quantity, to_stage), using_configs)
-                         for c, inputs in batched.groupby("compute_node")}
+        compute_nodes = {
+            c: setup_compute_node(c, inputs, (computation_type, of_quantity, to_stage), using_configs)
+            for c, inputs in batched.groupby("compute_node")}
         return {"configs": using_configs,
                 "number_compute_nodes": n_compute_nodes, "number_total_jobs": n_parallel_jobs,
                 "setup": write_multinode_setup(compute_nodes, inputs,  at_dirpath=to_stage)}
@@ -4571,7 +4625,9 @@ def write_pipeline_control(algorithm, at_dirpath): #pylint: disable=unused-argum
 
     control_config = at_dirpath.parent / "control.json"
     if not control_config.exits():
-        raise RuntimeError(f"InvalicComputeNode: {at_dirpath}. The directory's parent is missing a control config.")
+        raise RuntimeError(
+            f"InvalicComputeNode: {at_dirpath}."
+            " The directory's parent is missing a control config.")
     _remove_link(control_config)
     control_config.symlink_to(at_dirpath.parent / "control.json")
     return control_config
@@ -5969,7 +6025,8 @@ def input_circuit_args(computation, in_config, load_circuit=True, load_connectom
 
     input_connectomes = computation_inputs.get("connectome", None)
     if input_connectomes:
-        assert len(input_connectomes) == 1, f"NotImplemented processing more than one connectome"
+        assert len(input_connectomes) == 1,\
+            f"NotImplemented processing more than one connectome"
         x = input_connectomes[0]
     else:
         x = None
@@ -5995,6 +6052,10 @@ def subtarget_circuit_args(computation, in_config, load_circuit=False, load_conn
     return {"circuit": circuit, "connectome": input_connectome(x, circuit) if load_connectome else x}
 
 #+end_src
+
+#+RESULTS: parallelize-single-nodel-circuit
+: None
+
 Inputs to run on a compute node are written in its work-directory during the setup,
 
 #+name: parallelize-single-node-load-inputs
